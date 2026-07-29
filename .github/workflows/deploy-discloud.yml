@@ -1,0 +1,39 @@
+name: Deploy na Discloud
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: discloud-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o projeto
+        uses: actions/checkout@v4
+
+      - name: Criar pacote somente com arquivos versionados
+        run: git archive --format=zip --output=deploy.zip HEAD
+
+      - name: Atualizar aplicacao existente na Discloud
+        env:
+          DISCLOUD_TOKEN: ${{ secrets.DISCLOUD_TOKEN }}
+        run: |
+          if [ -z "$DISCLOUD_TOKEN" ]; then
+            echo "O segredo DISCLOUD_TOKEN nao foi configurado no GitHub."
+            exit 1
+          fi
+
+          curl --fail-with-body \
+            --request PUT \
+            --url "https://api.discloud.app/v2/app/telegram-clone-site/commit" \
+            --header "api-token: $DISCLOUD_TOKEN" \
+            --form "file=@deploy.zip"
