@@ -21,6 +21,8 @@ __pycache__/
 *.bak_*
 data/
 users/*/data/
+users/*.json
+users/*.json.*
 
 # Pacotes de deploy e arquivos temporários
 *.zip
@@ -32,4 +34,3 @@ users/*/data/
 venv/
 env/
 node_modules/
-
