@@ -15,14 +15,14 @@
         }
 
         :root {
-            --bg: #07090d;
+            --bg: #050816;
             --panel: rgba(13, 16, 22, 0.88);
             --panel-strong: rgba(18, 22, 30, 0.96);
             --line: rgba(241, 245, 249, 0.11);
             --muted: #91a0b5;
             --text: #f8fafc;
-            --red: #e11d48;
-            --red-dark: #991b1b;
+            --red: #8b5cf6;
+            --red-dark: #4c1d95;
             --cyan: #22d3ee;
             --green: #22c55e;
         }
@@ -38,8 +38,9 @@
         .page {
             min-height: 100vh;
             background:
-                linear-gradient(90deg, rgba(7, 9, 13, 0.94) 0%, rgba(7, 9, 13, 0.76) 44%, rgba(7, 9, 13, 0.38) 100%),
-                linear-gradient(180deg, rgba(225, 29, 72, 0.22) 0%, rgba(7, 9, 13, 0) 48%),
+                radial-gradient(circle at 78% 20%, rgba(34, 211, 238, 0.18), transparent 32%),
+                radial-gradient(circle at 15% 80%, rgba(139, 92, 246, 0.22), transparent 38%),
+                linear-gradient(115deg, rgba(5, 8, 22, .98), rgba(8, 13, 34, .88)),
                 url("{{ url_for('static', filename='landing-hero-dashboard.png') }}") right top / min(68vw, 1100px) auto no-repeat;
             position: relative;
             isolation: isolate;
@@ -137,7 +138,7 @@
         h1 {
             font-size: clamp(42px, 6vw, 78px);
             line-height: 0.98;
-            letter-spacing: 0;
+            letter-spacing: -0.055em;
             max-width: 760px;
         }
 
@@ -619,10 +620,10 @@
 
         <main class="shell hero">
             <section class="hero-copy">
-                <div class="eyebrow"><i class="fas fa-shield-alt"></i> Plataforma multiusuario com operacao isolada</div>
-                <h1>Controle suas operacoes de Telegram em um painel unico.</h1>
+                <div class="eyebrow"><i class="fas fa-sparkles"></i> Plataforma inteligente de automacao</div>
+                <h1>ULTRA<br><span style="color:#22d3ee;text-shadow:0 0 28px rgba(34,211,238,.35)">TELEGRAM CLONER</span></h1>
                 <p>
-                    Organize sessoes, extraia listas autorizadas, acompanhe tarefas, monitore progresso e mantenha cada usuario com dados, filas e logs separados.
+                    Potencialize suas operações do Telegram em um painel futurista, seguro e completo.
                 </p>
                 <div class="hero-actions">
                     <a class="hero-button primary" href="#acesso"><i class="fas fa-right-to-bracket"></i> Entrar no sistema</a>
