@@ -1,0 +1,35 @@
+# Segredos e configurações locais
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Sessões e credenciais do Telegram
+*.session
+*.session-journal
+*.session-wal
+*.session-shm
+sessions/
+users/*/sessions/
+
+# Dados gerados pela aplicação e backups
+__pycache__/
+*.py[cod]
+*.log
+*.bak
+*.bak_*
+data/
+users/*/data/
+
+# Pacotes de deploy e arquivos temporários
+*.zip
+*.tmp
+*.temp
+
+# Ambientes locais
+.venv/
+venv/
+env/
+node_modules/
+

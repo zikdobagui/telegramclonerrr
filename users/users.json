@@ -1,0 +1,28 @@
+{
+    "users": [
+        {
+            "username": "admin",
+            "password": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+            "created_at": "2026-03-06T20:42:04.618930",
+            "is_admin": true
+        },
+        {
+            "username": "itachidev",
+            "password": "9fc8aa4574a3e902cb243db4253fe084f125dff0f381d6011ca74fc081040304",
+            "created_at": "2026-03-06T20:42:23.430095",
+            "is_admin": false
+        },
+        {
+            "username": "ULTRA10",
+            "password": "d6ea6a46dd915a6acfaca8f82a1f703a881b8acfa25f30ee0ff6309825acaaed",
+            "created_at": "2026-04-26T11:27:08.112890",
+            "is_admin": false
+        },
+        {
+            "username": "ultra2026",
+            "password": "2699461dd77e617289b32ff8f7dac854bfed299abd6d77dc95a0b94804b70bd1",
+            "created_at": "2026-05-26T23:44:16.265435",
+            "is_admin": false
+        }
+    ]
+}

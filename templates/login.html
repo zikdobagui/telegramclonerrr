@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Automation - Plataforma de Operação</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="alternate icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='icon-32.png') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #07090d;
+            --panel: rgba(13, 16, 22, 0.88);
+            --panel-strong: rgba(18, 22, 30, 0.96);
+            --line: rgba(241, 245, 249, 0.11);
+            --muted: #91a0b5;
+            --text: #f8fafc;
+            --red: #e11d48;
+            --red-dark: #991b1b;
+            --cyan: #22d3ee;
+            --green: #22c55e;
+        }
+
+        body {
+            min-height: 100vh;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        .page {
+            min-height: 100vh;
+            background:
+                linear-gradient(90deg, rgba(7, 9, 13, 0.94) 0%, rgba(7, 9, 13, 0.76) 44%, rgba(7, 9, 13, 0.38) 100%),
+                linear-gradient(180deg, rgba(225, 29, 72, 0.22) 0%, rgba(7, 9, 13, 0) 48%),
+                url("{{ url_for('static', filename='landing-hero-dashboard.png') }}") right top / min(68vw, 1100px) auto no-repeat;
+            position: relative;
+            isolation: isolate;
+        }
+
+        .page::after {
+            content: "";
+            position: absolute;
+            inset: auto 0 0 0;
+            height: 34%;
+            background: linear-gradient(180deg, rgba(7, 9, 13, 0), #07090d 72%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .shell {
+            width: min(1180px, calc(100% - 40px));
+            margin: 0 auto;
+        }
+
+        .nav {
+            min-height: 74px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 900;
+            letter-spacing: 0;
+        }
+
+        .brand-mark {
+            width: 42px;
+            height: 42px;
+            display: grid;
+            place-items: center;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--red-dark), var(--red));
+            box-shadow: 0 14px 34px rgba(225, 29, 72, 0.32);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .nav-links a {
+            color: inherit;
+            text-decoration: none;
+            padding: 9px 12px;
+            border-radius: 8px;
+        }
+
+        .nav-links a:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.12fr) 420px;
+            gap: 46px;
+            align-items: center;
+            min-height: calc(100vh - 74px);
+            padding: 42px 0 70px;
+        }
+
+        .hero-copy {
+            max-width: 690px;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 34px;
+            padding: 7px 11px;
+            border-radius: 8px;
+            color: #fecdd3;
+            background: rgba(225, 29, 72, 0.12);
+            border: 1px solid rgba(225, 29, 72, 0.26);
+            font-size: 13px;
+            font-weight: 800;
+            margin-bottom: 22px;
+        }
+
+        h1 {
+            font-size: clamp(42px, 6vw, 78px);
+            line-height: 0.98;
+            letter-spacing: 0;
+            max-width: 760px;
+        }
+
+        .hero-copy > p {
+            margin-top: 22px;
+            max-width: 620px;
+            color: #b9c4d2;
+            font-size: clamp(17px, 2vw, 21px);
+            line-height: 1.58;
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 28px;
+        }
+
+        .hero-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            min-height: 46px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            font-weight: 900;
+            color: var(--text);
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .hero-button.primary {
+            background: linear-gradient(135deg, #be123c, #ef4444);
+            box-shadow: 0 16px 38px rgba(225, 29, 72, 0.28);
+        }
+
+        .hero-button.secondary {
+            background: rgba(15, 23, 42, 0.72);
+            border-color: rgba(148, 163, 184, 0.22);
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            max-width: 650px;
+            margin-top: 32px;
+        }
+
+        .metric {
+            padding: 15px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(10, 13, 18, 0.66);
+        }
+
+        .metric strong {
+            display: block;
+            color: #ffffff;
+            font-size: 22px;
+            margin-bottom: 4px;
+        }
+
+        .metric span {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.35;
+        }
+
+        .auth-card {
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0)),
+                var(--panel-strong);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 28px;
+            box-shadow: 0 30px 95px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(225, 29, 72, 0.08);
+            backdrop-filter: blur(18px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .auth-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-top: 3px solid rgba(225, 29, 72, 0.9);
+            pointer-events: none;
+        }
+
+        .auth-card::after {
+            content: "";
+            position: absolute;
+            inset: -80px -120px auto auto;
+            width: 220px;
+            height: 220px;
+            background: radial-gradient(circle, rgba(34, 211, 238, 0.16), rgba(34, 211, 238, 0));
+            pointer-events: none;
+        }
+
+        .auth-header {
+            margin-bottom: 22px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .auth-header span {
+            color: var(--cyan);
+            font-size: 12px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .auth-header h2 {
+            margin-top: 8px;
+            font-size: 28px;
+        }
+
+        .auth-header p {
+            margin-top: 8px;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .auth-tabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 5px;
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            border-radius: 8px;
+            background: rgba(3, 7, 18, 0.58);
+            margin-bottom: 18px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .auth-tab {
+            min-height: 38px;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: #8ea0b8;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 900;
+            cursor: pointer;
+        }
+
+        .auth-tab.active {
+            color: #fff;
+            background: linear-gradient(135deg, rgba(190, 18, 60, 0.9), rgba(239, 68, 68, 0.9));
+            box-shadow: 0 10px 25px rgba(225, 29, 72, 0.18);
+        }
+
+        .message {
+            display: none;
+            padding: 12px 13px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            line-height: 1.4;
+            position: relative;
+            z-index: 1;
+        }
+
+        .message.error {
+            color: #fecaca;
+            background: rgba(239, 68, 68, 0.14);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+        }
+
+        .message.success {
+            color: #bbf7d0;
+            background: rgba(34, 197, 94, 0.13);
+            border: 1px solid rgba(34, 197, 94, 0.34);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        form {
+            position: relative;
+            z-index: 1;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #d9e2ef;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .input-shell {
+            position: relative;
+        }
+
+        .input-shell i {
+            position: absolute;
+            left: 13px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #718096;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            min-height: 46px;
+            padding: 12px 13px 12px 39px;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 8px;
+            background: rgba(3, 7, 18, 0.72);
+            color: var(--text);
+            font: inherit;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        }
+
+        input:focus {
+            border-color: rgba(34, 211, 238, 0.7);
+            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
+            background: rgba(3, 7, 18, 0.94);
+        }
+
+        .btn {
+            width: 100%;
+            min-height: 46px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            border: 0;
+            border-radius: 8px;
+            font: inherit;
+            font-weight: 900;
+            cursor: pointer;
+            transition: transform 0.2s, border-color 0.2s, background 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #be123c, #ef4444);
+            color: #fff;
+            box-shadow: 0 16px 34px rgba(225, 29, 72, 0.22);
+            margin-top: 5px;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 18px 42px rgba(225, 29, 72, 0.34);
+        }
+
+        .btn-secondary {
+            margin-top: 10px;
+            background: transparent;
+            color: #dbeafe;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+        }
+
+        .trust-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 14px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .trust-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 36px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            color: #b7c5d8;
+            background: rgba(148, 163, 184, 0.08);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .trust-pill i {
+            color: var(--cyan);
+        }
+
+        #registerForm {
+            display: none;
+        }
+
+        .loading {
+            opacity: 0.65;
+            pointer-events: none;
+        }
+
+        .section {
+            padding: 54px 0;
+            border-top: 1px solid rgba(148, 163, 184, 0.12);
+            background: rgba(7, 9, 13, 0.92);
+        }
+
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            gap: 24px;
+            margin-bottom: 22px;
+        }
+
+        .section-head h2 {
+            max-width: 620px;
+            font-size: clamp(28px, 3vw, 42px);
+        }
+
+        .section-head p {
+            max-width: 430px;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .feature {
+            min-height: 178px;
+            padding: 20px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(14, 18, 25, 0.82);
+        }
+
+        .feature i {
+            width: 38px;
+            height: 38px;
+            display: grid;
+            place-items: center;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            color: #fff;
+            background: rgba(225, 29, 72, 0.18);
+            border: 1px solid rgba(225, 29, 72, 0.25);
+        }
+
+        .feature h3 {
+            font-size: 17px;
+            margin-bottom: 9px;
+        }
+
+        .feature p {
+            color: var(--muted);
+            line-height: 1.48;
+            font-size: 14px;
+        }
+
+        .workflow {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            align-items: stretch;
+        }
+
+        .workflow-panel {
+            padding: 24px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(18, 24, 34, 0.96), rgba(12, 15, 21, 0.96));
+        }
+
+        .workflow-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .workflow-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-height: 48px;
+            padding: 11px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.045);
+            color: #cbd5e1;
+        }
+
+        .workflow-item i {
+            color: var(--green);
+        }
+
+        footer {
+            padding: 28px 0 38px;
+            color: #78869a;
+            background: #07090d;
+            border-top: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        @media (max-width: 980px) {
+            .page {
+                background:
+                    linear-gradient(180deg, rgba(7, 9, 13, 0.85), rgba(7, 9, 13, 0.98)),
+                    url("{{ url_for('static', filename='landing-hero-dashboard.png') }}") center top / 980px auto no-repeat;
+            }
+
+            .hero {
+                grid-template-columns: 1fr;
+                padding-top: 34px;
+            }
+
+            .auth-card {
+                max-width: 520px;
+            }
+
+            .feature-grid,
+            .workflow {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .shell {
+                width: min(100% - 28px, 1180px);
+            }
+
+            .nav {
+                align-items: flex-start;
+                flex-direction: column;
+                padding: 18px 0;
+            }
+
+            .nav-links {
+                flex-wrap: wrap;
+            }
+
+            .hero {
+                min-height: auto;
+                padding: 28px 0 44px;
+            }
+
+            .metrics,
+            .feature-grid,
+            .workflow {
+                grid-template-columns: 1fr;
+            }
+
+            .section-head {
+                display: block;
+            }
+
+            .section-head p {
+                margin-top: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <header class="shell nav">
+            <div class="brand">
+                <div class="brand-mark"><i class="fas fa-bolt"></i></div>
+                <span>Telegram Automation</span>
+            </div>
+            <nav class="nav-links">
+                <a href="#recursos">Recursos</a>
+                <a href="#fluxo">Fluxo</a>
+                <a href="#acesso">Acesso</a>
+            </nav>
+        </header>
+
+        <main class="shell hero">
+            <section class="hero-copy">
+                <div class="eyebrow"><i class="fas fa-shield-alt"></i> Plataforma multiusuario com operacao isolada</div>
+                <h1>Controle suas operacoes de Telegram em um painel unico.</h1>
+                <p>
+                    Organize sessoes, extraia listas autorizadas, acompanhe tarefas, monitore progresso e mantenha cada usuario com dados, filas e logs separados.
+                </p>
+                <div class="hero-actions">
+                    <a class="hero-button primary" href="#acesso"><i class="fas fa-right-to-bracket"></i> Entrar no sistema</a>
+                    <a class="hero-button secondary" href="#recursos"><i class="fas fa-chart-line"></i> Ver recursos</a>
+                </div>
+                <div class="metrics">
+                    <div class="metric">
+                        <strong>5 abas</strong>
+                        <span>Extracao, tarefas, sessoes, configuracoes e relatorios.</span>
+                    </div>
+                    <div class="metric">
+                        <strong>Multiusuario</strong>
+                        <span>Dados e operacoes isolados por conta.</span>
+                    </div>
+                    <div class="metric">
+                        <strong>Tempo real</strong>
+                        <span>Logs, progresso e status direto no painel.</span>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="auth-card" id="acesso">
+                <div class="auth-header">
+                    <span id="authModeLabel">Acesso seguro</span>
+                    <h2 id="authTitle">Entrar na plataforma</h2>
+                    <p id="authDescription">Use seu usuario para acessar o painel operacional.</p>
+                </div>
+
+                <div class="auth-tabs">
+                    <button type="button" class="auth-tab active" id="loginTab" onclick="showLogin()">Entrar</button>
+                    <button type="button" class="auth-tab" id="registerTab" onclick="showRegister()">Criar conta</button>
+                </div>
+
+                <div id="errorMessage" class="message error"></div>
+                <div id="successMessage" class="message success"></div>
+
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="loginUsername">Usuario</label>
+                        <div class="input-shell">
+                            <i class="fas fa-user"></i>
+                            <input type="text" id="loginUsername" placeholder="Digite seu usuario" autocomplete="username" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Senha</label>
+                        <div class="input-shell">
+                            <i class="fas fa-lock"></i>
+                            <input type="password" id="loginPassword" placeholder="Digite sua senha" autocomplete="current-password" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-arrow-right"></i> Entrar</button>
+                    <button type="button" class="btn btn-secondary" onclick="showRegister()"><i class="fas fa-user-plus"></i> Criar nova conta</button>
+                    <div class="trust-row">
+                        <div class="trust-pill"><i class="fas fa-lock"></i> Acesso isolado</div>
+                        <div class="trust-pill"><i class="fas fa-clock"></i> Painel em tempo real</div>
+                    </div>
+                </form>
+
+                <form id="registerForm">
+                    <div class="form-group">
+                        <label for="registerUsername">Novo usuario</label>
+                        <div class="input-shell">
+                            <i class="fas fa-user"></i>
+                            <input type="text" id="registerUsername" placeholder="Escolha um nome de usuario" autocomplete="username" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerPassword">Senha</label>
+                        <div class="input-shell">
+                            <i class="fas fa-lock"></i>
+                            <input type="password" id="registerPassword" placeholder="Minimo de 6 caracteres" autocomplete="new-password" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerConfirm">Confirmar senha</label>
+                        <div class="input-shell">
+                            <i class="fas fa-check"></i>
+                            <input type="password" id="registerConfirm" placeholder="Repita a senha" autocomplete="new-password" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-user-check"></i> Criar conta</button>
+                    <button type="button" class="btn btn-secondary" onclick="showLogin()"><i class="fas fa-arrow-left"></i> Voltar ao login</button>
+                </form>
+            </aside>
+        </main>
+    </div>
+
+    <section class="section" id="recursos">
+        <div class="shell">
+            <div class="section-head">
+                <h2>Feito para operar sem se perder.</h2>
+                <p>O painel organiza o trabalho em areas claras, com status visivel e controles diretos para acompanhar cada etapa.</p>
+            </div>
+            <div class="feature-grid">
+                <article class="feature">
+                    <i class="fas fa-download"></i>
+                    <h3>Extracao com filtros</h3>
+                    <p>Filtre por atividade, username, foto, telefone disponivel e divida os arquivos em lotes.</p>
+                </article>
+                <article class="feature">
+                    <i class="fas fa-tasks"></i>
+                    <h3>Tarefas acompanhadas</h3>
+                    <p>Defina metas, sessoes usadas, limites diarios e acompanhe o progresso em tempo real.</p>
+                </article>
+                <article class="feature">
+                    <i class="fas fa-users-cog"></i>
+                    <h3>Sessoes organizadas</h3>
+                    <p>Veja ativas, em uso, pausadas, flood, banidas e aquecendo em abas separadas.</p>
+                </article>
+                <article class="feature">
+                    <i class="fas fa-chart-pie"></i>
+                    <h3>Relatorios e logs</h3>
+                    <p>Entenda o que aconteceu em cada operacao com logs por usuario e por modulo.</p>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section class="section" id="fluxo">
+        <div class="shell workflow">
+            <div class="workflow-panel">
+                <div class="section-head">
+                    <h2>Fluxo simples para o operador.</h2>
+                </div>
+                <div class="workflow-list">
+                    <div class="workflow-item"><i class="fas fa-circle-check"></i> Configura APIs e sessoes.</div>
+                    <div class="workflow-item"><i class="fas fa-circle-check"></i> Importa ou extrai membros autorizados.</div>
+                    <div class="workflow-item"><i class="fas fa-circle-check"></i> Cria tarefas com metas e limites.</div>
+                    <div class="workflow-item"><i class="fas fa-circle-check"></i> Acompanha progresso, erros e relatorios.</div>
+                </div>
+            </div>
+            <div class="workflow-panel">
+                <div class="section-head">
+                    <h2>Controle por usuario.</h2>
+                </div>
+                <div class="workflow-list">
+                    <div class="workflow-item"><i class="fas fa-lock"></i> Cada conta possui sessoes e dados proprios.</div>
+                    <div class="workflow-item"><i class="fas fa-lock"></i> Logs de uma conta nao aparecem para outra.</div>
+                    <div class="workflow-item"><i class="fas fa-lock"></i> Tarefas e bloqueios ficam isolados.</div>
+                    <div class="workflow-item"><i class="fas fa-lock"></i> Configuracoes ficam salvas no espaco do usuario.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="shell">Telegram Automation System - painel operacional multiusuario.</div>
+    </footer>
+
+    <script>
+        const loginForm = document.getElementById('loginForm');
+        const registerForm = document.getElementById('registerForm');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        const authModeLabel = document.getElementById('authModeLabel');
+        const authTitle = document.getElementById('authTitle');
+        const authDescription = document.getElementById('authDescription');
+        const loginTab = document.getElementById('loginTab');
+        const registerTab = document.getElementById('registerTab');
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            successMessage.style.display = 'none';
+        }
+
+        function showSuccess(message) {
+            successMessage.textContent = message;
+            successMessage.style.display = 'block';
+            errorMessage.style.display = 'none';
+        }
+
+        function hideMessages() {
+            errorMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+        }
+
+        function showRegister() {
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'block';
+            loginTab.classList.remove('active');
+            registerTab.classList.add('active');
+            authModeLabel.textContent = 'Nova conta';
+            authTitle.textContent = 'Criar acesso';
+            authDescription.textContent = 'Crie um usuario para acessar seu ambiente isolado.';
+            hideMessages();
+        }
+
+        function showLogin() {
+            registerForm.style.display = 'none';
+            loginForm.style.display = 'block';
+            registerTab.classList.remove('active');
+            loginTab.classList.add('active');
+            authModeLabel.textContent = 'Acesso seguro';
+            authTitle.textContent = 'Entrar na plataforma';
+            authDescription.textContent = 'Use seu usuario para acessar o painel operacional.';
+            hideMessages();
+        }
+
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            hideMessages();
+
+            const username = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value.trim();
+
+            if (!username || !password) {
+                showError('Preencha usuario e senha.');
+                return;
+            }
+
+            loginForm.classList.add('loading');
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showSuccess('Login confirmado. Abrindo painel...');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 700);
+                } else {
+                    showError(data.error || 'Nao foi possivel fazer login.');
+                    loginForm.classList.remove('loading');
+                }
+            } catch (error) {
+                showError('Nao consegui conectar ao servidor.');
+                loginForm.classList.remove('loading');
+            }
+        });
+
+        registerForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            hideMessages();
+
+            const username = document.getElementById('registerUsername').value.trim();
+            const password = document.getElementById('registerPassword').value.trim();
+            const confirm = document.getElementById('registerConfirm').value.trim();
+
+            if (!username || !password || !confirm) {
+                showError('Preencha todos os campos.');
+                return;
+            }
+
+            if (password !== confirm) {
+                showError('As senhas nao coincidem.');
+                return;
+            }
+
+            if (password.length < 6) {
+                showError('A senha precisa ter no minimo 6 caracteres.');
+                return;
+            }
+
+            registerForm.classList.add('loading');
+
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showSuccess('Conta criada. Agora faca login.');
+                    setTimeout(() => {
+                        showLogin();
+                        document.getElementById('loginUsername').value = username;
+                        registerForm.classList.remove('loading');
+                    }, 900);
+                } else {
+                    showError(data.error || 'Nao foi possivel criar a conta.');
+                    registerForm.classList.remove('loading');
+                }
+            } catch (error) {
+                showError('Nao consegui conectar ao servidor.');
+                registerForm.classList.remove('loading');
+            }
+        });
+    </script>
+</body>
+</html>
