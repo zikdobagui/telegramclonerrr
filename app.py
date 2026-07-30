@@ -864,7 +864,7 @@ def login():
     """Endpoint de login"""
     data = request.get_json()
     username = data.get('username', '').strip()
-    password = data.get('password', '').strip()
+    password = data.get('password', '')
     
     if not username or not password:
         return jsonify({'success': False, 'error': 'Preencha todos os campos'}), 400
@@ -883,7 +883,7 @@ def register():
     """Endpoint de registro"""
     data = request.get_json()
     username = data.get('username', '').strip()
-    password = data.get('password', '').strip()
+    password = data.get('password', '')
     
     if not username or not password:
         return jsonify({'success': False, 'error': 'Preencha todos os campos'}), 400
@@ -894,8 +894,24 @@ def register():
     success, message = user_manager.create_user(username, password)
     
     if success:
+        # Confirma que o usuário foi persistido antes de responder e já inicia
+        # a sessão. Isso evita uma segunda digitação da senha logo após o cadastro.
+        if not user_manager.authenticate(username, password):
+            log_error(f"Falha ao validar usuário recém-registrado: {username}")
+            return jsonify({
+                'success': False,
+                'error': 'A conta não pôde ser confirmada. Tente novamente.'
+            }), 500
+
+        session['username'] = username
+        session.permanent = True
         log_info(f"✅ Novo usuário registrado: {username}")
-        return jsonify({'success': True, 'message': message})
+        return jsonify({
+            'success': True,
+            'message': message,
+            'username': username,
+            'authenticated': True
+        })
     else:
         return jsonify({'success': False, 'error': message}), 400
 

@@ -829,7 +829,7 @@
             hideMessages();
 
             const username = document.getElementById('loginUsername').value.trim();
-            const password = document.getElementById('loginPassword').value.trim();
+            const password = document.getElementById('loginPassword').value;
 
             if (!username || !password) {
                 showError('Preencha usuario e senha.');
@@ -867,8 +867,8 @@
             hideMessages();
 
             const username = document.getElementById('registerUsername').value.trim();
-            const password = document.getElementById('registerPassword').value.trim();
-            const confirm = document.getElementById('registerConfirm').value.trim();
+            const password = document.getElementById('registerPassword').value;
+            const confirm = document.getElementById('registerConfirm').value;
 
             if (!username || !password || !confirm) {
                 showError('Preencha todos os campos.');
@@ -897,12 +897,10 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    showSuccess('Conta criada. Agora faca login.');
+                    showSuccess('Conta criada. Abrindo seu painel...');
                     setTimeout(() => {
-                        showLogin();
-                        document.getElementById('loginUsername').value = username;
-                        registerForm.classList.remove('loading');
-                    }, 900);
+                        window.location.href = '/';
+                    }, 700);
                 } else {
                     showError(data.error || 'Nao foi possivel criar a conta.');
                     registerForm.classList.remove('loading');
