@@ -2347,7 +2347,8 @@ async function loadTasks() {
                                 Sessões: ${sessionsCount} |
                                 Interação: <span style="color: ${interactionColor}">${interactionText}</span>
                             </p>
-                            ${task.completion_note ? `<p style="color:#fbbf24;font-size:0.85em;margin:6px 0 0;">${task.completion_note}</p>` : ''}
+                            ${task.completion_note ? `<p style="color:#fbbf24;font-size:0.85em;margin:6px 0 0;">${escapeHtml(task.completion_note)}</p>` : ''}
+                            ${effectiveStatus === 'paused' && task.pause_reason ? `<p style="color:#fca5a5;font-size:0.85em;margin:6px 0 0;"><i class="fas fa-circle-exclamation"></i> Motivo: ${escapeHtml(task.pause_reason)}</p>` : ''}
                         </div>
                     </div>
 
@@ -2470,7 +2471,7 @@ async function loadTasks() {
 async function startTask(taskId) {
     try {
         console.log('🚀 Iniciando tarefa:', taskId);
-        showLoading('Iniciando tarefa...');
+        showLoading('Solicitando início da tarefa...');
         
         const response = await fetch(`/api/tasks/${taskId}/start`, {
             method: 'POST'
@@ -2483,8 +2484,9 @@ async function startTask(taskId) {
         hideLoading();
         
         if (data.success) {
-            showNotification('Tarefa iniciada! Acompanhe os logs abaixo.', 'success');
+            showNotification('Solicitação recebida. Verificando status real...', 'info');
             loadTasks();
+            await waitForTaskStatus(taskId);
         } else {
             showNotification(`Erro: ${data.error}`, 'error');
         }
@@ -2525,6 +2527,38 @@ async function viewTaskDetails(taskId) {
     } catch (error) {
         showNotification(`Erro: ${error.message}`, 'error');
     }
+}
+
+async function waitForTaskStatus(taskId) {
+    // A thread é iniciada em segundo plano; consulte o estado persistido
+    // para não informar sucesso enquanto a tarefa já foi pausada.
+    const delays = [800, 1800, 3500, 6000];
+    for (const delay of delays) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        try {
+            const response = await fetch(`/api/tasks/${taskId}`);
+            const data = await readJsonResponse(response);
+            const task = data.task || data;
+            if (!task || typeof task.status === 'undefined') continue;
+
+            await loadTasks();
+            if (task.status === 'active') {
+                showNotification('Tarefa ativa e em execução. Acompanhe os logs.', 'success');
+                return;
+            }
+            if (task.status === 'paused') {
+                showNotification(`Tarefa pausada: ${task.pause_reason || 'verifique os logs da tarefa.'}`, 'warning');
+                return;
+            }
+            if (task.status === 'completed') {
+                showNotification('Tarefa concluída.', 'success');
+                return;
+            }
+        } catch (error) {
+            console.warn('Não foi possível consultar o status da tarefa:', error);
+        }
+    }
+    showNotification('A tarefa foi enviada, mas ainda não há um status final. Atualize os logs.', 'info');
 }
 
 function taskStatusLabel(status) {
