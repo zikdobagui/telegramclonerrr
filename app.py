@@ -273,7 +273,15 @@ def normalize_members_payload(data):
 def load_members_from_file(file_path):
     if not file_path or not os.path.exists(file_path):
         return []
-    return normalize_members_payload(load_json_file(file_path, []))
+    members = normalize_members_payload(load_json_file(file_path, []))
+    # Compatibilidade com exports que não gravam o marcador de processamento.
+    normalized = []
+    for member in members:
+        if isinstance(member, dict):
+            item = dict(member)
+            item.setdefault('added', False)
+            normalized.append(item)
+    return normalized
 
 def find_latest_pending_members_export(paths):
     """Procura o arquivo extraído mais recente que ainda tenha membros pendentes."""
@@ -2910,6 +2918,16 @@ def update_task_members_file(task_id):
         if not isinstance(members, list):
             return jsonify({'success': False, 'error': 'Arquivo inválido: envie um JSON com campo "members" ou uma lista de membros'}), 400
 
+        # Exportações antigas nem sempre possuem o campo ``added``.
+        # Sem esse campo elas eram tratadas como se não houvesse membros.
+        normalized_members = []
+        for member in members:
+            if isinstance(member, dict):
+                item = dict(member)
+                item.setdefault('added', False)
+                normalized_members.append(item)
+        members = normalized_members
+
         clean_name = secure_filename(file.filename) or 'membros.json'
         task_filename = f'task_{task_id}_members_{clean_name}'
         paths = get_user_paths()
@@ -2921,6 +2939,8 @@ def update_task_members_file(task_id):
         task['members_source_name'] = clean_name
         task['members_total'] = len(members)
         task['members_updated_at'] = datetime.now().isoformat(timespec='seconds')
+        task.pop('pause_reason', None)
+        task.pop('completion_note', None)
 
         if task.get('status') == 'completed' and task.get('total_added', 0) < task.get('target_members', 0):
             task['status'] = 'paused'
@@ -2933,6 +2953,7 @@ def update_task_members_file(task_id):
             'success': True,
             'task': task,
             'total': len(members),
+            'pending': sum(1 for member in members if not member.get('added', False)),
             'filename': clean_name,
             'message': f'Arquivo trocado com {len(members)} membro(s)'
         })

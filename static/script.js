@@ -2800,7 +2800,7 @@ function changeTaskMembersFile(taskId) {
             const data = await readJsonResponse(response);
 
             if (data.success) {
-                showNotification(`Arquivo trocado: ${data.total} membros`, 'success');
+                showNotification(`Arquivo trocado: ${data.total} membros (${data.pending ?? data.total} pendentes)`, 'success');
                 loadTasks();
             } else {
                 showNotification(`Erro: ${data.error}`, 'error');
