@@ -95,16 +95,28 @@ async function readJsonResponse(response) {
 socket.on('connect', () => {
     console.log('✅ Socket.IO conectado!');
     showNotification('Conectado ao servidor', 'success', 3000);
+    // Ao reconectar, recarrega o estado persistido para recuperar tarefas
+    // que continuaram executando enquanto a página estava fechada.
+    if (typeof loadTasks === 'function') {
+        loadTasks().catch(error => console.warn('Falha ao recuperar tarefas:', error));
+    }
 });
 
 socket.on('disconnect', () => {
     console.log('❌ Socket.IO desconectado!');
-    showNotification('Desconectado do servidor', 'error', 5000);
+    showNotification('Painel desconectado; as tarefas continuam no servidor. Reconectando...', 'warning', 6000);
 });
 
 socket.on('connect_error', (error) => {
     console.error('❌ Erro de conexão Socket.IO:', error);
-    showNotification('Erro de conexão com servidor', 'error', 5000);
+    showNotification('Sem conexão com os logs; o processamento no servidor não é cancelado.', 'warning', 5000);
+});
+
+// Quando o usuário volta para a aba, recupera status e logs atualizados.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && typeof loadTasks === 'function') {
+        loadTasks().catch(error => console.warn('Falha ao atualizar tarefas:', error));
+    }
 });
 
 socket.on('reaction_progress', (data) => {
