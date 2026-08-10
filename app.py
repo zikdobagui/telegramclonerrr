@@ -627,8 +627,6 @@ def is_task_fatal_group_error(last_result):
         'nao foi possivel acessar grupo privado',
         'não foi possível acessar o grupo',
         'nao foi possivel acessar o grupo',
-        'não foi possível entrar no grupo',
-        'nao foi possivel entrar no grupo',
         'grupo privado/inacessível',
         'grupo privado/inacessivel',
         'chatwriteforbiddenerror',

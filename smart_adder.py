@@ -29,6 +29,7 @@ import logging
 import sys
 import random
 import re
+from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from config import SESSIONS_DIR, MEMBERS_FILE
 from logger import log_error, log_info, log_warning
@@ -93,6 +94,37 @@ def emit_log(message, log_type='info', socketio=None):
             socketio.emit('log', {'message': message, 'type': log_type})
     print(message)
     sys.stdout.flush()
+
+
+def normalize_telegram_group_link(group_link):
+    """Retorna tipo e identificador limpo para links t.me, @username e convites."""
+    raw = str(group_link or '').strip()
+    if not raw:
+        return {'raw': raw, 'kind': 'public', 'identifier': ''}
+
+    text = raw.replace('\\', '/').strip()
+    if text.lower().startswith(('http://', 'https://')):
+        parsed = urlparse(text)
+        host = (parsed.netloc or '').lower()
+        if host in ('t.me', 'telegram.me', 'www.t.me', 'www.telegram.me'):
+            parts = [part for part in parsed.path.split('/') if part]
+            first = parts[0] if parts else ''
+            if first in ('joinchat', '+') and len(parts) > 1:
+                return {'raw': raw, 'kind': 'invite', 'identifier': parts[1].lstrip('+')}
+            if first.startswith('+'):
+                return {'raw': raw, 'kind': 'invite', 'identifier': first.lstrip('+')}
+            if first:
+                return {'raw': raw, 'kind': 'public', 'identifier': first.lstrip('@')}
+
+    clean = text.split('?')[0].strip().strip('/')
+    if clean.startswith('@'):
+        clean = clean[1:]
+    if clean.lower().startswith('joinchat/'):
+        return {'raw': raw, 'kind': 'invite', 'identifier': clean.split('/', 1)[1].lstrip('+')}
+    if clean.startswith('+'):
+        return {'raw': raw, 'kind': 'invite', 'identifier': clean.lstrip('+').split('/')[0]}
+
+    return {'raw': raw, 'kind': 'public', 'identifier': clean.lstrip('@').split('/')[0]}
 
 class SmartAdder:
     def __init__(self, api_id, api_hash, data_dir=None, members_file=None):
@@ -420,16 +452,17 @@ class SmartAdder:
             emit_log('📥 PASSO 1: Entrando no grupo destino...', 'info', socketio)
             emit_log(f'🔗 Link original: {target_group}', 'info', socketio)
             
-            clean_link = target_group.replace('https://t.me/', '').replace('http://t.me/', '').replace('@', '').strip().strip('/')
+            group_ref = normalize_telegram_group_link(target_group)
+            clean_link = group_ref['identifier']
             emit_log(f'🔗 Link processado: {clean_link}', 'info', socketio)
             
             target_entity = None
             
             try:
-                if 'joinchat' in target_group or '+' in target_group:
+                if group_ref['kind'] == 'invite':
                     # Grupo privado
                     from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
-                    invite_hash = clean_link.split('/')[-1].replace('+', '')
+                    invite_hash = clean_link
                     emit_log(f'🔐 Grupo privado detectado (hash: {invite_hash})', 'info', socketio)
                     
                     try:
@@ -472,7 +505,7 @@ class SmartAdder:
                     
                     # Tenta primeiro pegar sem entrar (pode já estar nele)
                     try:
-                        target_entity = await client.get_entity('@' + clean_link)
+                        target_entity = await client.get_entity(clean_link)
                         emit_log(f'✅ Grupo encontrado: {target_entity.title}', 'success', socketio)
                         
                         # Verifica se está no grupo
@@ -483,14 +516,14 @@ class SmartAdder:
                             else:
                                 emit_log(f'⚠️ Não está no grupo, entrando...', 'warning', socketio)
                                 from telethon.tl.functions.channels import JoinChannelRequest
-                                await client(JoinChannelRequest('@' + clean_link))
+                                await client(JoinChannelRequest(clean_link))
                                 await asyncio.sleep(2)
                                 emit_log(f'✅ Entrou no grupo!', 'success', socketio)
                         except:
                             # Tenta entrar
                             emit_log(f'🚪 Tentando entrar no grupo...', 'info', socketio)
                             from telethon.tl.functions.channels import JoinChannelRequest
-                            await client(JoinChannelRequest('@' + clean_link))
+                            await client(JoinChannelRequest(clean_link))
                             await asyncio.sleep(2)
                             emit_log(f'✅ Entrou no grupo!', 'success', socketio)
                             
@@ -499,9 +532,9 @@ class SmartAdder:
                         # Tenta entrar
                         try:
                             from telethon.tl.functions.channels import JoinChannelRequest
-                            await client(JoinChannelRequest('@' + clean_link))
+                            await client(JoinChannelRequest(clean_link))
                             await asyncio.sleep(2)
-                            target_entity = await client.get_entity('@' + clean_link)
+                            target_entity = await client.get_entity(clean_link)
                             emit_log(f'✅ Entrou no grupo: {target_entity.title}', 'success', socketio)
                         except Exception as join_error:
                             emit_log(f'❌ Erro ao entrar: {join_error}', 'error', socketio)
@@ -1134,6 +1167,10 @@ class SmartAdder:
                 emit_log(f'💡 Causa: Grupo é privado', 'warning', socketio)
                 emit_log(f'💡 Solução: Adicione esta sessão ao grupo primeiro', 'warning', socketio)
                 self._set_last_result('private_group', 'Grupo privado/inacessível para esta sessão')
+            elif 'No user has' in error_msg and 'as username' in error_msg:
+                emit_log(f'💡 Causa: Telegram não resolveu o @/link público com esta sessão', 'warning', socketio)
+                emit_log(f'💡 Conferi a limpeza do link; a próxima sessão pode tentar sem pausar a tarefa inteira', 'warning', socketio)
+                self._set_last_result('group_lookup_failed', error_msg[:220])
             else:
                 self._set_last_result(error_type, error_msg[:220])
             
