@@ -2266,7 +2266,7 @@ async function addGroupTask() {
         if (data.success) {
             const rejected = data.rejected_sessions?.length || 0;
             const suffix = rejected > 0 ? ` ${rejected} sessão(ões) ignorada(s).` : '';
-            showNotification(`Tarefa criada com ${data.sessions_linked || selectedSessions.length} sessão(ões).${suffix}`, 'success');
+            showNotification(`${data.created || 1} tarefa(s) criada(s).${suffix}`, 'success');
             document.getElementById('task-group-link').value = '';
             document.getElementById('task-group-interaction').checked = true;
             document.getElementById('task-select-all-sessions').checked = false;
@@ -2293,6 +2293,10 @@ async function loadTasks() {
             return;
         }
 
+        const taskStats = data.tasks.reduce((stats, task) => {
+            stats[task.status] = (stats[task.status] || 0) + 1;
+            return stats;
+        }, {});
         const activeTask = data.tasks.find(task => task.status === 'active');
         const queueNotice = activeTask ? `
             <div class="task-queue-notice">
@@ -2300,8 +2304,32 @@ async function loadTasks() {
                 <span>Modo VPS leve: tarefa #${activeTask.id} em execução. As outras aguardam você iniciar quando esta terminar ou pausar.</span>
             </div>
         ` : '';
+        const queueHeader = `
+            <div class="task-queue-summary">
+                <div>
+                    <span>Fila de tarefas</span>
+                    <strong>${data.tasks.length}</strong>
+                </div>
+                <div>
+                    <span>Pendentes</span>
+                    <strong>${taskStats.pending || 0}</strong>
+                </div>
+                <div>
+                    <span>Ativas</span>
+                    <strong>${taskStats.active || 0}</strong>
+                </div>
+                <div>
+                    <span>Pausadas</span>
+                    <strong>${taskStats.paused || 0}</strong>
+                </div>
+                <div>
+                    <span>Concluídas</span>
+                    <strong>${taskStats.completed || 0}</strong>
+                </div>
+            </div>
+        `;
         
-        tasksList.innerHTML = queueNotice + data.tasks.map(task => {
+        tasksList.innerHTML = queueHeader + queueNotice + data.tasks.map(task => {
             const remainingMembers = Math.max(0, (task.target_members || 0) - (task.total_added || 0));
             const effectiveStatus = task.status === 'completed' && remainingMembers > 0 ? 'paused' : task.status;
             const progress = Math.min(100, (task.total_added / task.target_members * 100)).toFixed(1);
@@ -2349,19 +2377,20 @@ async function loadTasks() {
                 : (sessionSummary.available > 0 || sessionSummary.in_use > 0 ? 'Sessões prontas' : 'Sem sessão disponível');
             
             return `
-                <div class="task-card-modern" data-task-id="${task.id}">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
-                        <div style="flex: 1;">
-                            <h4 style="color: #e2e8f0; margin-bottom: 5px;">📌 ${task.group_link}</h4>
-                            <p style="color: #94a3b8; font-size: 0.9em;">
-                                ID: ${task.id} | 
-                                Status: <span style="color: ${statusColors[effectiveStatus]}">${statusTexts[effectiveStatus]}</span> | 
-                                Sessões: ${sessionsCount} |
-                                Interação: <span style="color: ${interactionColor}">${interactionText}</span>
+                <div class="task-card-modern status-${effectiveStatus}" data-task-id="${task.id}">
+                    <div class="task-card-head">
+                        <div class="task-card-title">
+                            <span class="task-id-pill">#${task.id}</span>
+                            <h4>${escapeHtml(task.group_link || '')}</h4>
+                            <p>
+                                <span style="color: ${statusColors[effectiveStatus]}">${statusTexts[effectiveStatus]}</span>
+                                <span>Sessões: ${sessionsCount}</span>
+                                <span>Interação: <strong style="color: ${interactionColor}">${interactionText}</strong></span>
                             </p>
                             ${task.completion_note ? `<p style="color:#fbbf24;font-size:0.85em;margin:6px 0 0;">${escapeHtml(task.completion_note)}</p>` : ''}
                             ${effectiveStatus === 'paused' && task.pause_reason ? `<p style="color:#fca5a5;font-size:0.85em;margin:6px 0 0;"><i class="fas fa-circle-exclamation"></i> Motivo: ${escapeHtml(task.pause_reason)}</p>` : ''}
                         </div>
+                        <span class="task-status-chip" style="--task-status-color:${statusColors[effectiveStatus]}">${statusTexts[effectiveStatus]}</span>
                     </div>
 
                     <div class="task-session-health ${sessionHealthClass}">
@@ -2378,15 +2407,15 @@ async function loadTasks() {
                         </div>
                     </div>
                     
-                    <div style="margin-bottom: 10px;">
-                        <div style="background: rgba(0,0,0,0.3); border-radius: 8px; height: 24px; overflow: hidden;">
-                            <div class="task-progress-bar" style="background: linear-gradient(90deg, #3b82f6, #8b5cf6); height: 100%; width: ${progress}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.85em; font-weight: 600; transition: width 0.3s;">
+                    <div class="task-progress-modern">
+                        <div>
+                            <div class="task-progress-bar" style="width: ${progress}%;">
                                 ${progress}%
                             </div>
                         </div>
                     </div>
                     
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; color: #cbd5e1; font-size: 0.9em; margin-bottom: 15px;">
+                    <div class="task-metric-grid">
                         <div>
                             <div style="color: #94a3b8;">Meta</div>
                             <div style="font-weight: 600;">${task.target_members}</div>
@@ -2423,7 +2452,7 @@ async function loadTasks() {
                         </div>
                     </div>
                     
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <div class="task-action-row">
                         ${effectiveStatus === 'pending' || effectiveStatus === 'paused' ? `
                             <button class="btn btn-success" onclick="startTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
                                 <i class="fas fa-play"></i> Iniciar

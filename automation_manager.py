@@ -34,6 +34,15 @@ class AutomationManager:
         self._preserve_manual_pauses()
         atomic_write_json(self.config_file, self.config)
 
+    def get_next_task_id(self):
+        """Retorna um ID único mesmo após tarefas antigas serem removidas."""
+        task_ids = [
+            int(task.get('id') or 0)
+            for task in self.config.get('groups', [])
+            if str(task.get('id') or '').isdigit()
+        ]
+        return (max(task_ids) + 1) if task_ids else 1
+
     def _parse_datetime(self, value):
         if not value:
             return None
@@ -91,7 +100,7 @@ class AutomationManager:
     ):
         """Adiciona grupo à fila de tarefas - SUPORTA MÚLTIPLOS GRUPOS"""
         task = {
-            'id': len(self.config['groups']) + 1,
+            'id': self.get_next_task_id(),
             'group_link': group_link,
             'target_groups': target_groups or [group_link],  # NOVO: Lista de grupos
             'target_members': target_members,
