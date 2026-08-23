@@ -22,7 +22,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icon-180.png') }}">
     
     <title>Telegram Automation System</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.3.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.3.1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body {
@@ -4282,32 +4282,12 @@
                     <p>Modo VPS leve: o sistema executa uma tarefa por vez para reduzir carga.</p>
                 </div>
                 
-                <div class="card">
-                    <div class="form-group">
-                        <label>Importar Lista de Membros</label>
-                        <p class="info">
-                            <i class="fas fa-info-circle"></i> 
-                            Importe um arquivo JSON com membros extraídos para usar nas tarefas.
-                        </p>
-                        <div class="input-group">
-                            <input type="file" id="task-import-file" accept=".json" style="display:none;">
-                            <button class="btn btn-primary" onclick="document.getElementById('task-import-file').click()">
-                                <i class="fas fa-upload"></i> Selecionar Arquivo
-                            </button>
-                            <button class="btn btn-success" onclick="importMembersForTasks()">
-                                <i class="fas fa-check"></i> Importar
-                            </button>
-                        </div>
-                        <div id="task-import-status" style="margin-top: 10px; color: #94a3b8;"></div>
-                    </div>
-                    
-                    <hr style="border: 1px solid rgba(59, 130, 246, 0.2); margin: 22px 0;">
-
+                <div class="card task-compact-card">
                     <div class="task-toolbar">
                         <button class="btn btn-success" onclick="openTaskFormPanel()" type="button">
                             <i class="fas fa-plus"></i> Nova Tarefa
                         </button>
-                        <span>Cada sessão selecionada entra na fila como uma tarefa própria.</span>
+                        <span>Crie a tarefa, importe membros e selecione sessões no mesmo painel.</span>
                     </div>
 
                     <div id="task-form-overlay" class="task-form-overlay">
@@ -4320,6 +4300,22 @@
                                 <button type="button" onclick="closeTaskFormPanel()" aria-label="Voltar">&larr;</button>
                             </div>
                             <div class="task-form-panel-body">
+                        <div class="task-inline-import">
+                            <div>
+                                <label>Lista de Membros</label>
+                                <small>Importe um JSON extraído antes de adicionar à fila.</small>
+                            </div>
+                            <div class="task-inline-import-actions">
+                                <input type="file" id="task-import-file" accept=".json" style="display:none;">
+                                <button class="btn btn-primary" onclick="document.getElementById('task-import-file').click()" type="button">
+                                    <i class="fas fa-upload"></i> Arquivo
+                                </button>
+                                <button class="btn btn-success" onclick="importMembersForTasks()" type="button">
+                                    <i class="fas fa-check"></i> Importar
+                                </button>
+                            </div>
+                            <div id="task-import-status" class="task-inline-import-status"></div>
+                        </div>
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Link do Grupo</label>
@@ -5357,7 +5353,7 @@
                     <i class="fab fa-telegram"></i>
                     <div>
                         <strong>TG Auto</strong>
-                        <span>Automação com controle, isolamento por usuário e respeito aos limites da plataforma.</span>
+                        <span>Dev: itachidev @MOBIXSUPORTE</span>
                     </div>
                 </div>
                 <div class="app-footer-links">
