@@ -2154,6 +2154,46 @@ body.compact-mode .card > p {
     margin-bottom: 14px;
 }
 
+.task-card-head-clickable {
+    cursor: pointer;
+    margin-bottom: 0;
+}
+
+.task-card-head-clickable:hover .task-card-title h4 {
+    color: #bae6fd;
+}
+
+.task-card-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.task-details-toggle {
+    width: 34px;
+    height: 34px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.82);
+    color: #cbd5e1;
+    cursor: pointer;
+    transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.task-details-toggle.open i {
+    transform: rotate(180deg);
+}
+
+.task-details-toggle:hover {
+    background: rgba(14, 165, 233, 0.18);
+    color: #f8fafc;
+}
+
+.task-queue-details-panel {
+    margin-top: 14px;
+}
+
 .task-card-title {
     min-width: 0;
     flex: 1;

@@ -1822,6 +1822,7 @@ function openSessionsWithFilter(filter) {
 
 const taskLogsById = {};
 const openTaskLogPanels = new Set();
+const openTaskDetailPanels = new Set();
 
 function getTaskLogKey(taskId) {
     return String(taskId || 'geral');
@@ -1877,6 +1878,26 @@ function toggleTaskLogs(taskId) {
         renderTaskLogBody(taskId);
     } else {
         openTaskLogPanels.delete(key);
+    }
+}
+
+function toggleTaskQueueDetails(taskId) {
+    const key = getTaskLogKey(taskId);
+    const panel = document.getElementById(`task-details-panel-${taskId}`);
+    const toggle = document.getElementById(`task-details-toggle-${taskId}`);
+    if (!panel) return;
+
+    const isHidden = panel.style.display === 'none' || !panel.style.display;
+    panel.style.display = isHidden ? 'block' : 'none';
+    if (toggle) {
+        toggle.classList.toggle('open', isHidden);
+        toggle.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+    }
+
+    if (isHidden) {
+        openTaskDetailPanels.add(key);
+    } else {
+        openTaskDetailPanels.delete(key);
     }
 }
 
@@ -2361,6 +2382,7 @@ async function loadTasks() {
             const membersTotal = task.members_total ? `${task.members_total} membros` : (task.members_file_exists ? 'arquivo carregado' : 'arquivo padrão');
             taskLogsById[getTaskLogKey(task.id)] = (task.logs || taskLogsById[getTaskLogKey(task.id)] || []).slice(-500);
             const isTerminalOpen = openTaskLogPanels.has(getTaskLogKey(task.id));
+            const isDetailsOpen = openTaskDetailPanels.has(getTaskLogKey(task.id));
             const sessionSummary = task.session_status_summary || {
                 available: sessionsCount,
                 in_use: 0,
@@ -2379,121 +2401,129 @@ async function loadTasks() {
             
             return `
                 <div class="task-card-modern status-${effectiveStatus}" data-task-id="${task.id}">
-                    <div class="task-card-head">
+                    <div class="task-card-head task-card-head-clickable" onclick="toggleTaskQueueDetails(${task.id})" role="button" tabindex="0" onkeydown="if(event.key === 'Enter' || event.key === ' '){event.preventDefault();toggleTaskQueueDetails(${task.id});}">
                         <div class="task-card-title">
                             <span class="task-id-pill">#${task.id}</span>
                             <h4>${escapeHtml(task.group_link || '')}</h4>
                             <p>
                                 <span style="color: ${statusColors[effectiveStatus]}">${statusTexts[effectiveStatus]}</span>
                                 <span>Sessões: ${sessionsCount}</span>
+                                <span>Progresso: ${task.total_added || 0}/${task.target_members || 0}</span>
                                 <span>Interação: <strong style="color: ${interactionColor}">${interactionText}</strong></span>
                             </p>
                             ${task.completion_note ? `<p style="color:#fbbf24;font-size:0.85em;margin:6px 0 0;">${escapeHtml(task.completion_note)}</p>` : ''}
                             ${effectiveStatus === 'paused' && task.pause_reason ? `<p style="color:#fca5a5;font-size:0.85em;margin:6px 0 0;"><i class="fas fa-circle-exclamation"></i> Motivo: ${escapeHtml(task.pause_reason)}</p>` : ''}
                         </div>
-                        <span class="task-status-chip" style="--task-status-color:${statusColors[effectiveStatus]}">${statusTexts[effectiveStatus]}</span>
+                        <div class="task-card-head-actions">
+                            <span class="task-status-chip" style="--task-status-color:${statusColors[effectiveStatus]}">${statusTexts[effectiveStatus]}</span>
+                            <button type="button" id="task-details-toggle-${task.id}" class="task-details-toggle ${isDetailsOpen ? 'open' : ''}" aria-expanded="${isDetailsOpen ? 'true' : 'false'}" onclick="event.stopPropagation();toggleTaskQueueDetails(${task.id});" title="Mostrar detalhes">
+                                <i class="fas fa-chevron-down"></i>
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="task-session-health ${sessionHealthClass}">
-                        <div class="task-session-health-title">
-                            <i class="fas fa-shield-alt"></i>
-                            <span>${sessionHealthText}</span>
-                        </div>
-                        <div class="task-session-badges">
-                            <span class="task-session-badge ok">Disponíveis: ${sessionSummary.available || 0}</span>
-                            <span class="task-session-badge busy">Reservadas: ${sessionSummary.in_use || 0}</span>
-                            <span class="task-session-badge warn">Flood: ${sessionSummary.flood || 0}</span>
-                            <span class="task-session-badge danger">Inválidas: ${sessionSummary.invalid || 0}</span>
-                            <span class="task-session-badge muted">Inativas: ${sessionSummary.inactive || 0}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="task-progress-modern">
-                        <div>
-                            <div class="task-progress-bar" style="width: ${progress}%;">
-                                ${progress}%
+                    <div id="task-details-panel-${task.id}" class="task-queue-details-panel" style="display:${isDetailsOpen ? 'block' : 'none'};">
+                        <div class="task-session-health ${sessionHealthClass}">
+                            <div class="task-session-health-title">
+                                <i class="fas fa-shield-alt"></i>
+                                <span>${sessionHealthText}</span>
+                            </div>
+                            <div class="task-session-badges">
+                                <span class="task-session-badge ok">Disponíveis: ${sessionSummary.available || 0}</span>
+                                <span class="task-session-badge busy">Reservadas: ${sessionSummary.in_use || 0}</span>
+                                <span class="task-session-badge warn">Flood: ${sessionSummary.flood || 0}</span>
+                                <span class="task-session-badge danger">Inválidas: ${sessionSummary.invalid || 0}</span>
+                                <span class="task-session-badge muted">Inativas: ${sessionSummary.inactive || 0}</span>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="task-metric-grid">
-                        <div>
-                            <div style="color: #94a3b8;">Meta</div>
-                            <div style="font-weight: 600;">${task.target_members}</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8;">Adicionados</div>
-                            <div class="task-added-count" style="font-weight: 600;">${task.total_added}</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8;">Faltam</div>
-                            <div class="task-remaining-count" style="font-weight: 600;">${remainingMembers}</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8;">Hoje</div>
-                            <div class="task-today-count" style="font-weight: 600;">${task.added_today}/${task.daily_limit}</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8;">Por sessão</div>
-                            <div class="task-per-session-count" style="font-weight: 600;">${membersPerSession}</div>
-                            <small style="color: #64748b;">membro(s) por rodada</small>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8;">Delay add</div>
-                            <div style="font-weight: 600;">${delayAdds}</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8;">Delay sessão</div>
-                            <div style="font-weight: 600;">${delaySessions}</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8;">Arquivo</div>
-                            <div style="font-weight: 600;">${membersSource}</div>
-                            <small style="color: #64748b;">${membersTotal}</small>
-                        </div>
-                    </div>
-                    
-                    <div class="task-action-row">
-                        ${effectiveStatus === 'pending' || effectiveStatus === 'paused' ? `
-                            <button class="btn btn-success" onclick="startTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
-                                <i class="fas fa-play"></i> Iniciar
-                            </button>
-                        ` : ''}
                         
-                        ${effectiveStatus === 'active' ? `
-                            <button class="btn btn-danger" onclick="pauseTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
-                                <i class="fas fa-pause"></i> Pausar
-                            </button>
-                        ` : ''}
+                        <div class="task-progress-modern">
+                            <div>
+                                <div class="task-progress-bar" style="width: ${progress}%;">
+                                    ${progress}%
+                                </div>
+                            </div>
+                        </div>
                         
-                        ${effectiveStatus !== 'active' ? `
-                            <button class="btn btn-warning" onclick="editTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
-                                <i class="fas fa-edit"></i> Editar
-                            </button>
-                            <button class="btn btn-primary" onclick="changeTaskMembersFile(${task.id})" style="padding: 10px 20px; font-size: 14px;">
-                                <i class="fas fa-file-import"></i> Trocar arquivo
-                            </button>
-                            <button class="btn btn-danger" onclick="removeTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
-                                <i class="fas fa-trash"></i> Remover
-                            </button>
-                        ` : ''}
+                        <div class="task-metric-grid">
+                            <div>
+                                <div style="color: #94a3b8;">Meta</div>
+                                <div style="font-weight: 600;">${task.target_members}</div>
+                            </div>
+                            <div>
+                                <div style="color: #94a3b8;">Adicionados</div>
+                                <div class="task-added-count" style="font-weight: 600;">${task.total_added}</div>
+                            </div>
+                            <div>
+                                <div style="color: #94a3b8;">Faltam</div>
+                                <div class="task-remaining-count" style="font-weight: 600;">${remainingMembers}</div>
+                            </div>
+                            <div>
+                                <div style="color: #94a3b8;">Hoje</div>
+                                <div class="task-today-count" style="font-weight: 600;">${task.added_today}/${task.daily_limit}</div>
+                            </div>
+                            <div>
+                                <div style="color: #94a3b8;">Por sessão</div>
+                                <div class="task-per-session-count" style="font-weight: 600;">${membersPerSession}</div>
+                                <small style="color: #64748b;">membro(s) por rodada</small>
+                            </div>
+                            <div>
+                                <div style="color: #94a3b8;">Delay add</div>
+                                <div style="font-weight: 600;">${delayAdds}</div>
+                            </div>
+                            <div>
+                                <div style="color: #94a3b8;">Delay sessão</div>
+                                <div style="font-weight: 600;">${delaySessions}</div>
+                            </div>
+                            <div>
+                                <div style="color: #94a3b8;">Arquivo</div>
+                                <div style="font-weight: 600;">${membersSource}</div>
+                                <small style="color: #64748b;">${membersTotal}</small>
+                            </div>
+                        </div>
                         
-                        <button class="btn btn-primary" onclick="viewTaskDetails(${task.id})" style="padding: 10px 20px; font-size: 14px;">
-                            <i class="fas fa-info-circle"></i> Detalhes
-                        </button>
-                        <button class="btn btn-primary" onclick="toggleTaskLogs(${task.id})" style="padding: 10px 20px; font-size: 14px;">
-                            <i class="fas fa-terminal"></i> Terminal
-                        </button>
-                    </div>
+                        <div class="task-action-row">
+                            ${effectiveStatus === 'pending' || effectiveStatus === 'paused' ? `
+                                <button class="btn btn-success" onclick="startTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
+                                    <i class="fas fa-play"></i> Iniciar
+                                </button>
+                            ` : ''}
+                            
+                            ${effectiveStatus === 'active' ? `
+                                <button class="btn btn-danger" onclick="pauseTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
+                                    <i class="fas fa-pause"></i> Pausar
+                                </button>
+                            ` : ''}
+                            
+                            ${effectiveStatus !== 'active' ? `
+                                <button class="btn btn-warning" onclick="editTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
+                                    <i class="fas fa-edit"></i> Editar
+                                </button>
+                                <button class="btn btn-primary" onclick="changeTaskMembersFile(${task.id})" style="padding: 10px 20px; font-size: 14px;">
+                                    <i class="fas fa-file-import"></i> Trocar arquivo
+                                </button>
+                                <button class="btn btn-danger" onclick="removeTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
+                                    <i class="fas fa-trash"></i> Remover
+                                </button>
+                            ` : ''}
+                            
+                            <button class="btn btn-primary" onclick="viewTaskDetails(${task.id})" style="padding: 10px 20px; font-size: 14px;">
+                                <i class="fas fa-info-circle"></i> Detalhes
+                            </button>
+                            <button class="btn btn-primary" onclick="toggleTaskLogs(${task.id})" style="padding: 10px 20px; font-size: 14px;">
+                                <i class="fas fa-terminal"></i> Terminal
+                            </button>
+                        </div>
 
-                    <div id="task-log-panel-${task.id}" class="task-card-terminal" style="display:${isTerminalOpen ? 'block' : 'none'};">
-                        <div class="task-card-terminal-header">
-                            <span><i class="fas fa-terminal"></i> Terminal da tarefa #${task.id}</span>
-                            <button type="button" onclick="toggleTaskLogs(${task.id})" title="Ocultar terminal">
-                                <i class="fas fa-chevron-up"></i>
-                            </button>
+                        <div id="task-log-panel-${task.id}" class="task-card-terminal" style="display:${isTerminalOpen ? 'block' : 'none'};">
+                            <div class="task-card-terminal-header">
+                                <span><i class="fas fa-terminal"></i> Terminal da tarefa #${task.id}</span>
+                                <button type="button" onclick="toggleTaskLogs(${task.id})" title="Ocultar terminal">
+                                    <i class="fas fa-chevron-up"></i>
+                                </button>
+                            </div>
+                            <div id="task-log-body-${task.id}" class="logs task-card-terminal-body"></div>
                         </div>
-                        <div id="task-log-body-${task.id}" class="logs task-card-terminal-body"></div>
                     </div>
                 </div>
             `;
