@@ -2868,7 +2868,7 @@ def task_operations(task_id):
     automation_manager.load_config()
     groups = automation_manager.config.get('groups', [])
     automation_manager.config['groups'] = [g for g in groups if g['id'] != task_id]
-    automation_manager.save_config()
+    automation_manager.save_config(preserve_disk_tasks=False)
     
     return jsonify({'success': True})
 

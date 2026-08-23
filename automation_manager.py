@@ -29,8 +29,10 @@ class AutomationManager:
             }
             self.save_config()
     
-    def save_config(self):
+    def save_config(self, preserve_disk_tasks=True):
         """Salva configurações"""
+        if preserve_disk_tasks:
+            self._preserve_disk_tasks()
         self._preserve_manual_pauses()
         atomic_write_json(self.config_file, self.config)
 
@@ -50,6 +52,38 @@ class AutomationManager:
             return datetime.fromisoformat(value)
         except Exception:
             return None
+
+    def _preserve_disk_tasks(self):
+        """Evita que uma instância antiga apague tarefas criadas por outra request/thread."""
+        if not os.path.exists(self.config_file):
+            return
+
+        try:
+            disk_config = load_json_file(self.config_file, {})
+            disk_tasks = [
+                task
+                for task in disk_config.get('groups', [])
+                if task.get('id') is not None
+            ]
+            if not disk_tasks:
+                return
+
+            memory_tasks = self.config.setdefault('groups', [])
+            memory_ids = {
+                task.get('id')
+                for task in memory_tasks
+                if task.get('id') is not None
+            }
+
+            missing_tasks = [
+                task for task in disk_tasks
+                if task.get('id') not in memory_ids
+            ]
+            if missing_tasks:
+                memory_tasks.extend(missing_tasks)
+                memory_tasks.sort(key=lambda task: int(task.get('id') or 0))
+        except Exception:
+            return
 
     def _preserve_manual_pauses(self):
         """Impede que uma thread antiga sobrescreva uma pausa manual salva no disco."""
