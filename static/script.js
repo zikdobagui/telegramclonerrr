@@ -2266,7 +2266,8 @@ async function addGroupTask() {
         if (data.success) {
             const rejected = data.rejected_sessions?.length || 0;
             const suffix = rejected > 0 ? ` ${rejected} sessão(ões) ignorada(s).` : '';
-            showNotification(`${data.created || 1} tarefa(s) criada(s).${suffix}`, 'success');
+            const linked = data.sessions_linked || selectedSessions.length;
+            showNotification(`Tarefa criada com ${linked} sessão(ões).${suffix}`, 'success');
             document.getElementById('task-group-link').value = '';
             document.getElementById('task-group-interaction').checked = true;
             document.getElementById('task-select-all-sessions').checked = false;

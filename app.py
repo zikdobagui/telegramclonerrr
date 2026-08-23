@@ -2661,11 +2661,11 @@ def manage_tasks():
 
     task_queue_limit = 200
     current_tasks = len(automation_manager.config.get('groups', []))
-    if current_tasks + len(available_sessions) > task_queue_limit:
+    if current_tasks + 1 > task_queue_limit:
         available_slots = max(task_queue_limit - current_tasks, 0)
         return jsonify({
             'success': False,
-            'error': f'Limite de {task_queue_limit} tarefas na fila atingido. Há {available_slots} vaga(s) livre(s), mas {len(available_sessions)} sessão(ões) disponível(is) foram selecionadas.'
+            'error': f'Limite de {task_queue_limit} tarefas na fila atingido. Há {available_slots} vaga(s) livre(s).'
         }), 400
 
     add_delay_min, add_delay_max = normalize_delay_range(
@@ -2679,43 +2679,39 @@ def manage_tasks():
         90
     )
 
-    created_tasks = []
-    for session_index in available_sessions:
-        task = automation_manager.add_group_task(
-            data['group_link'],
-            data['target_members'],
-            data.get('daily_limit', 50),
-            [session_index],
-            data.get('members_per_session', 25),
-            delay_between_adds=data.get('delay_between_adds', add_delay_min),
-            delay_between_sessions=data.get('delay_between_sessions', session_delay_min),
-            delay_between_adds_min=add_delay_min,
-            delay_between_adds_max=add_delay_max,
-            delay_between_sessions_min=session_delay_min,
-            delay_between_sessions_max=session_delay_max,
-            group_interaction_enabled=data.get('group_interaction_enabled', True)
-        )
-        created_tasks.append(task)
+    task = automation_manager.add_group_task(
+        data['group_link'],
+        data['target_members'],
+        data.get('daily_limit', 50),
+        available_sessions,
+        data.get('members_per_session', 25),
+        delay_between_adds=data.get('delay_between_adds', add_delay_min),
+        delay_between_sessions=data.get('delay_between_sessions', session_delay_min),
+        delay_between_adds_min=add_delay_min,
+        delay_between_adds_max=add_delay_max,
+        delay_between_sessions_min=session_delay_min,
+        delay_between_sessions_max=session_delay_max,
+        group_interaction_enabled=data.get('group_interaction_enabled', True)
+    )
 
     paths = get_user_paths()
     latest_file, latest_members, latest_pending = find_latest_pending_members_export(paths)
     if latest_file:
-        for task in created_tasks:
-            attach_task_members_file(task, latest_file, latest_members, paths)
+        attach_task_members_file(task, latest_file, latest_members, paths)
         automation_manager.save_config()
         log_info(
-            f'📁 {len(created_tasks)} tarefa(s) vinculada(s) automaticamente ao arquivo extraído do usuário '
+            f'📁 Tarefa vinculada automaticamente ao arquivo extraído do usuário '
             f'{session.get("username")}: {os.path.basename(latest_file)} ({len(latest_pending)} pendentes)'
         )
     
     return jsonify({
         'success': True,
-        'task': created_tasks[0],
+        'task': task,
         'tasks': automation_manager.config.get('groups', []),
-        'created': len(created_tasks),
+        'created': 1,
         'sessions_linked': len(available_sessions),
         'rejected_sessions': rejected_sessions,
-        'message': f'{len(created_tasks)} tarefa(s) criada(s), uma para cada sessão disponível selecionada'
+        'message': f'Tarefa criada com {len(available_sessions)} sessão(ões) vinculada(s)'
     })
 
 @app.route('/api/tasks/<int:task_id>', methods=['GET', 'DELETE', 'PUT'])
