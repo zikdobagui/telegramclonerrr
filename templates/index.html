@@ -3853,10 +3853,65 @@
                 padding: 82px 18px 24px !important;
             }
         }
+
+        .sidebar-collapse-toggle {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 1200;
+            width: 42px;
+            height: 42px;
+            border: 1px solid rgba(56, 189, 248, 0.28);
+            border-radius: 10px;
+            background: rgba(9, 14, 24, 0.92);
+            color: #dbeafe;
+            cursor: pointer;
+            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+        }
+
+        .sidebar-collapse-toggle:hover {
+            color: #fff;
+            background: rgba(14, 165, 233, 0.22);
+        }
+
+        body:not(.sidebar-collapsed) .sidebar-collapse-toggle {
+            left: 274px;
+        }
+
+        body.sidebar-collapsed .sidebar {
+            transform: translateX(-100%) !important;
+            pointer-events: none;
+        }
+
+        body.sidebar-collapsed .main-content {
+            margin-left: 0 !important;
+            width: 125vw !important;
+            padding-left: 76px !important;
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar-collapse-toggle {
+                display: none;
+            }
+
+            body.sidebar-collapsed .sidebar {
+                transform: translateX(-100%) !important;
+            }
+
+            body.sidebar-collapsed .main-content {
+                margin-left: 0 !important;
+                width: 125vw !important;
+                padding: 82px 18px 24px !important;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="app-container">
+        <button class="sidebar-collapse-toggle" id="sidebar-collapse-toggle" onclick="toggleSidebarCollapse()" type="button" title="Mostrar/ocultar menu">
+            <i class="fas fa-bars"></i>
+        </button>
+
         <!-- Mobile Toggle -->
         <button class="mobile-toggle" onclick="toggleSidebar()">
             <i class="fas fa-bars"></i>
@@ -5432,6 +5487,23 @@
             sidebar.classList.toggle('open');
             overlay.classList.toggle('show');
         }
+
+        function applySidebarCollapseState(collapsed) {
+            document.body.classList.toggle('sidebar-collapsed', collapsed);
+            const button = document.getElementById('sidebar-collapse-toggle');
+            if (button) {
+                button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                button.title = collapsed ? 'Mostrar menu' : 'Ocultar menu';
+            }
+        }
+
+        function toggleSidebarCollapse() {
+            const collapsed = !document.body.classList.contains('sidebar-collapsed');
+            localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+            applySidebarCollapseState(collapsed);
+        }
+
+        applySidebarCollapseState(localStorage.getItem('sidebarCollapsed') === '1');
         
         // Menu Navigation
         document.querySelectorAll('.menu-item').forEach(item => {
