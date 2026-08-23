@@ -140,6 +140,84 @@ class SmartAdder:
     def get_last_result(self):
         return self.last_result or {'status': 'unknown', 'reason': 'Sem detalhe registrado'}
 
+    async def _resolve_and_join_target_group(self, client, target_group, session_info, socketio=None):
+        """Entra no grupo destino e devolve uma entidade pronta para convidar membros."""
+        group_ref = normalize_telegram_group_link(target_group)
+        clean_link = group_ref['identifier']
+        emit_log(f'🔗 Link processado: {clean_link}', 'info', socketio)
+
+        target_entity = None
+        if group_ref['kind'] == 'invite':
+            from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
+            invite_hash = clean_link
+            emit_log(f'🔐 Grupo privado detectado. Entrando antes de adicionar...', 'info', socketio)
+
+            try:
+                result = await client(ImportChatInviteRequest(invite_hash))
+                await asyncio.sleep(2)
+                if hasattr(result, 'chats') and result.chats:
+                    target_entity = result.chats[0]
+                    emit_log(f'✅ Entrou no grupo privado: {target_entity.title}', 'success', socketio)
+            except Exception as private_error:
+                if self._quarantine_from_error(session_info, private_error, socketio):
+                    return None
+
+                private_error_msg = str(private_error)
+                already_participant = (
+                    'already a participant' in private_error_msg.lower()
+                    or type(private_error).__name__ == 'UserAlreadyParticipantError'
+                )
+                if not already_participant:
+                    raise Exception(f"Não foi possível entrar no grupo privado: {private_error}")
+
+                emit_log('✅ A sessão já participa desse grupo privado', 'success', socketio)
+                invite_info = await client(CheckChatInviteRequest(invite_hash))
+                if hasattr(invite_info, 'chat') and invite_info.chat:
+                    target_entity = invite_info.chat
+
+            if not target_entity:
+                invite_info = await client(CheckChatInviteRequest(invite_hash))
+                if hasattr(invite_info, 'chat') and invite_info.chat:
+                    target_entity = invite_info.chat
+        else:
+            emit_log('🌐 Grupo público detectado. Conferindo entrada...', 'info', socketio)
+            try:
+                target_entity = await client.get_entity(clean_link)
+            except Exception:
+                target_entity = None
+
+            try:
+                from telethon.tl.functions.channels import JoinChannelRequest
+                await client(JoinChannelRequest(clean_link))
+                await asyncio.sleep(2)
+                emit_log('✅ Entrou no grupo público', 'success', socketio)
+            except Exception as join_error:
+                already_participant = (
+                    'already a participant' in str(join_error).lower()
+                    or type(join_error).__name__ == 'UserAlreadyParticipantError'
+                )
+                if not already_participant:
+                    emit_log(f'⚠️ Entrada no grupo público retornou: {join_error}', 'warning', socketio)
+
+            if not target_entity:
+                target_entity = await client.get_entity(clean_link)
+
+        if not target_entity:
+            raise Exception(f"Não foi possível acessar o grupo: {target_group}")
+
+        try:
+            input_entity = await client.get_input_entity(target_entity)
+        except Exception:
+            input_entity = target_entity
+
+        try:
+            await client.get_permissions(target_entity, 'me')
+            emit_log(f'✅ Participação confirmada no grupo: {getattr(target_entity, "title", target_group)}', 'success', socketio)
+        except Exception as permission_error:
+            emit_log(f'⚠️ Não consegui confirmar permissões, mas vou tentar adicionar: {permission_error}', 'warning', socketio)
+
+        return input_entity, target_entity
+
     def _is_disconnected_error(self, error):
         error_msg = str(error).lower()
         return (
@@ -451,99 +529,15 @@ class SmartAdder:
             # PASSO 1: Entra no grupo destino
             emit_log('📥 PASSO 1: Entrando no grupo destino...', 'info', socketio)
             emit_log(f'🔗 Link original: {target_group}', 'info', socketio)
-            
-            group_ref = normalize_telegram_group_link(target_group)
-            clean_link = group_ref['identifier']
-            emit_log(f'🔗 Link processado: {clean_link}', 'info', socketio)
-            
+
             target_entity = None
-            
+            target_input_entity = None
             try:
-                if group_ref['kind'] == 'invite':
-                    # Grupo privado
-                    from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
-                    invite_hash = clean_link
-                    emit_log(f'🔐 Grupo privado detectado (hash: {invite_hash})', 'info', socketio)
-                    
-                    try:
-                        result = await client(ImportChatInviteRequest(invite_hash))
-                        await asyncio.sleep(2)
-                        if hasattr(result, 'chats') and result.chats:
-                            target_entity = result.chats[0]
-                            emit_log(f'✅ Entrou no grupo privado: {target_entity.title}', 'success', socketio)
-                    except Exception as private_error:
-                        if self._quarantine_from_error(session_info, private_error, socketio):
-                            return 0
-
-                        private_error_msg = str(private_error)
-                        already_participant = (
-                            'already a participant' in private_error_msg.lower()
-                            or type(private_error).__name__ == 'UserAlreadyParticipantError'
-                        )
-                        if already_participant:
-                            emit_log('✅ A sessão já participa desse grupo privado', 'success', socketio)
-                            try:
-                                invite_info = await client(CheckChatInviteRequest(invite_hash))
-                                if hasattr(invite_info, 'chat') and invite_info.chat:
-                                    target_entity = invite_info.chat
-                                    emit_log(f'✅ Grupo privado resolvido: {target_entity.title}', 'success', socketio)
-                            except Exception as check_error:
-                                emit_log(f'⚠️ Não consegui resolver pelo convite: {check_error}', 'warning', socketio)
-                        else:
-                            emit_log(f'❌ Erro ao entrar no grupo privado: {private_error}', 'error', socketio)
-
-                        # Tenta pegar o grupo mesmo assim (pode já estar nele)
-                        if not target_entity:
-                            try:
-                                target_entity = await client.get_entity(target_group)
-                                emit_log(f'✅ Já estava no grupo: {target_entity.title}', 'success', socketio)
-                            except:
-                                raise Exception(f"Não foi possível acessar grupo privado: {private_error}")
-                else:
-                    # Grupo público
-                    emit_log(f'🌐 Grupo público detectado', 'info', socketio)
-                    
-                    # Tenta primeiro pegar sem entrar (pode já estar nele)
-                    try:
-                        target_entity = await client.get_entity(clean_link)
-                        emit_log(f'✅ Grupo encontrado: {target_entity.title}', 'success', socketio)
-                        
-                        # Verifica se está no grupo
-                        try:
-                            perms = await client.get_permissions(target_entity, 'me')
-                            if perms and perms.is_chat:
-                                emit_log(f'✅ Já está no grupo!', 'success', socketio)
-                            else:
-                                emit_log(f'⚠️ Não está no grupo, entrando...', 'warning', socketio)
-                                from telethon.tl.functions.channels import JoinChannelRequest
-                                await client(JoinChannelRequest(clean_link))
-                                await asyncio.sleep(2)
-                                emit_log(f'✅ Entrou no grupo!', 'success', socketio)
-                        except:
-                            # Tenta entrar
-                            emit_log(f'🚪 Tentando entrar no grupo...', 'info', socketio)
-                            from telethon.tl.functions.channels import JoinChannelRequest
-                            await client(JoinChannelRequest(clean_link))
-                            await asyncio.sleep(2)
-                            emit_log(f'✅ Entrou no grupo!', 'success', socketio)
-                            
-                    except Exception as get_error:
-                        emit_log(f'⚠️ Grupo não encontrado ({get_error}), tentando entrar...', 'warning', socketio)
-                        # Tenta entrar
-                        try:
-                            from telethon.tl.functions.channels import JoinChannelRequest
-                            await client(JoinChannelRequest(clean_link))
-                            await asyncio.sleep(2)
-                            target_entity = await client.get_entity(clean_link)
-                            emit_log(f'✅ Entrou no grupo: {target_entity.title}', 'success', socketio)
-                        except Exception as join_error:
-                            emit_log(f'❌ Erro ao entrar: {join_error}', 'error', socketio)
-                            raise Exception(f"Não foi possível entrar no grupo: {join_error}")
-                
-                if not target_entity:
+                resolved_target = await self._resolve_and_join_target_group(client, target_group, session_info, socketio)
+                if not resolved_target:
                     raise Exception(f"Não foi possível acessar o grupo: {target_group}")
-                
-                emit_log(f'✅ Grupo acessado: {target_entity.title}', 'success', socketio)
+                target_input_entity, target_entity = resolved_target
+                emit_log(f'✅ Grupo acessado: {getattr(target_entity, "title", target_group)}', 'success', socketio)
                 
             except Exception as entry_error:
                 emit_log(f'❌ ERRO ao entrar no grupo: {entry_error}', 'error', socketio)
@@ -559,7 +553,7 @@ class SmartAdder:
                 
                 raise
             
-            emit_log(f'✅ Entrou no grupo: {target_entity.title}', 'success', socketio)
+            emit_log(f'✅ Entrou no grupo: {getattr(target_entity, "title", target_group)}', 'success', socketio)
             
             # PASSO 2: Teste/aquecimento opcional
             if group_interaction_enabled:
@@ -889,7 +883,8 @@ class SmartAdder:
                     try:
                         if not client.is_connected():
                             raise ConnectionError('Cannot send requests while disconnected')
-                        await client(InviteToChannelRequest(target_entity, [user_to_add]))
+                        invite_target = target_input_entity or target_entity
+                        await client(InviteToChannelRequest(invite_target, [user_to_add]))
                         
                         # INCREMENTA IMEDIATAMENTE após sucesso
                         added_count += 1
