@@ -33,6 +33,7 @@ class AutomationManager:
         """Salva configurações"""
         if preserve_disk_tasks:
             self._preserve_disk_tasks()
+        self._remove_deleted_tasks()
         self._preserve_manual_pauses()
         atomic_write_json(self.config_file, self.config)
 
@@ -43,6 +44,12 @@ class AutomationManager:
             for task in self.config.get('groups', [])
             if str(task.get('id') or '').isdigit()
         ]
+        deleted_task_ids = [
+            int(task_id)
+            for task_id in self.config.get('deleted_task_ids', [])
+            if str(task_id).isdigit()
+        ]
+        task_ids.extend(deleted_task_ids)
         return (max(task_ids) + 1) if task_ids else 1
 
     def _parse_datetime(self, value):
@@ -60,10 +67,20 @@ class AutomationManager:
 
         try:
             disk_config = load_json_file(self.config_file, {})
+            deleted_task_ids = {
+                int(task_id)
+                for task_id in disk_config.get('deleted_task_ids', [])
+                if str(task_id).isdigit()
+            }
+            if deleted_task_ids:
+                memory_deleted = set(self.config.get('deleted_task_ids', []))
+                memory_deleted.update(deleted_task_ids)
+                self.config['deleted_task_ids'] = sorted(memory_deleted)
+
             disk_tasks = [
                 task
                 for task in disk_config.get('groups', [])
-                if task.get('id') is not None
+                if task.get('id') is not None and int(task.get('id')) not in deleted_task_ids
             ]
             if not disk_tasks:
                 return
@@ -115,6 +132,42 @@ class AutomationManager:
                     task['pause_reason'] = disk_task.get('pause_reason', 'Pausada manualmente')
         except Exception:
             return
+
+    def _remove_deleted_tasks(self):
+        """Mantém tarefas removidas fora do arquivo mesmo se uma thread antiga salvar depois."""
+        deleted_task_ids = {
+            int(task_id)
+            for task_id in self.config.get('deleted_task_ids', [])
+            if str(task_id).isdigit()
+        }
+        if not deleted_task_ids:
+            return
+
+        self.config['groups'] = [
+            task
+            for task in self.config.get('groups', [])
+            if int(task.get('id') or 0) not in deleted_task_ids
+        ]
+        self.config['deleted_task_ids'] = sorted(deleted_task_ids)
+
+    def delete_task(self, task_id):
+        """Remove uma tarefa e registra o ID para evitar reaparecimento por saves atrasados."""
+        task_id = int(task_id)
+        self.load_config()
+        before = len(self.config.get('groups', []))
+        self.config['groups'] = [
+            task for task in self.config.get('groups', [])
+            if int(task.get('id') or 0) != task_id
+        ]
+        deleted_task_ids = {
+            int(existing_id)
+            for existing_id in self.config.get('deleted_task_ids', [])
+            if str(existing_id).isdigit()
+        }
+        deleted_task_ids.add(task_id)
+        self.config['deleted_task_ids'] = sorted(deleted_task_ids)
+        self.save_config(preserve_disk_tasks=False)
+        return len(self.config.get('groups', [])) < before
     
     def add_group_task(
         self,

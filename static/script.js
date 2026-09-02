@@ -2315,11 +2315,15 @@ async function loadTasks() {
             return;
         }
 
-        const taskStats = data.tasks.reduce((stats, task) => {
+        const tasks = Array.isArray(data.tasks)
+            ? data.tasks.slice().sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
+            : [];
+
+        const taskStats = tasks.reduce((stats, task) => {
             stats[task.status] = (stats[task.status] || 0) + 1;
             return stats;
         }, {});
-        const activeTask = data.tasks.find(task => task.status === 'active');
+        const activeTask = tasks.find(task => task.status === 'active');
         const queueNotice = activeTask ? `
             <div class="task-queue-notice">
                 <i class="fas fa-server"></i>
@@ -2330,7 +2334,7 @@ async function loadTasks() {
             <div class="task-queue-summary">
                 <div>
                     <span>Fila de tarefas</span>
-                    <strong>${data.tasks.length}</strong>
+                    <strong>${tasks.length}</strong>
                 </div>
                 <div>
                     <span>Pendentes</span>
@@ -2351,7 +2355,7 @@ async function loadTasks() {
             </div>
         `;
         
-        tasksList.innerHTML = queueHeader + queueNotice + data.tasks.map(task => {
+        tasksList.innerHTML = queueHeader + queueNotice + tasks.map(task => {
             const remainingMembers = Math.max(0, (task.target_members || 0) - (task.total_added || 0));
             const effectiveStatus = task.status === 'completed' && remainingMembers > 0 ? 'paused' : task.status;
             const progress = Math.min(100, (task.total_added / task.target_members * 100)).toFixed(1);
@@ -2416,6 +2420,11 @@ async function loadTasks() {
                         </div>
                         <div class="task-card-head-actions">
                             <span class="task-status-chip" style="--task-status-color:${statusColors[effectiveStatus]}">${statusTexts[effectiveStatus]}</span>
+                            ${effectiveStatus !== 'active' ? `
+                                <button type="button" class="task-header-delete" onclick="event.stopPropagation();removeTask(${task.id})" title="Remover tarefa">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            ` : ''}
                             <button type="button" id="task-details-toggle-${task.id}" class="task-details-toggle ${isDetailsOpen ? 'open' : ''}" aria-expanded="${isDetailsOpen ? 'true' : 'false'}" onclick="event.stopPropagation();toggleTaskQueueDetails(${task.id});" title="Mostrar detalhes">
                                 <i class="fas fa-chevron-down"></i>
                             </button>
@@ -2529,7 +2538,7 @@ async function loadTasks() {
             `;
         }).join('');
 
-        data.tasks.forEach(task => {
+        tasks.forEach(task => {
             if (openTaskLogPanels.has(getTaskLogKey(task.id))) {
                 renderTaskLogBody(task.id);
             }

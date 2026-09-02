@@ -2629,7 +2629,7 @@ def manage_tasks():
         return jsonify({'success': False, 'error': 'Selecione pelo menos uma sessão disponível'}), 400
 
     sessions = session_manager.load_sessions()
-    reserved_sessions = set(automation_manager.get_reserved_task_sessions())
+    active_task_sessions = set(automation_manager.get_active_task_sessions())
     available_sessions = []
     rejected_sessions = []
 
@@ -2641,8 +2641,8 @@ def manage_tasks():
         session_info = sessions[idx]
         flood_info = session_manager.get_flood_info(session_info.get('session_name', ''))
 
-        if idx in reserved_sessions:
-            rejected_sessions.append({'index': idx, 'reason': 'Sessão já reservada em outra tarefa'})
+        if idx in active_task_sessions:
+            rejected_sessions.append({'index': idx, 'reason': 'Sessão em uso em uma tarefa ativa'})
         elif flood_info.get('in_flood'):
             rejected_sessions.append({'index': idx, 'reason': 'Sessão em flood/quarentena'})
         elif not session_info.get('active', True):
@@ -2865,12 +2865,13 @@ def task_operations(task_id):
         return jsonify({'success': True, 'task': task})
     
     # DELETE - Remove tarefa
-    automation_manager.load_config()
-    groups = automation_manager.config.get('groups', [])
-    automation_manager.config['groups'] = [g for g in groups if g['id'] != task_id]
-    automation_manager.save_config(preserve_disk_tasks=False)
-    
-    return jsonify({'success': True})
+    removed = automation_manager.delete_task(task_id)
+    set_session_lock('task', False, task_id, username=session.get('username'))
+
+    if not removed:
+        return jsonify({'success': False, 'error': 'Tarefa não encontrada'}), 404
+
+    return jsonify({'success': True, 'message': 'Tarefa removida'})
 
 @app.route('/api/tasks/<int:task_id>/members-file', methods=['POST'])
 @login_required

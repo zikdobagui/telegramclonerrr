@@ -200,7 +200,13 @@ class SmartAdder:
                     emit_log(f'⚠️ Entrada no grupo público retornou: {join_error}', 'warning', socketio)
 
             if not target_entity:
-                target_entity = await client.get_entity(clean_link)
+                try:
+                    target_entity = await client.get_entity(clean_link)
+                except Exception as lookup_error:
+                    raise ValueError(
+                        f'Grupo público não encontrado: "{clean_link}". '
+                        'Confira se o @/link existe e se a sessão tem acesso.'
+                    ) from lookup_error
 
         if not target_entity:
             raise Exception(f"Não foi possível acessar o grupo: {target_group}")

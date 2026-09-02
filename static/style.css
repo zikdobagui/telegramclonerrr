@@ -2181,6 +2181,26 @@ body.compact-mode .card > p {
     transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 
+.task-header-delete {
+    width: 34px;
+    height: 34px;
+    border: 1px solid rgba(239, 68, 68, 0.28);
+    border-radius: 8px;
+    background: rgba(127, 29, 29, 0.28);
+    color: #fecaca;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.task-header-delete:hover {
+    background: rgba(220, 38, 38, 0.38);
+    border-color: rgba(248, 113, 113, 0.55);
+    color: #fff;
+}
+
 .task-details-toggle.open i {
     transform: rotate(180deg);
 }
