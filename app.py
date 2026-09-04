@@ -686,9 +686,6 @@ def check_session_lock(operation, task_id=None, username=None):
     if operation == 'task':
         if session_locks['warming']:
             return False, "Não é possível processar tarefas enquanto aquecimento está ativo. Pare o aquecimento primeiro."
-        if len(session_locks['active_tasks']) > 0 and task_id not in session_locks['active_tasks']:
-            active_id = next(iter(session_locks['active_tasks']))
-            return False, f"Modo VPS ativo: a tarefa #{active_id} já está rodando. Pause ou aguarde terminar antes de iniciar outra."
         return True, "OK"
     elif operation == 'warming':
         if session_locks['extraction'] or session_locks['addition'] or len(session_locks['active_tasks']) > 0:
@@ -2988,6 +2985,32 @@ def start_task(task_id):
     if not selected_sessions:
         log_error(f'Nenhuma sessão selecionada', 'START_TASK')
         return jsonify({'success': False, 'error': 'Nenhuma sessão selecionada para esta tarefa'}), 400
+
+    selected_session_set = set(selected_sessions)
+    conflicting_tasks = []
+    for active_task in groups:
+        if active_task.get('id') == task_id or active_task.get('status') != 'active':
+            continue
+        shared_sessions = selected_session_set.intersection(active_task.get('selected_sessions', []))
+        if shared_sessions:
+            conflicting_tasks.append({
+                'id': active_task.get('id'),
+                'sessions': sorted(shared_sessions)
+            })
+
+    if conflicting_tasks:
+        conflict = conflicting_tasks[0]
+        log_warning(
+            f'Tarefa #{task_id} bloqueada por sessões em uso na tarefa #{conflict["id"]}: {conflict["sessions"]}',
+            'START_TASK'
+        )
+        return jsonify({
+            'success': False,
+            'error': (
+                f'Esta tarefa usa sessão(ões) que já estão rodando na tarefa #{conflict["id"]}: '
+                f'{conflict["sessions"]}. Edite uma das tarefas e selecione contas diferentes.'
+            )
+        }), 400
     
     # Verifica se pode processar tarefa
     can_process, message = check_session_lock('task', task_id)
