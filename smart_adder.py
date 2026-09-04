@@ -113,16 +113,24 @@ def normalize_telegram_group_link(group_link):
                 return {'raw': raw, 'kind': 'invite', 'identifier': parts[1].lstrip('+')}
             if first.startswith('+'):
                 return {'raw': raw, 'kind': 'invite', 'identifier': first.lstrip('+')}
+            if first == 'c' and len(parts) > 1:
+                return {'raw': raw, 'kind': 'private_id', 'identifier': parts[1]}
             if first:
                 return {'raw': raw, 'kind': 'public', 'identifier': first.lstrip('@')}
 
     clean = text.split('?')[0].strip().strip('/')
+    parts = [part for part in clean.split('/') if part]
+    if parts and parts[0].lower() in ('t.me', 'telegram.me') and len(parts) > 1:
+        parts = parts[1:]
+        clean = '/'.join(parts)
     if clean.startswith('@'):
         clean = clean[1:]
     if clean.lower().startswith('joinchat/'):
         return {'raw': raw, 'kind': 'invite', 'identifier': clean.split('/', 1)[1].lstrip('+')}
     if clean.startswith('+'):
         return {'raw': raw, 'kind': 'invite', 'identifier': clean.lstrip('+').split('/')[0]}
+    if len(parts) > 1 and parts[0] == 'c':
+        return {'raw': raw, 'kind': 'private_id', 'identifier': parts[1]}
 
     return {'raw': raw, 'kind': 'public', 'identifier': clean.lstrip('@').split('/')[0]}
 
@@ -139,6 +147,63 @@ class SmartAdder:
 
     def get_last_result(self):
         return self.last_result or {'status': 'unknown', 'reason': 'Sem detalhe registrado'}
+
+    async def _resolve_public_group_entity(self, client, clean_link):
+        """Resolve usernames públicos tentando os formatos aceitos pelo Telethon."""
+        from telethon.errors import UsernameInvalidError, UsernameNotOccupiedError
+        from telethon.tl.functions.contacts import ResolveUsernameRequest
+
+        username = str(clean_link or '').strip().lstrip('@').split('/')[0]
+        if not username:
+            raise ValueError('Grupo público inválido. Informe um @, username ou link t.me.')
+
+        errors = []
+        for candidate in (f'@{username}', username, f'https://t.me/{username}'):
+            try:
+                return await client.get_entity(candidate)
+            except Exception as error:
+                errors.append(str(error))
+
+        try:
+            resolved = await client(ResolveUsernameRequest(username))
+            if getattr(resolved, 'chats', None):
+                return resolved.chats[0]
+            if getattr(resolved, 'users', None):
+                return resolved.users[0]
+        except (UsernameInvalidError, UsernameNotOccupiedError) as error:
+            errors.append(str(error))
+        except Exception as error:
+            errors.append(str(error))
+
+        detail = errors[-1] if errors else 'sem detalhe do Telegram'
+        raise ValueError(
+            f'Grupo público não encontrado: "@{username}". '
+            f'Confira se o @/link existe e se a sessão tem acesso. Detalhe: {detail}'
+        )
+
+    async def _resolve_private_id_group_entity(self, client, private_id):
+        """Resolve links t.me/c/id/mensagem a partir dos diálogos já acessíveis pela sessão."""
+        normalized_id = str(private_id or '').strip()
+        if not normalized_id.isdigit():
+            raise ValueError('Link privado inválido. Use um link no formato https://t.me/c/id/mensagem.')
+
+        possible_ids = {
+            normalized_id,
+            f'-100{normalized_id}',
+        }
+
+        async for dialog in client.iter_dialogs():
+            entity = getattr(dialog, 'entity', None)
+            entity_id = getattr(entity, 'id', None)
+            if entity_id is None:
+                continue
+            if str(entity_id) in possible_ids or f'-100{entity_id}' in possible_ids:
+                return entity
+
+        raise ValueError(
+            'Esse link t.me/c é de um grupo/canal privado e a sessão ainda não tem ele nos diálogos. '
+            'Entre no grupo com essa sessão ou use o link de convite https://t.me/+...'
+        )
 
     async def _resolve_and_join_target_group(self, client, target_group, session_info, socketio=None):
         """Entra no grupo destino e devolve uma entidade pronta para convidar membros."""
@@ -179,16 +244,20 @@ class SmartAdder:
                 invite_info = await client(CheckChatInviteRequest(invite_hash))
                 if hasattr(invite_info, 'chat') and invite_info.chat:
                     target_entity = invite_info.chat
+        elif group_ref['kind'] == 'private_id':
+            emit_log('🔒 Link privado t.me/c detectado. Procurando nos diálogos da sessão...', 'info', socketio)
+            target_entity = await self._resolve_private_id_group_entity(client, clean_link)
         else:
             emit_log('🌐 Grupo público detectado. Conferindo entrada...', 'info', socketio)
             try:
-                target_entity = await client.get_entity(clean_link)
-            except Exception:
+                target_entity = await self._resolve_public_group_entity(client, clean_link)
+            except Exception as lookup_error:
+                emit_log(f'⚠️ Ainda não encontrei o grupo público: {lookup_error}', 'warning', socketio)
                 target_entity = None
 
             try:
                 from telethon.tl.functions.channels import JoinChannelRequest
-                await client(JoinChannelRequest(clean_link))
+                await client(JoinChannelRequest(target_entity or f'@{clean_link.lstrip("@")}'))
                 await asyncio.sleep(2)
                 emit_log('✅ Entrou no grupo público', 'success', socketio)
             except Exception as join_error:
@@ -201,10 +270,10 @@ class SmartAdder:
 
             if not target_entity:
                 try:
-                    target_entity = await client.get_entity(clean_link)
+                    target_entity = await self._resolve_public_group_entity(client, clean_link)
                 except Exception as lookup_error:
                     raise ValueError(
-                        f'Grupo público não encontrado: "{clean_link}". '
+                        f'Grupo público não encontrado: "@{clean_link.lstrip("@")}". '
                         'Confira se o @/link existe e se a sessão tem acesso.'
                     ) from lookup_error
 
