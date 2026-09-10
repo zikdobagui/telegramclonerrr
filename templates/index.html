@@ -5542,6 +5542,152 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* Sessions tab: list view with internal scroll */
+        #sessions .sessions-workspace {
+            display: block !important;
+        }
+
+        #sessions .session-detail-panel {
+            display: none !important;
+        }
+
+        #sessions .sessions-table-shell {
+            width: 100% !important;
+            height: min(64vh, 680px) !important;
+            min-height: 420px !important;
+            max-height: min(64vh, 680px) !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: hidden !important;
+            border: 1px solid var(--ui-line) !important;
+            border-radius: 8px !important;
+            background: var(--ui-card) !important;
+        }
+
+        #sessions .sessions-table-head {
+            position: sticky !important;
+            top: 0 !important;
+            z-index: 3 !important;
+            flex: 0 0 38px !important;
+            display: grid !important;
+            grid-template-columns: 64px minmax(150px, 0.9fr) 120px minmax(170px, 0.9fr) minmax(260px, 1.3fr) 82px !important;
+            min-width: 920px !important;
+            align-items: center !important;
+            border-bottom: 1px solid var(--ui-line) !important;
+            background: var(--ui-soft) !important;
+            color: var(--ui-ink) !important;
+        }
+
+        #sessions .sessions-table-head span {
+            padding: 0 10px !important;
+            font-size: 0.76rem !important;
+            font-weight: 850 !important;
+            white-space: nowrap !important;
+        }
+
+        #sessions .sessions-list {
+            flex: 1 1 auto !important;
+            width: 100% !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            display: block !important;
+            overflow-y: auto !important;
+            overflow-x: auto !important;
+            background: var(--ui-card) !important;
+            scrollbar-width: thin !important;
+            overscroll-behavior: contain !important;
+        }
+
+        #sessions .sessions-list .session-item {
+            width: 100% !important;
+            min-width: 920px !important;
+            display: block !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            background: var(--ui-card) !important;
+            box-shadow: none !important;
+        }
+
+        #sessions .session-row {
+            min-height: 46px !important;
+            display: grid !important;
+            grid-template-columns: 64px minmax(150px, 0.9fr) 120px minmax(170px, 0.9fr) minmax(260px, 1.3fr) 82px !important;
+            align-items: center !important;
+            border-bottom: 1px solid var(--ui-line) !important;
+            background: transparent !important;
+            color: var(--ui-ink) !important;
+            cursor: pointer !important;
+        }
+
+        #sessions .session-row > div {
+            min-width: 0 !important;
+            height: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+            padding: 6px 10px !important;
+            border-right: 1px solid var(--ui-line) !important;
+            overflow: hidden !important;
+        }
+
+        #sessions .session-row > div:last-child {
+            border-right: 0 !important;
+        }
+
+        #sessions .session-phone-cell,
+        #sessions .session-name-cell,
+        #sessions .session-details-cell strong,
+        #sessions .session-details-cell span {
+            color: var(--ui-ink) !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+        }
+
+        #sessions .session-details-cell {
+            display: grid !important;
+            align-content: center !important;
+            text-align: left !important;
+        }
+
+        #sessions .session-details-cell span {
+            color: var(--ui-muted) !important;
+            font-size: 0.76rem !important;
+        }
+
+        #sessions .session-actions {
+            opacity: 1 !important;
+            pointer-events: auto !important;
+            transform: none !important;
+            justify-content: center !important;
+            gap: 4px !important;
+        }
+
+        #sessions .session-actions .btn {
+            width: 28px !important;
+            min-width: 28px !important;
+            height: 28px !important;
+            min-height: 28px !important;
+            padding: 0 !important;
+            justify-content: center !important;
+        }
+
+        #sessions .sessions-list .session-item:nth-child(even) .session-row {
+            background: color-mix(in srgb, var(--ui-soft) 42%, transparent) !important;
+        }
+
+        #sessions .sessions-list .session-item:hover .session-row,
+        #sessions .sessions-list .session-item.selected .session-row {
+            background: color-mix(in srgb, var(--ui-accent) 14%, var(--ui-card)) !important;
+        }
+
+        @media (max-width: 900px) {
+            #sessions .sessions-table-shell {
+                height: 62vh !important;
+            }
+        }
     </style>
 </head>
 <body>
