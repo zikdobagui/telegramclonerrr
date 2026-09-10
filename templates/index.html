@@ -4818,6 +4818,76 @@
             --ui-sidebar: #07111f;
         }
 
+        body[data-theme="dark"] {
+            --ui-bg: #0b1120;
+            --ui-ink: #e5eef8;
+            --ui-muted: #9aaabe;
+            --ui-soft: #111c2f;
+            --ui-line: #203047;
+            --ui-card: #111827;
+            --ui-accent: #38bdf8;
+            --ui-accent-strong: #7dd3fc;
+            --ui-good: #22c55e;
+            --ui-danger: #ef4444;
+            --ui-sidebar: #030712;
+        }
+
+        body[data-theme="graphite"] {
+            --ui-bg: #111315;
+            --ui-ink: #f3f4f6;
+            --ui-muted: #a3aab3;
+            --ui-soft: #1d2228;
+            --ui-line: #2b333c;
+            --ui-card: #171b20;
+            --ui-accent: #94a3b8;
+            --ui-accent-strong: #cbd5e1;
+            --ui-good: #4ade80;
+            --ui-danger: #f87171;
+            --ui-sidebar: #080a0d;
+        }
+
+        body[data-theme="ocean"] {
+            --ui-bg: #edf9ff;
+            --ui-ink: #123044;
+            --ui-muted: #5f7384;
+            --ui-soft: #dff3fb;
+            --ui-line: #c7e5f2;
+            --ui-card: #ffffff;
+            --ui-accent: #0891b2;
+            --ui-accent-strong: #0e7490;
+            --ui-good: #059669;
+            --ui-danger: #dc2626;
+            --ui-sidebar: #073344;
+        }
+
+        body[data-theme="emerald"] {
+            --ui-bg: #f0fdf4;
+            --ui-ink: #10251a;
+            --ui-muted: #60756a;
+            --ui-soft: #dcfce7;
+            --ui-line: #bbf7d0;
+            --ui-card: #ffffff;
+            --ui-accent: #16a34a;
+            --ui-accent-strong: #15803d;
+            --ui-good: #16a34a;
+            --ui-danger: #dc2626;
+            --ui-sidebar: #052e16;
+        }
+
+        body[data-theme="violet"] {
+            --ui-bg: #f7f3ff;
+            --ui-ink: #261b3f;
+            --ui-muted: #716481;
+            --ui-soft: #ede9fe;
+            --ui-line: #ddd6fe;
+            --ui-card: #ffffff;
+            --ui-accent: #7c3aed;
+            --ui-accent-strong: #6d28d9;
+            --ui-good: #16a34a;
+            --ui-danger: #dc2626;
+            --ui-sidebar: #22113f;
+        }
+
         html,
         body {
             background: var(--ui-bg) !important;
@@ -4825,7 +4895,7 @@
         }
 
         body {
-            background: linear-gradient(180deg, #f8fafc 0%, #eef3f8 100%) !important;
+            background: var(--ui-bg) !important;
         }
 
         body::before,
@@ -4906,7 +4976,7 @@
         }
 
         .menu-item.active {
-            background: #0b5f8f !important;
+            background: var(--ui-accent-strong) !important;
             border-color: rgba(125, 211, 252, 0.22) !important;
             box-shadow: none !important;
             color: #fff !important;
@@ -5107,7 +5177,7 @@
         input,
         select,
         textarea {
-            background: #fff !important;
+            background: var(--ui-card) !important;
             border: 1px solid var(--ui-line) !important;
             color: var(--ui-ink) !important;
             min-height: 38px !important;
@@ -5134,8 +5204,8 @@
         .factory-session-list,
         .factory-history-list,
         .service-session-list,
-        .reaction-session-list {
-            background: #f8fafc !important;
+            .reaction-session-list {
+            background: var(--ui-soft) !important;
             border-color: var(--ui-line) !important;
             color: var(--ui-muted) !important;
             box-shadow: none !important;
@@ -5159,13 +5229,13 @@
             grid-template-columns: 310px minmax(0, 1fr) !important;
         }
 
-        .factory-session-option,
-        .factory-permission-item,
-        .factory-history-item,
-        .service-session-option,
-        .reaction-row,
-        .task-card-modern {
-            background: #fff !important;
+            .factory-session-option,
+            .factory-permission-item,
+            .factory-history-item,
+            .service-session-option,
+            .reaction-row,
+            .task-card-modern {
+            background: var(--ui-card) !important;
             border-color: var(--ui-line) !important;
             color: var(--ui-ink) !important;
         }
@@ -5182,7 +5252,7 @@
         .factory-session-option.selected,
         .service-session-option.selected {
             border-color: var(--ui-accent) !important;
-            background: #e0f2fe !important;
+            background: var(--ui-soft) !important;
         }
 
         .factory-permissions-grid {
@@ -5236,6 +5306,95 @@
                 display: block !important;
             }
         }
+
+        .sidebar-profile {
+            display: grid;
+            gap: 10px;
+            padding: 0 8px 12px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .sidebar-profile-main {
+            display: grid;
+            grid-template-columns: 34px minmax(0, 1fr) 34px;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .profile-avatar {
+            width: 34px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: var(--ui-accent);
+            color: #fff;
+        }
+
+        .profile-copy {
+            min-width: 0;
+        }
+
+        .profile-copy strong,
+        .profile-copy span {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .profile-copy strong {
+            color: #f8fafc;
+            font-size: 0.9rem;
+            line-height: 1.2;
+        }
+
+        .profile-copy span {
+            color: #8da2b8;
+            font-size: 0.73rem;
+            margin-top: 2px;
+        }
+
+        .profile-logout {
+            width: 34px;
+            height: 34px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.045);
+            color: #fecaca;
+            cursor: pointer;
+        }
+
+        .theme-control {
+            display: grid;
+            gap: 6px;
+        }
+
+        .theme-control label {
+            color: #8da2b8;
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .theme-select {
+            width: 100%;
+            min-height: 34px !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 8px !important;
+            background: rgba(255, 255, 255, 0.045) !important;
+            color: #e5eef8 !important;
+            padding: 0 10px !important;
+            font-size: 0.82rem !important;
+        }
+
+        .theme-select option {
+            background: #0f172a;
+            color: #e5eef8;
+        }
     </style>
 </head>
 <body>
@@ -5254,28 +5413,30 @@
         
         <!-- Sidebar -->
         <nav class="sidebar" id="sidebar">
-            <div class="sidebar-logo">
-                <h1>
-                    <i class="fab fa-telegram"></i>
-                    TG Auto
-                </h1>
-                <p>Sistema de Automação</p>
-            </div>
-            
-            <!-- User Info -->
-            <div class="user-panel-modern">
-                <div class="user-panel-row">
-                    <div class="user-avatar-modern">
+            <div class="sidebar-profile">
+                <div class="sidebar-profile-main">
+                    <div class="profile-avatar">
                         <i class="fas fa-user"></i>
                     </div>
-                    <div style="flex: 1; min-width: 0;">
+                    <div class="profile-copy">
                         <strong>{{ username }}</strong>
-                        <span>Ambiente ativo</span>
+                        <span>Painel ativo</span>
                     </div>
+                    <button class="profile-logout" onclick="logout()" type="button" title="Sair">
+                        <i class="fas fa-right-from-bracket"></i>
+                    </button>
                 </div>
-                <button class="logout-btn-modern" onclick="logout()">
-                    <i class="fas fa-right-from-bracket"></i> Sair
-                </button>
+                <div class="theme-control">
+                    <label for="theme-select">Tema</label>
+                    <select id="theme-select" class="theme-select" onchange="setPanelTheme(this.value)">
+                        <option value="light">Claro profissional</option>
+                        <option value="dark">Escuro moderno</option>
+                        <option value="graphite">Grafite</option>
+                        <option value="ocean">Oceano</option>
+                        <option value="emerald">Esmeralda</option>
+                        <option value="violet">Violeta</option>
+                    </select>
+                </div>
             </div>
 
             <div class="privacy-controls">
@@ -6896,11 +7057,29 @@
     <script src="{{ url_for('static', filename='script.js') }}?v=2.2.9"></script>
     
     <script>
+        const PANEL_THEME_KEY = 'panelTheme';
+
+        function setPanelTheme(theme) {
+            const allowedThemes = ['light', 'dark', 'graphite', 'ocean', 'emerald', 'violet'];
+            const nextTheme = allowedThemes.includes(theme) ? theme : 'light';
+            document.body.dataset.theme = nextTheme;
+            localStorage.setItem(PANEL_THEME_KEY, nextTheme);
+            const themeSelect = document.getElementById('theme-select');
+            if (themeSelect) themeSelect.value = nextTheme;
+        }
+
+        function applyPanelTheme() {
+            setPanelTheme(localStorage.getItem(PANEL_THEME_KEY) || 'light');
+        }
+
+        applyPanelTheme();
+
         function applyViewPreferences() {
             const privacyEnabled = localStorage.getItem('privacyMode') === 'true';
             const compactEnabled = localStorage.getItem('compactMode') === 'true';
             document.body.classList.toggle('privacy-mode', privacyEnabled);
             document.body.classList.toggle('compact-mode', compactEnabled);
+            applyPanelTheme();
 
             const privacyButton = document.getElementById('privacy-toggle');
             const compactButton = document.getElementById('compact-toggle');
