@@ -216,7 +216,10 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.classList.add('active');
             document.getElementById(tab).classList.add('active');
             
-            if (tab === 'sessions') loadSessions();
+            if (tab === 'sessions') {
+                resetSessionSearchOnOpen();
+                loadSessions();
+            }
             if (tab === 'tasks') {
                 loadTasks();
                 loadTaskSessions();
@@ -574,6 +577,20 @@ function setSessionSearch(value) {
     currentSessionSearch = String(value || '').trim().toLowerCase();
     selectedSessionIndex = null;
     loadSessions();
+}
+
+function clearSessionSearch() {
+    currentSessionSearch = '';
+    selectedSessionIndex = null;
+    const input = document.getElementById('session-search-input');
+    if (input) input.value = '';
+    loadSessions();
+}
+
+function resetSessionSearchOnOpen() {
+    currentSessionSearch = '';
+    const input = document.getElementById('session-search-input');
+    if (input) input.value = '';
 }
 
 // Sessões

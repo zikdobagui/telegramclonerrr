@@ -5464,7 +5464,7 @@
 
         .session-search-bar {
             display: grid;
-            grid-template-columns: minmax(220px, 1fr) auto;
+            grid-template-columns: minmax(220px, 1fr) auto auto;
             gap: 10px;
             align-items: center;
             margin: 0 0 12px;
@@ -5497,6 +5497,18 @@
             font-size: 0.82rem;
             font-weight: 750;
             white-space: nowrap;
+        }
+
+        .session-search-clear {
+            min-height: 38px;
+            border: 1px solid var(--ui-line);
+            border-radius: 8px;
+            background: var(--ui-soft);
+            color: var(--ui-ink);
+            padding: 0 12px;
+            font-size: 0.82rem;
+            font-weight: 750;
+            cursor: pointer;
         }
 
         .dashboard-welcome,
@@ -5912,9 +5924,12 @@
                     <div class="session-search-bar">
                         <div class="session-search-input">
                             <i class="fas fa-search"></i>
-                            <input type="search" id="session-search-input" placeholder="Pesquisar sessão por nome, telefone, username, código ou status..." oninput="setSessionSearch(this.value)" autocomplete="off">
+                            <input type="search" id="session-search-input" name="session_search_filter_manual" placeholder="Pesquisar sessão por nome, telefone, username, código ou status..." oninput="setSessionSearch(this.value)" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="">
                         </div>
                         <div class="session-search-count" id="session-search-count">0 encontradas</div>
+                        <button type="button" class="session-search-clear" onclick="clearSessionSearch()">
+                            <i class="fas fa-xmark"></i> Limpar
+                        </button>
                     </div>
 
                     <div class="session-status-tabs" id="session-status-tabs">
@@ -7319,7 +7334,10 @@
                 
                 // Carrega dados da tab
                 if (tab === 'dashboard') loadDashboard();
-                if (tab === 'sessions') loadSessions();
+                if (tab === 'sessions') {
+                    if (typeof resetSessionSearchOnOpen === 'function') resetSessionSearchOnOpen();
+                    loadSessions();
+                }
                 if (tab === 'tasks') {
                     loadTasks();
                     loadTaskSessions();
