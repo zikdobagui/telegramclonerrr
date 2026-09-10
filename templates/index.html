@@ -4766,9 +4766,39 @@
             color: #f8fafc;
         }
 
+        .factory-permissions-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .factory-permission-item {
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 9px 10px;
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.46);
+            color: #dbe7f3;
+            cursor: pointer;
+            font-size: 0.84rem;
+        }
+
+        .factory-permission-item input {
+            width: 17px;
+            height: 17px;
+            accent-color: #38bdf8;
+        }
+
         @media (max-width: 980px) {
             .factory-layout,
             .factory-form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .factory-permissions-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -5420,12 +5450,47 @@
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Permissões iniciais</label>
-                    <label class="task-toggle-row">
-                        <input type="checkbox" id="factory-add-members" checked>
-                        <span>Permitir adicionar membros no grupo</span>
-                    </label>
+                <div class="form-group wide">
+                    <label>Permissões dos membros</label>
+                    <div class="factory-permissions-grid">
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="send_messages" checked>
+                            <span>Enviar mensagens</span>
+                        </label>
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="send_media" checked>
+                            <span>Enviar mídias</span>
+                        </label>
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="send_stickers" checked>
+                            <span>Stickers e GIFs</span>
+                        </label>
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="send_polls" checked>
+                            <span>Enviar enquetes</span>
+                        </label>
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="embed_links" checked>
+                            <span>Prévia de links</span>
+                        </label>
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="invite_users" checked>
+                            <span>Adicionar membros</span>
+                        </label>
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="change_info">
+                            <span>Alterar informações</span>
+                        </label>
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="pin_messages">
+                            <span>Fixar mensagens</span>
+                        </label>
+                        <label class="factory-permission-item">
+                            <input type="checkbox" class="factory-permission" data-permission="manage_topics" checked>
+                            <span>Criar tópicos</span>
+                        </label>
+                    </div>
+                    <small class="factory-muted">Marcado = permitido. Desmarcado = bloqueado nas permissões padrão do grupo.</small>
                 </div>
 
                 <div class="form-group">
@@ -6629,12 +6694,20 @@
             status.textContent = message;
         }
 
+        function getFactoryMemberPermissions() {
+            const permissions = {};
+            document.querySelectorAll('.factory-permission').forEach(input => {
+                permissions[input.dataset.permission] = input.checked;
+            });
+            return permissions;
+        }
+
         async function startGroupFactory() {
             const sessionIndex = document.getElementById('factory-session-index').value;
             const names = document.getElementById('factory-group-names').value.trim();
             const admins = document.getElementById('factory-admins').value.trim();
             const delay = parseInt(document.getElementById('factory-delay').value || '20', 10);
-            const allowAddMembers = document.getElementById('factory-add-members').checked;
+            const memberPermissions = getFactoryMemberPermissions();
             const files = getFactoryCoverFiles();
 
             if (sessionIndex === '') {
@@ -6660,7 +6733,8 @@
             formData.append('group_names', names);
             formData.append('admin_users', admins);
             formData.append('delay_seconds', String(delay));
-            formData.append('add_members_enabled', String(allowAddMembers));
+            formData.append('add_members_enabled', String(!!memberPermissions.invite_users));
+            formData.append('member_permissions', JSON.stringify(memberPermissions));
             files.forEach(file => formData.append('covers', file));
 
             document.getElementById('factory-logs').style.display = 'block';

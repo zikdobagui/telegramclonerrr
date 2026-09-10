@@ -350,6 +350,31 @@ def parse_group_factory_admins(raw_admins):
 def allowed_group_cover(filename):
     return os.path.splitext(filename or '')[1].lower() in {'.jpg', '.jpeg', '.png', '.webp'}
 
+def parse_group_member_permissions(raw_permissions, add_members_enabled=True):
+    defaults = {
+        'send_messages': True,
+        'send_media': True,
+        'send_stickers': True,
+        'send_polls': True,
+        'embed_links': True,
+        'invite_users': bool(add_members_enabled),
+        'change_info': False,
+        'pin_messages': False,
+        'manage_topics': True
+    }
+    if not raw_permissions:
+        return defaults
+    try:
+        payload = json.loads(raw_permissions)
+    except Exception:
+        return defaults
+    if not isinstance(payload, dict):
+        return defaults
+    for key in list(defaults.keys()):
+        if key in payload:
+            defaults[key] = bool(payload.get(key))
+    return defaults
+
 def attach_task_members_file(task, source_file, members, paths):
     """Copia uma extração para arquivo próprio da tarefa e vincula nela."""
     from datetime import datetime
@@ -1222,6 +1247,10 @@ def create_groups_factory():
         names = parse_group_factory_names(request.form.get('group_names', ''))
         admins = parse_group_factory_admins(request.form.get('admin_users', ''))
         add_members_enabled = request.form.get('add_members_enabled', 'true') != 'false'
+        member_permissions = parse_group_member_permissions(
+            request.form.get('member_permissions'),
+            add_members_enabled=add_members_enabled
+        )
         delay_seconds = max(5, min(300, int(request.form.get('delay_seconds') or 15)))
 
         if not names:
@@ -1269,7 +1298,7 @@ def create_groups_factory():
             'results': []
         }
 
-        def run_job(username, user_paths, session_info, group_names, admin_refs, covers, process_id, api_id, api_hash, allow_add_members, delay):
+        def run_job(username, user_paths, session_info, group_names, admin_refs, covers, process_id, api_id, api_hash, permissions, delay):
             import asyncio
             import time
             from telethon import TelegramClient
@@ -1345,25 +1374,25 @@ def create_groups_factory():
                     banned_kwargs = {
                         'until_date': None,
                         'view_messages': False,
-                        'send_messages': False,
-                        'send_media': False,
-                        'send_stickers': False,
-                        'send_gifs': False,
-                        'send_games': False,
-                        'send_inline': False,
-                        'embed_links': False,
-                        'send_polls': False,
-                        'change_info': False,
-                        'invite_users': not allow_add_members,
-                        'pin_messages': False,
-                        'manage_topics': False,
-                        'send_photos': False,
-                        'send_videos': False,
-                        'send_roundvideos': False,
-                        'send_audios': False,
-                        'send_voices': False,
-                        'send_docs': False,
-                        'send_plain': False
+                        'send_messages': not permissions.get('send_messages', True),
+                        'send_media': not permissions.get('send_media', True),
+                        'send_stickers': not permissions.get('send_stickers', True),
+                        'send_gifs': not permissions.get('send_stickers', True),
+                        'send_games': not permissions.get('send_stickers', True),
+                        'send_inline': not permissions.get('send_stickers', True),
+                        'embed_links': not permissions.get('embed_links', True),
+                        'send_polls': not permissions.get('send_polls', True),
+                        'change_info': not permissions.get('change_info', False),
+                        'invite_users': not permissions.get('invite_users', True),
+                        'pin_messages': not permissions.get('pin_messages', False),
+                        'manage_topics': not permissions.get('manage_topics', True),
+                        'send_photos': not permissions.get('send_media', True),
+                        'send_videos': not permissions.get('send_media', True),
+                        'send_roundvideos': not permissions.get('send_media', True),
+                        'send_audios': not permissions.get('send_media', True),
+                        'send_voices': not permissions.get('send_media', True),
+                        'send_docs': not permissions.get('send_media', True),
+                        'send_plain': not permissions.get('send_messages', True)
                     }
                     while True:
                         try:
@@ -1376,8 +1405,8 @@ def create_groups_factory():
                                 continue
                             banned_rights = ChatBannedRights(
                                 until_date=None,
-                                send_messages=False,
-                                invite_users=not allow_add_members
+                                send_messages=not permissions.get('send_messages', True),
+                                invite_users=not permissions.get('invite_users', True)
                             )
                             break
                     await client(EditBannedDefaultRightsRequest(
@@ -1407,7 +1436,8 @@ def create_groups_factory():
                     'id': getattr(channel, 'id', None),
                     'title': getattr(channel, 'title', group_name),
                     'admins': admin_results,
-                    'add_members_enabled': allow_add_members
+                    'member_permissions': permissions,
+                    'add_members_enabled': permissions.get('invite_users', True)
                 }
 
             async def runner():
@@ -1479,7 +1509,7 @@ def create_groups_factory():
 
         thread = threading.Thread(
             target=run_job,
-            args=(current_username, paths, selected_session, names, admins, cover_paths, process_id, api_id, api_hash, add_members_enabled, delay_seconds),
+            args=(current_username, paths, selected_session, names, admins, cover_paths, process_id, api_id, api_hash, member_permissions, delay_seconds),
             daemon=True
         )
         thread.start()
