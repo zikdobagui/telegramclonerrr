@@ -15,16 +15,18 @@
         }
 
         :root {
-            --bg: #050816;
-            --panel: rgba(13, 16, 22, 0.88);
-            --panel-strong: rgba(18, 22, 30, 0.96);
-            --line: rgba(241, 245, 249, 0.11);
-            --muted: #91a0b5;
+            --bg: #020617;
+            --panel: rgba(7, 15, 29, 0.78);
+            --panel-strong: rgba(8, 16, 31, 0.9);
+            --line: rgba(125, 211, 252, 0.17);
+            --muted: #9fb0c4;
             --text: #f8fafc;
-            --red: #8b5cf6;
-            --red-dark: #4c1d95;
+            --red: #7c3aed;
+            --red-dark: #1d4ed8;
             --cyan: #22d3ee;
             --green: #22c55e;
+            --blue: #38bdf8;
+            --violet: #a78bfa;
         }
 
         body {
@@ -38,12 +40,25 @@
         .page {
             min-height: 100vh;
             background:
-                radial-gradient(circle at 78% 20%, rgba(34, 211, 238, 0.18), transparent 32%),
-                radial-gradient(circle at 15% 80%, rgba(139, 92, 246, 0.22), transparent 38%),
-                linear-gradient(115deg, rgba(5, 8, 22, .98), rgba(8, 13, 34, .88)),
+                radial-gradient(circle at 82% 14%, rgba(34, 211, 238, 0.2), transparent 28%),
+                radial-gradient(circle at 18% 84%, rgba(124, 58, 237, 0.2), transparent 34%),
+                linear-gradient(115deg, rgba(2, 6, 23, .98), rgba(8, 13, 34, .9)),
                 url("{{ url_for('static', filename='landing-hero-dashboard.png') }}") right top / min(68vw, 1100px) auto no-repeat;
             position: relative;
             isolation: isolate;
+        }
+
+        .page::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(90deg, rgba(125, 211, 252, 0.055) 1px, transparent 1px),
+                linear-gradient(rgba(125, 211, 252, 0.04) 1px, transparent 1px);
+            background-size: 58px 58px;
+            mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.88), transparent 82%);
+            pointer-events: none;
+            z-index: -1;
         }
 
         .page::after {
@@ -54,6 +69,66 @@
             background: linear-gradient(180deg, rgba(7, 9, 13, 0), #07090d 72%);
             pointer-events: none;
             z-index: -1;
+        }
+
+        .neon-field {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .scan-line {
+            position: absolute;
+            left: -12%;
+            right: -12%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.58), transparent);
+            box-shadow: 0 0 28px rgba(34, 211, 238, 0.36);
+            animation: scanMove 8s linear infinite;
+        }
+
+        .scan-line.one { top: 26%; }
+        .scan-line.two { top: 64%; animation-delay: -3s; opacity: 0.56; }
+
+        .orbit {
+            position: absolute;
+            width: 430px;
+            height: 430px;
+            right: clamp(18px, 7vw, 120px);
+            top: 118px;
+            border: 1px solid rgba(34, 211, 238, 0.18);
+            border-radius: 50%;
+            box-shadow: inset 0 0 44px rgba(34, 211, 238, 0.04), 0 0 54px rgba(34, 211, 238, 0.08);
+            animation: orbitPulse 5s ease-in-out infinite;
+        }
+
+        .orbit::before,
+        .orbit::after {
+            content: "";
+            position: absolute;
+            inset: 42px;
+            border: 1px dashed rgba(167, 139, 250, 0.22);
+            border-radius: 50%;
+        }
+
+        .orbit::after {
+            inset: 118px;
+            border-style: solid;
+            border-color: rgba(34, 197, 94, 0.14);
+        }
+
+        @keyframes scanMove {
+            from { transform: translateY(-80px); opacity: 0; }
+            14% { opacity: 1; }
+            86% { opacity: 1; }
+            to { transform: translateY(220px); opacity: 0; }
+        }
+
+        @keyframes orbitPulse {
+            0%, 100% { transform: scale(1); opacity: 0.72; }
+            50% { transform: scale(1.035); opacity: 1; }
         }
 
         .shell {
@@ -83,8 +158,8 @@
             display: grid;
             place-items: center;
             border-radius: 8px;
-            background: linear-gradient(135deg, var(--red-dark), var(--red));
-            box-shadow: 0 14px 34px rgba(225, 29, 72, 0.32);
+            background: linear-gradient(135deg, var(--blue), var(--red));
+            box-shadow: 0 14px 34px rgba(56, 189, 248, 0.28), inset 0 1px 0 rgba(255,255,255,.28);
         }
 
         .nav-links {
@@ -127,19 +202,26 @@
             min-height: 34px;
             padding: 7px 11px;
             border-radius: 8px;
-            color: #fecdd3;
-            background: rgba(225, 29, 72, 0.12);
-            border: 1px solid rgba(225, 29, 72, 0.26);
+            color: #bae6fd;
+            background: rgba(14, 165, 233, 0.12);
+            border: 1px solid rgba(34, 211, 238, 0.28);
             font-size: 13px;
             font-weight: 800;
             margin-bottom: 22px;
+            box-shadow: 0 0 28px rgba(34, 211, 238, 0.1);
         }
 
         h1 {
             font-size: clamp(42px, 6vw, 78px);
             line-height: 0.98;
-            letter-spacing: -0.055em;
+            letter-spacing: 0;
             max-width: 760px;
+            text-shadow: 0 0 42px rgba(34, 211, 238, 0.12);
+        }
+
+        .title-accent {
+            color: var(--cyan);
+            text-shadow: 0 0 28px rgba(34, 211, 238, .35), 0 0 68px rgba(124, 58, 237, .2);
         }
 
         .hero-copy > p {
@@ -173,8 +255,8 @@
         }
 
         .hero-button.primary {
-            background: linear-gradient(135deg, #be123c, #ef4444);
-            box-shadow: 0 16px 38px rgba(225, 29, 72, 0.28);
+            background: linear-gradient(135deg, #0ea5e9, #7c3aed);
+            box-shadow: 0 16px 38px rgba(14, 165, 233, 0.26), 0 0 24px rgba(124, 58, 237, 0.18);
         }
 
         .hero-button.secondary {
@@ -194,7 +276,8 @@
             padding: 15px;
             border: 1px solid var(--line);
             border-radius: 8px;
-            background: rgba(10, 13, 18, 0.66);
+            background: rgba(8, 16, 31, 0.64);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 
         .metric strong {
@@ -212,12 +295,12 @@
 
         .auth-card {
             background:
-                linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0)),
+                linear-gradient(145deg, rgba(34, 211, 238, 0.12), rgba(124, 58, 237, 0.06) 38%, rgba(255, 255, 255, 0.025)),
                 var(--panel-strong);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(125, 211, 252, 0.24);
             border-radius: 8px;
             padding: 28px;
-            box-shadow: 0 30px 95px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(225, 29, 72, 0.08);
+            box-shadow: 0 30px 95px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(34, 211, 238, 0.08), 0 0 58px rgba(34, 211, 238, 0.12);
             backdrop-filter: blur(18px);
             position: relative;
             overflow: hidden;
@@ -227,7 +310,10 @@
             content: "";
             position: absolute;
             inset: 0;
-            border-top: 3px solid rgba(225, 29, 72, 0.9);
+            border-top: 3px solid rgba(34, 211, 238, 0.9);
+            background:
+                linear-gradient(90deg, rgba(34, 211, 238, 0.14), transparent 28%, rgba(124, 58, 237, 0.1) 72%, transparent),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 42%);
             pointer-events: none;
         }
 
@@ -237,8 +323,39 @@
             inset: -80px -120px auto auto;
             width: 220px;
             height: 220px;
-            background: radial-gradient(circle, rgba(34, 211, 238, 0.16), rgba(34, 211, 238, 0));
+            background: radial-gradient(circle, rgba(34, 211, 238, 0.26), rgba(34, 211, 238, 0));
             pointer-events: none;
+        }
+
+        .auth-card-glow {
+            position: absolute;
+            inset: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .auth-card-glow::before,
+        .auth-card-glow::after {
+            content: "";
+            position: absolute;
+            width: 54px;
+            height: 54px;
+            border-color: rgba(34, 211, 238, 0.62);
+            border-style: solid;
+        }
+
+        .auth-card-glow::before {
+            top: -1px;
+            left: -1px;
+            border-width: 1px 0 0 1px;
+        }
+
+        .auth-card-glow::after {
+            right: -1px;
+            bottom: -1px;
+            border-width: 0 1px 1px 0;
         }
 
         .auth-header {
@@ -293,8 +410,8 @@
 
         .auth-tab.active {
             color: #fff;
-            background: linear-gradient(135deg, rgba(190, 18, 60, 0.9), rgba(239, 68, 68, 0.9));
-            box-shadow: 0 10px 25px rgba(225, 29, 72, 0.18);
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.9), rgba(124, 58, 237, 0.9));
+            box-shadow: 0 10px 25px rgba(14, 165, 233, 0.18);
         }
 
         .message {
@@ -356,7 +473,7 @@
             padding: 12px 13px 12px 39px;
             border: 1px solid rgba(148, 163, 184, 0.22);
             border-radius: 8px;
-            background: rgba(3, 7, 18, 0.72);
+            background: rgba(2, 6, 23, 0.72);
             color: var(--text);
             font: inherit;
             outline: none;
@@ -389,14 +506,14 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #be123c, #ef4444);
+            background: linear-gradient(135deg, #0ea5e9, #7c3aed);
             color: #fff;
-            box-shadow: 0 16px 34px rgba(225, 29, 72, 0.22);
+            box-shadow: 0 16px 34px rgba(14, 165, 233, 0.22);
             margin-top: 5px;
         }
 
         .btn-primary:hover {
-            box-shadow: 0 18px 42px rgba(225, 29, 72, 0.34);
+            box-shadow: 0 18px 42px rgba(14, 165, 233, 0.34);
         }
 
         .btn-secondary {
@@ -489,8 +606,36 @@
             border-radius: 8px;
             margin-bottom: 15px;
             color: #fff;
-            background: rgba(225, 29, 72, 0.18);
-            border: 1px solid rgba(225, 29, 72, 0.25);
+            background: rgba(14, 165, 233, 0.16);
+            border: 1px solid rgba(34, 211, 238, 0.26);
+        }
+
+        .auth-status-strip {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin: 0 0 18px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .auth-status-strip span {
+            min-height: 30px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            border: 1px solid rgba(125, 211, 252, 0.17);
+            border-radius: 8px;
+            background: rgba(2, 6, 23, 0.46);
+            color: #b7c5d8;
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .auth-status-strip i {
+            color: var(--green);
+            font-size: 8px;
         }
 
         .feature h3 {
@@ -562,6 +707,11 @@
                 max-width: 520px;
             }
 
+            .orbit {
+                opacity: 0.35;
+                right: -120px;
+            }
+
             .feature-grid,
             .workflow {
                 grid-template-columns: 1fr 1fr;
@@ -601,11 +751,24 @@
             .section-head p {
                 margin-top: 12px;
             }
+
+            .auth-status-strip {
+                grid-template-columns: 1fr;
+            }
+
+            .orbit {
+                display: none;
+            }
         }
     </style>
 </head>
 <body>
     <div class="page">
+        <div class="neon-field" aria-hidden="true">
+            <div class="orbit"></div>
+            <div class="scan-line one"></div>
+            <div class="scan-line two"></div>
+        </div>
         <header class="shell nav">
             <div class="brand">
                 <div class="brand-mark"><i class="fas fa-bolt"></i></div>
@@ -621,7 +784,7 @@
         <main class="shell hero">
             <section class="hero-copy">
                 <div class="eyebrow"><i class="fas fa-sparkles"></i> Plataforma inteligente de automacao</div>
-                <h1>ULTRA<br><span style="color:#22d3ee;text-shadow:0 0 28px rgba(34,211,238,.35)">TELEGRAM CLONER</span></h1>
+                <h1>ULTRA<br><span class="title-accent">TELEGRAM CLONER</span></h1>
                 <p>
                     Potencialize suas operações do Telegram em um painel futurista, seguro e completo.
                 </p>
@@ -646,10 +809,17 @@
             </section>
 
             <aside class="auth-card" id="acesso">
+                <div class="auth-card-glow" aria-hidden="true"></div>
                 <div class="auth-header">
                     <span id="authModeLabel">Acesso seguro</span>
                     <h2 id="authTitle">Entrar na plataforma</h2>
                     <p id="authDescription">Use seu usuario para acessar o painel operacional.</p>
+                </div>
+
+                <div class="auth-status-strip" aria-label="Status do sistema">
+                    <span><i class="fas fa-circle"></i> Online</span>
+                    <span><i class="fas fa-circle"></i> Seguro</span>
+                    <span><i class="fas fa-circle"></i> Isolado</span>
                 </div>
 
                 <div class="auth-tabs">
