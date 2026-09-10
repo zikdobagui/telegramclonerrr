@@ -5462,6 +5462,43 @@
             color: var(--ui-danger);
         }
 
+        .session-search-bar {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            margin: 0 0 12px;
+            padding: 10px;
+            border: 1px solid var(--ui-line);
+            border-radius: 8px;
+            background: var(--ui-card);
+        }
+
+        .session-search-input {
+            position: relative;
+        }
+
+        .session-search-input i {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--ui-muted);
+            pointer-events: none;
+        }
+
+        .session-search-input input {
+            width: 100%;
+            padding-left: 38px !important;
+        }
+
+        .session-search-count {
+            color: var(--ui-muted);
+            font-size: 0.82rem;
+            font-weight: 750;
+            white-space: nowrap;
+        }
+
         .dashboard-welcome,
         .dashboard-health,
         .dashboard-card,
@@ -5487,6 +5524,10 @@
             .panel-topbar .theme-control,
             .panel-topbar .theme-select {
                 width: 100%;
+            }
+
+            .session-search-bar {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -5866,6 +5907,14 @@
                                 <i class="fas fa-trash-alt"></i> Remover Selecionadas
                             </button>
                         </div>
+                    </div>
+
+                    <div class="session-search-bar">
+                        <div class="session-search-input">
+                            <i class="fas fa-search"></i>
+                            <input type="search" id="session-search-input" placeholder="Pesquisar sessão por nome, telefone, username, código ou status..." oninput="setSessionSearch(this.value)" autocomplete="off">
+                        </div>
+                        <div class="session-search-count" id="session-search-count">0 encontradas</div>
                     </div>
 
                     <div class="session-status-tabs" id="session-status-tabs">

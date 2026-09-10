@@ -2,6 +2,7 @@ const socket = io();
 let currentSessions = [];
 let selectedSessionIndex = null;
 let currentSessionFilter = 'all';
+let currentSessionSearch = '';
 let liveRefreshTimer = null;
 let liveRefreshBusy = false;
 let lastLiveRefreshAt = null;
@@ -551,6 +552,30 @@ async function importSessionsFromFileList(fileList, sourceLabel = 'arquivos', so
     }
 }
 
+function getSessionSearchText(session, index, filterKey = '') {
+    return [
+        index + 1,
+        session.session_name,
+        session.phone,
+        session.username,
+        session.first_name,
+        session.name,
+        session.status,
+        filterKey,
+        session.user_id,
+        session.flood_until
+    ]
+        .filter(value => value !== undefined && value !== null)
+        .join(' ')
+        .toLowerCase();
+}
+
+function setSessionSearch(value) {
+    currentSessionSearch = String(value || '').trim().toLowerCase();
+    selectedSessionIndex = null;
+    loadSessions();
+}
+
 // Sessões
 async function loadSessions() {
     const response = await fetch(`/api/sessions?_=${Date.now()}`, {cache: 'no-store'});
@@ -571,11 +596,17 @@ async function loadSessions() {
     
     const list = document.getElementById('sessions-list');
     list.innerHTML = '';
+    const searchInput = document.getElementById('session-search-input');
+    if (searchInput && searchInput.value !== currentSessionSearch) {
+        searchInput.value = currentSessionSearch;
+    }
     
     // Controles de seleção em massa
     const selectionControls = document.getElementById('session-selection-controls');
     
     if (currentSessions.length === 0) {
+        const searchCount = document.getElementById('session-search-count');
+        if (searchCount) searchCount.textContent = '0 encontradas';
         // Esconde controles de seleção se não houver sessões
         if (selectionControls && selectionControls.querySelector('#selected-count')) {
             selectionControls.style.display = 'none';
@@ -631,15 +662,31 @@ async function loadSessions() {
     
     updateSessionFilterCounts(currentSessions, locks, reservedSessions);
     const visibleSessions = currentSessions
-        .map((session, index) => ({session, index}))
-        .filter(({session, index}) => currentSessionFilter === 'all' || getSessionFilterKey(session, index, locks, reservedSessions) === currentSessionFilter);
+        .map((session, index) => {
+            const filterKey = getSessionFilterKey(session, index, locks, reservedSessions);
+            return {session, index, filterKey};
+        })
+        .filter(({filterKey}) => currentSessionFilter === 'all' || filterKey === currentSessionFilter)
+        .filter(({session, index, filterKey}) => {
+            if (!currentSessionSearch) return true;
+            return getSessionSearchText(session, index, filterKey).includes(currentSessionSearch);
+        });
+
+    const searchCount = document.getElementById('session-search-count');
+    if (searchCount) {
+        searchCount.textContent = `${visibleSessions.length} de ${currentSessions.length} encontrada(s)`;
+    }
 
     if (visibleSessions.length === 0) {
+        const emptyTitle = currentSessionSearch ? 'Nenhuma sessão encontrada' : 'Nenhuma sessão neste status';
+        const emptyMessage = currentSessionSearch
+            ? 'Limpe ou ajuste a pesquisa para encontrar outra sessão.'
+            : 'Troque o filtro acima para ver outras sessões cadastradas.';
         list.innerHTML = `
             <div style="text-align: center; padding: 38px 20px; background: rgba(15, 23, 42, 0.5); border-radius: 12px; border: 1px dashed rgba(148, 163, 184, 0.28);">
                 <div style="font-size: 34px; margin-bottom: 12px; color: #94a3b8;"><i class="fas fa-filter"></i></div>
-                <h3 style="color: #e2e8f0; margin-bottom: 8px;">Nenhuma sessão neste status</h3>
-                <p style="color: #94a3b8;">Troque o filtro acima para ver outras sessões cadastradas.</p>
+                <h3 style="color: #e2e8f0; margin-bottom: 8px;">${emptyTitle}</h3>
+                <p style="color: #94a3b8;">${emptyMessage}</p>
             </div>
         `;
         renderSessionDetail(null);
