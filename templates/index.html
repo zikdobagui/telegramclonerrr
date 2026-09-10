@@ -4678,6 +4678,55 @@
             font-size: 1rem;
         }
 
+        .factory-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .factory-panel-head h3 {
+            margin: 0;
+        }
+
+        .factory-panel-head .factory-muted {
+            display: block;
+            margin-top: 4px;
+            font-size: 0.78rem;
+        }
+
+        .factory-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 38px;
+            padding: 0 14px;
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            color: var(--panel-text);
+            background: rgba(96, 165, 250, 0.12);
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+
+        .factory-toggle:hover {
+            transform: translateY(-1px);
+            border-color: rgba(56, 189, 248, 0.5);
+            background: rgba(56, 189, 248, 0.18);
+        }
+
+        .factory-toggle i {
+            width: 14px;
+            text-align: center;
+        }
+
+        .factory-config-panel.collapsed .factory-config-body {
+            display: none;
+        }
+
         .factory-session-list,
         .factory-history-list {
             display: grid;
@@ -6313,8 +6362,18 @@
             </div>
         </section>
 
-        <section class="factory-panel">
-            <h3>Configuração dos grupos</h3>
+        <section class="factory-panel factory-config-panel collapsed" id="factory-config-panel">
+            <div class="factory-panel-head">
+                <div>
+                    <h3>Configuração dos grupos</h3>
+                    <span class="factory-muted">Nomes, admins, capas, delay e permissões ficam aqui.</span>
+                </div>
+                <button type="button" class="factory-toggle" onclick="toggleGroupFactoryConfig()">
+                    <i id="factory-config-toggle-icon" class="fas fa-chevron-down"></i>
+                    <span id="factory-config-toggle-label">Mostrar configuração</span>
+                </button>
+            </div>
+            <div class="factory-config-body">
             <div class="factory-form-grid">
                 <div class="form-group wide">
                     <label>Nomes dos grupos</label>
@@ -6404,6 +6463,7 @@
                         <i class="fas fa-wand-magic-sparkles"></i> Criar grupos agora
                     </button>
                 </div>
+            </div>
             </div>
 
             <div id="factory-status" class="status-box" style="display:none;"></div>
@@ -7508,6 +7568,36 @@
         });
 
         let factorySessions = [];
+
+        function setGroupFactoryConfigCollapsed(collapsed) {
+            const panel = document.getElementById('factory-config-panel');
+            const icon = document.getElementById('factory-config-toggle-icon');
+            const label = document.getElementById('factory-config-toggle-label');
+            if (!panel) return;
+
+            panel.classList.toggle('collapsed', collapsed);
+
+            if (icon) {
+                icon.className = collapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+            }
+
+            if (label) {
+                label.textContent = collapsed ? 'Mostrar configuração' : 'Ocultar configuração';
+            }
+
+            localStorage.setItem('factoryConfigCollapsed', collapsed ? '1' : '0');
+        }
+
+        function toggleGroupFactoryConfig() {
+            const panel = document.getElementById('factory-config-panel');
+            if (!panel) return;
+            setGroupFactoryConfigCollapsed(!panel.classList.contains('collapsed'));
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const storedState = localStorage.getItem('factoryConfigCollapsed');
+            setGroupFactoryConfigCollapsed(storedState !== '0');
+        });
 
         async function loadGroupFactory() {
             await Promise.all([
