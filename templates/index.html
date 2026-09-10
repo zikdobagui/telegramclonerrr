@@ -4802,6 +4802,440 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* Panel redesign v3: cleaner commercial dashboard */
+        :root {
+            --ui-bg: #f6f8fb;
+            --ui-ink: #172033;
+            --ui-muted: #667085;
+            --ui-soft: #eef3f8;
+            --ui-line: #d8e1ea;
+            --ui-card: #ffffff;
+            --ui-accent: #0ea5e9;
+            --ui-accent-strong: #0369a1;
+            --ui-good: #16a34a;
+            --ui-danger: #dc2626;
+            --ui-sidebar: #07111f;
+        }
+
+        html,
+        body {
+            background: var(--ui-bg) !important;
+            color: var(--ui-ink) !important;
+        }
+
+        body {
+            background: linear-gradient(180deg, #f8fafc 0%, #eef3f8 100%) !important;
+        }
+
+        body::before,
+        body::after {
+            display: none !important;
+        }
+
+        .app-container {
+            background: var(--ui-bg) !important;
+        }
+
+        .sidebar {
+            width: 236px !important;
+            padding: 14px 10px !important;
+            background: var(--ui-sidebar) !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+            color: #dbe7f3 !important;
+        }
+
+        .sidebar-logo {
+            padding: 0 8px 12px !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }
+
+        .sidebar-logo h1 {
+            color: #f8fafc !important;
+            background: none !important;
+            -webkit-text-fill-color: currentColor !important;
+            font-size: 0.98rem !important;
+        }
+
+        .sidebar-logo h1 i {
+            width: 30px !important;
+            height: 30px !important;
+            background: #0ea5e9 !important;
+            color: #fff !important;
+        }
+
+        .sidebar-logo p,
+        .user-panel-modern span {
+            color: #8da2b8 !important;
+        }
+
+        .user-panel-modern,
+        .privacy-toggle,
+        .logout-btn-modern {
+            background: rgba(255, 255, 255, 0.045) !important;
+            border-color: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        .user-avatar-modern {
+            background: #0ea5e9 !important;
+        }
+
+        .menu-section {
+            border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+        }
+
+        .menu-section-title {
+            color: #7dd3fc !important;
+            opacity: 0.78;
+        }
+
+        .menu-item {
+            color: #b7c7d8 !important;
+            min-height: 36px !important;
+            background: transparent !important;
+        }
+
+        .menu-item i {
+            background: rgba(255, 255, 255, 0.055) !important;
+            color: #9bdcff !important;
+        }
+
+        .menu-item:hover {
+            background: rgba(255, 255, 255, 0.065) !important;
+            border-color: transparent !important;
+        }
+
+        .menu-item.active {
+            background: #0b5f8f !important;
+            border-color: rgba(125, 211, 252, 0.22) !important;
+            box-shadow: none !important;
+            color: #fff !important;
+        }
+
+        .menu-item.active i {
+            background: rgba(255, 255, 255, 0.18) !important;
+            color: #fff !important;
+        }
+
+        .main-content {
+            margin-left: 236px !important;
+            padding: 22px 28px 0 !important;
+            background: var(--ui-bg) !important;
+            color: var(--ui-ink) !important;
+        }
+
+        .tab-content {
+            max-width: 1360px !important;
+            margin: 0 auto !important;
+        }
+
+        .content-header {
+            min-height: 44px !important;
+            margin-bottom: 14px !important;
+            padding: 0 0 12px !important;
+            border-bottom: 1px solid var(--ui-line) !important;
+        }
+
+        .content-header h2 {
+            color: var(--ui-ink) !important;
+            font-size: clamp(1.18rem, 1.4vw, 1.45rem) !important;
+            font-weight: 850 !important;
+        }
+
+        .content-header h2 i {
+            color: var(--ui-accent-strong) !important;
+            background: #e0f2fe !important;
+        }
+
+        .content-header p {
+            color: var(--ui-muted) !important;
+            font-size: 0.86rem !important;
+        }
+
+        .card,
+        .dashboard-welcome,
+        .dashboard-health,
+        .dashboard-card,
+        .dashboard-panel,
+        .stat-card,
+        .task-card-modern,
+        .reaction-panel,
+        .api-config,
+        .modal-content,
+        .session-item,
+        .factory-panel {
+            background: var(--ui-card) !important;
+            border: 1px solid var(--ui-line) !important;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+            color: var(--ui-ink) !important;
+        }
+
+        .card,
+        .dashboard-panel,
+        .factory-panel {
+            padding: 16px !important;
+            margin-bottom: 14px !important;
+        }
+
+        .card h2,
+        .card h3,
+        .dashboard-panel h3,
+        .factory-panel h3,
+        .reaction-panel-title h3 {
+            color: var(--ui-ink) !important;
+            font-size: 0.98rem !important;
+            margin-bottom: 12px !important;
+        }
+
+        .dashboard-hero {
+            grid-template-columns: minmax(0, 1fr) 320px !important;
+            gap: 12px !important;
+            margin-bottom: 12px !important;
+        }
+
+        .dashboard-welcome,
+        .dashboard-health {
+            padding: 16px !important;
+            background: #fff !important;
+        }
+
+        .dashboard-welcome h2 {
+            color: var(--ui-ink) !important;
+            font-size: clamp(1.25rem, 1.8vw, 1.7rem) !important;
+        }
+
+        .dashboard-welcome p,
+        .dashboard-health p,
+        .dashboard-row,
+        .factory-muted,
+        .form-group small {
+            color: var(--ui-muted) !important;
+        }
+
+        .dashboard-actions {
+            margin-top: 12px !important;
+        }
+
+        .dashboard-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+            gap: 10px !important;
+        }
+
+        .dashboard-card {
+            min-height: 74px !important;
+            padding: 12px !important;
+            grid-template-columns: 34px minmax(0, 1fr) !important;
+        }
+
+        .dashboard-card .icon {
+            width: 34px !important;
+            height: 34px !important;
+            color: var(--ui-accent-strong) !important;
+            background: #e0f2fe !important;
+        }
+
+        .dashboard-card strong {
+            color: var(--ui-ink) !important;
+            font-size: 1.45rem !important;
+        }
+
+        .dashboard-card span {
+            color: var(--ui-muted) !important;
+        }
+
+        .dashboard-panels {
+            grid-template-columns: minmax(0, 1fr) 300px 300px !important;
+            gap: 10px !important;
+        }
+
+        .dashboard-row {
+            min-height: 34px !important;
+            padding: 7px 0 !important;
+            border-bottom-color: var(--ui-line) !important;
+        }
+
+        .dashboard-row b {
+            color: var(--ui-ink) !important;
+        }
+
+        .health-pill,
+        .footer-pill,
+        .task-id-pill,
+        .task-status-chip {
+            border-radius: 999px !important;
+        }
+
+        .health-pill {
+            color: #15803d !important;
+            background: #dcfce7 !important;
+            border-color: #bbf7d0 !important;
+        }
+
+        .btn,
+        .dash-action,
+        .mini-btn {
+            min-height: 36px !important;
+            border-radius: 7px !important;
+            font-size: 0.84rem !important;
+            font-weight: 750 !important;
+        }
+
+        .btn-primary,
+        .dash-action.primary {
+            background: var(--ui-accent) !important;
+            color: #fff !important;
+        }
+
+        .btn-success {
+            background: var(--ui-good) !important;
+            color: #fff !important;
+        }
+
+        .btn-danger {
+            background: var(--ui-danger) !important;
+            color: #fff !important;
+        }
+
+        .dash-action,
+        .mini-btn,
+        .btn-secondary {
+            color: var(--ui-ink) !important;
+            background: var(--ui-soft) !important;
+            border: 1px solid var(--ui-line) !important;
+        }
+
+        input,
+        select,
+        textarea {
+            background: #fff !important;
+            border: 1px solid var(--ui-line) !important;
+            color: var(--ui-ink) !important;
+            min-height: 38px !important;
+        }
+
+        textarea {
+            min-height: 96px !important;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: var(--ui-accent) !important;
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12) !important;
+        }
+
+        .info,
+        .status-box,
+        .factory-file-note,
+        .factory-status,
+        .logs,
+        .process-list,
+        .sessions-list,
+        .factory-session-list,
+        .factory-history-list,
+        .service-session-list,
+        .reaction-session-list {
+            background: #f8fafc !important;
+            border-color: var(--ui-line) !important;
+            color: var(--ui-muted) !important;
+            box-shadow: none !important;
+        }
+
+        .info {
+            padding: 10px 12px !important;
+            margin-bottom: 12px !important;
+            border-left-width: 3px !important;
+        }
+
+        .task-toolbar,
+        .robo-action-bar,
+        .session-import-actions,
+        .task-inline-import-actions,
+        .reaction-actions {
+            gap: 8px !important;
+        }
+
+        .factory-layout {
+            grid-template-columns: 310px minmax(0, 1fr) !important;
+        }
+
+        .factory-session-option,
+        .factory-permission-item,
+        .factory-history-item,
+        .service-session-option,
+        .reaction-row,
+        .task-card-modern {
+            background: #fff !important;
+            border-color: var(--ui-line) !important;
+            color: var(--ui-ink) !important;
+        }
+
+        .factory-session-option strong,
+        .factory-history-item strong,
+        .service-session-option strong,
+        .reaction-row strong,
+        .task-card-title h4,
+        .session-title {
+            color: var(--ui-ink) !important;
+        }
+
+        .factory-session-option.selected,
+        .service-session-option.selected {
+            border-color: var(--ui-accent) !important;
+            background: #e0f2fe !important;
+        }
+
+        .factory-permissions-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        }
+
+        .app-footer {
+            max-width: 1360px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            background: transparent !important;
+            border-color: var(--ui-line) !important;
+            color: var(--ui-muted) !important;
+        }
+
+        .app-footer-brand strong {
+            color: var(--ui-ink) !important;
+        }
+
+        .app-footer-brand i {
+            background: #e0f2fe !important;
+            color: var(--ui-accent-strong) !important;
+        }
+
+        @media (max-width: 1180px) {
+            .dashboard-hero,
+            .dashboard-panels,
+            .factory-layout {
+                grid-template-columns: 1fr !important;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                margin-left: 0 !important;
+                padding: 78px 16px 0 !important;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .dashboard-grid,
+            .factory-permissions-grid {
+                grid-template-columns: 1fr !important;
+            }
+
+            .content-header {
+                display: block !important;
+            }
+        }
     </style>
 </head>
 <body>

@@ -28,6 +28,7 @@ users/*.json.*
 *.zip
 *.tmp
 *.temp
+templates/index.backup-*.html
 
 # Ambientes locais
 .venv/
