@@ -196,6 +196,7 @@ def get_user_paths(username=None):
         'automation_file': os.path.join(user_manager.get_user_data_dir(username), 'automation_config.json'),
         'warming_file': os.path.join(user_manager.get_user_data_dir(username), 'warming_groups.json'),
         'reactions_file': os.path.join(user_manager.get_user_data_dir(username), 'reactions.json'),
+        'group_factory_file': os.path.join(user_manager.get_user_data_dir(username), 'group_factory.json'),
     }
 
 def get_session_manager_instance(username=None):
@@ -305,6 +306,49 @@ def find_latest_pending_members_export(paths):
             continue
 
     return None, [], []
+
+def load_group_factory_data(paths=None):
+    paths = paths or get_user_paths()
+    default_data = {'jobs': []}
+    if not paths:
+        return default_data
+    file_path = paths['group_factory_file']
+    if not os.path.exists(file_path):
+        atomic_write_json(file_path, default_data)
+        return default_data
+    data = load_json_file(file_path, default_data)
+    data.setdefault('jobs', [])
+    return data
+
+def save_group_factory_data(data, paths=None):
+    paths = paths or get_user_paths()
+    if not paths:
+        return
+    data.setdefault('jobs', [])
+    atomic_write_json(paths['group_factory_file'], data)
+
+def parse_group_factory_names(raw_names):
+    names = []
+    for line in str(raw_names or '').replace(',', '\n').splitlines():
+        name = line.strip()
+        if name and name not in names:
+            names.append(name[:128])
+        if len(names) >= 50:
+            break
+    return names
+
+def parse_group_factory_admins(raw_admins):
+    admins = []
+    for line in str(raw_admins or '').replace(',', '\n').splitlines():
+        value = line.strip()
+        if value and value not in admins:
+            admins.append(value)
+        if len(admins) >= 20:
+            break
+    return admins
+
+def allowed_group_cover(filename):
+    return os.path.splitext(filename or '')[1].lower() in {'.jpg', '.jpeg', '.png', '.webp'}
 
 def attach_task_members_file(task, source_file, members, paths):
     """Copia uma extração para arquivo próprio da tarefa e vincula nela."""
@@ -668,6 +712,7 @@ def create_session_lock_state():
         'warming': False,
         'extraction': False,
         'addition': False,
+        'group_factory': False,
         'active_tasks': set()
     }
 
@@ -684,12 +729,12 @@ def check_session_lock(operation, task_id=None, username=None):
     """Verifica se pode executar a operação"""
     session_locks = get_user_lock_state(username)
     if operation == 'task':
-        if session_locks['warming']:
-            return False, "Não é possível processar tarefas enquanto aquecimento está ativo. Pare o aquecimento primeiro."
+        if session_locks['warming'] or session_locks.get('group_factory'):
+            return False, "Não é possível processar tarefas enquanto aquecimento ou criação de grupos está ativa."
         return True, "OK"
     elif operation == 'warming':
-        if session_locks['extraction'] or session_locks['addition'] or len(session_locks['active_tasks']) > 0:
-            return False, "Não é possível iniciar aquecimento enquanto extração, adição ou tarefas estão em andamento"
+        if session_locks['extraction'] or session_locks['addition'] or session_locks.get('group_factory') or len(session_locks['active_tasks']) > 0:
+            return False, "Não é possível iniciar aquecimento enquanto extração, adição, criação de grupos ou tarefas estão em andamento"
         return True, "OK"
     elif operation == 'extraction':
         if session_locks['warming']:
@@ -698,12 +743,18 @@ def check_session_lock(operation, task_id=None, username=None):
             return False, "Já existe uma extração em andamento"
         return True, "OK"
     elif operation == 'addition':
-        if session_locks['warming']:
-            return False, "Não é possível adicionar membros enquanto aquecimento está ativo. Pare o aquecimento primeiro."
+        if session_locks['warming'] or session_locks.get('group_factory'):
+            return False, "Não é possível adicionar membros enquanto aquecimento ou criação de grupos está ativa."
         if session_locks['addition']:
             return False, "Já existe uma adição em andamento"
         if len(session_locks['active_tasks']) > 0:
             return False, "Não é possível adicionar enquanto tarefas estão em andamento"
+        return True, "OK"
+    elif operation == 'group_factory':
+        if session_locks['warming'] or session_locks['addition'] or len(session_locks['active_tasks']) > 0:
+            return False, "Não é possível criar grupos enquanto aquecimento, adição ou tarefas estão em andamento"
+        if session_locks.get('group_factory'):
+            return False, "Já existe uma criação de grupos em andamento"
         return True, "OK"
     
     return True, "OK"
@@ -1143,6 +1194,314 @@ def reset_locks():
 @login_required
 def get_processes():
     return jsonify({'success': True, 'processes': list_processes(session.get('username'))})
+
+@app.route('/api/group-factory/history', methods=['GET'])
+@login_required
+def get_group_factory_history():
+    data = load_group_factory_data()
+    return jsonify({'success': True, 'jobs': data.get('jobs', [])[-20:]})
+
+@app.route('/api/group-factory/create', methods=['POST'])
+@login_required
+def create_groups_factory():
+    try:
+        can_run, message = check_session_lock('group_factory')
+        if not can_run:
+            return jsonify({'success': False, 'error': message}), 409
+
+        api_id, api_hash = get_next_api()
+        if not api_id:
+            return jsonify({'success': False, 'error': 'Configure a API primeiro'}), 400
+
+        session_index_raw = request.form.get('session_index')
+        try:
+            session_index = int(session_index_raw)
+        except Exception:
+            return jsonify({'success': False, 'error': 'Selecione uma sessão válida'}), 400
+
+        names = parse_group_factory_names(request.form.get('group_names', ''))
+        admins = parse_group_factory_admins(request.form.get('admin_users', ''))
+        add_members_enabled = request.form.get('add_members_enabled', 'true') != 'false'
+        delay_seconds = max(5, min(300, int(request.form.get('delay_seconds') or 15)))
+
+        if not names:
+            return jsonify({'success': False, 'error': 'Informe pelo menos um nome de grupo'}), 400
+        if len(names) > 30:
+            return jsonify({'success': False, 'error': 'Limite máximo: 30 grupos por execução'}), 400
+
+        local_session_manager = get_session_manager_instance(session.get('username'))
+        sessions = local_session_manager.load_sessions(force_reload=True)
+        if session_index < 0 or session_index >= len(sessions):
+            return jsonify({'success': False, 'error': 'Sessão não encontrada'}), 404
+
+        selected_session = sessions[session_index]
+        if not selected_session.get('active', True) or selected_session.get('status') == 'flood':
+            return jsonify({'success': False, 'error': 'A sessão selecionada não está disponível'}), 400
+
+        paths = get_user_paths()
+        temp_dir = tempfile.mkdtemp(prefix='group_factory_')
+        cover_paths = []
+        for file in request.files.getlist('covers'):
+            if not file or not file.filename or not allowed_group_cover(file.filename):
+                continue
+            filename = secure_filename(file.filename)
+            target = os.path.join(temp_dir, f'{len(cover_paths) + 1:03d}_{filename}')
+            file.save(target)
+            cover_paths.append(target)
+
+        current_username = session.get('username')
+        process_id = start_process(
+            'group_factory',
+            'Criação de grupos',
+            total=len(names),
+            username=current_username,
+            detail=f'{len(names)} grupo(s)'
+        )
+        set_session_lock('group_factory', True, username=current_username)
+
+        job = {
+            'id': process_id,
+            'created_at': datetime.now().isoformat(timespec='seconds'),
+            'session': selected_session.get('first_name') or selected_session.get('session_name'),
+            'total': len(names),
+            'success_count': 0,
+            'error_count': 0,
+            'results': []
+        }
+
+        def run_job(username, user_paths, session_info, group_names, admin_refs, covers, process_id, api_id, api_hash, allow_add_members, delay):
+            import asyncio
+            import time
+            from telethon import TelegramClient
+            from telethon.tl.functions.channels import (
+                CreateChannelRequest,
+                EditAdminRequest,
+                EditPhotoRequest,
+                InviteToChannelRequest,
+                EditBannedDefaultRightsRequest
+            )
+            from telethon.tl.types import ChatAdminRights, ChatBannedRights, InputChatUploadedPhoto
+
+            thread_context.username = username
+            client = None
+            run_results = []
+            success_count = 0
+            error_count = 0
+
+            async def promote_admin(channel, admin_ref):
+                entity = await client.get_entity(admin_ref)
+                try:
+                    await client(InviteToChannelRequest(channel=channel, users=[entity]))
+                    await asyncio.sleep(2)
+                except Exception:
+                    pass
+
+                rights_kwargs = {
+                    'change_info': True,
+                    'post_messages': True,
+                    'edit_messages': True,
+                    'delete_messages': True,
+                    'ban_users': True,
+                    'invite_users': True,
+                    'pin_messages': True,
+                    'add_admins': True,
+                    'anonymous': False,
+                    'manage_call': True,
+                    'other': True,
+                    'manage_topics': True,
+                    'post_stories': True,
+                    'edit_stories': True,
+                    'delete_stories': True
+                }
+                while True:
+                    try:
+                        rights = ChatAdminRights(**rights_kwargs)
+                        break
+                    except TypeError as rights_error:
+                        bad_field = str(rights_error).split("'")
+                        if len(bad_field) >= 2 and bad_field[1] in rights_kwargs:
+                            rights_kwargs.pop(bad_field[1], None)
+                            continue
+                        rights = ChatAdminRights(
+                            change_info=True,
+                            delete_messages=True,
+                            ban_users=True,
+                            invite_users=True,
+                            pin_messages=True,
+                            add_admins=True
+                        )
+                        break
+                await client(EditAdminRequest(channel=channel, user_id=entity, admin_rights=rights, rank='Admin'))
+
+            async def create_one_group(group_name, cover_path):
+                updates = await client(CreateChannelRequest(
+                    title=group_name,
+                    about='Grupo criado pelo painel TG Auto.',
+                    megagroup=True
+                ))
+                channel = updates.chats[0]
+
+                try:
+                    banned_kwargs = {
+                        'until_date': None,
+                        'view_messages': False,
+                        'send_messages': False,
+                        'send_media': False,
+                        'send_stickers': False,
+                        'send_gifs': False,
+                        'send_games': False,
+                        'send_inline': False,
+                        'embed_links': False,
+                        'send_polls': False,
+                        'change_info': False,
+                        'invite_users': not allow_add_members,
+                        'pin_messages': False,
+                        'manage_topics': False,
+                        'send_photos': False,
+                        'send_videos': False,
+                        'send_roundvideos': False,
+                        'send_audios': False,
+                        'send_voices': False,
+                        'send_docs': False,
+                        'send_plain': False
+                    }
+                    while True:
+                        try:
+                            banned_rights = ChatBannedRights(**banned_kwargs)
+                            break
+                        except TypeError as banned_error:
+                            bad_field = str(banned_error).split("'")
+                            if len(bad_field) >= 2 and bad_field[1] in banned_kwargs:
+                                banned_kwargs.pop(bad_field[1], None)
+                                continue
+                            banned_rights = ChatBannedRights(
+                                until_date=None,
+                                send_messages=False,
+                                invite_users=not allow_add_members
+                            )
+                            break
+                    await client(EditBannedDefaultRightsRequest(
+                        channel=channel,
+                        banned_rights=banned_rights
+                    ))
+                except Exception as rights_error:
+                    log_warning(f'Não foi possível ajustar permissões padrão do grupo {group_name}: {rights_error}')
+
+                if cover_path and os.path.exists(cover_path):
+                    try:
+                        uploaded = await client.upload_file(cover_path)
+                        await client(EditPhotoRequest(channel=channel, photo=InputChatUploadedPhoto(uploaded)))
+                    except Exception as photo_error:
+                        log_warning(f'Não foi possível definir capa do grupo {group_name}: {photo_error}')
+
+                admin_results = []
+                for admin_ref in admin_refs:
+                    try:
+                        await promote_admin(channel, admin_ref)
+                        admin_results.append({'admin': admin_ref, 'success': True})
+                    except Exception as admin_error:
+                        admin_results.append({'admin': admin_ref, 'success': False, 'error': str(admin_error)})
+
+                return {
+                    'name': group_name,
+                    'id': getattr(channel, 'id', None),
+                    'title': getattr(channel, 'title', group_name),
+                    'admins': admin_results,
+                    'add_members_enabled': allow_add_members
+                }
+
+            async def runner():
+                nonlocal client, success_count, error_count
+                session_path = os.path.join(user_paths['sessions_dir'], session_info['session_name'])
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    raise RuntimeError('Sessão não autorizada. Valide a sessão antes de criar grupos.')
+
+                for idx, group_name in enumerate(group_names, 1):
+                    update_process(process_id, username=username, current=idx - 1, message=f'Criando grupo {idx}/{len(group_names)}', detail=group_name)
+                    try:
+                        cover_path = random.choice(covers) if covers else None
+                        result = await create_one_group(group_name, cover_path)
+                        result['success'] = True
+                        result['cover_used'] = os.path.basename(cover_path) if cover_path else None
+                        success_count += 1
+                    except Exception as group_error:
+                        result = {'name': group_name, 'success': False, 'error': str(group_error)}
+                        error_count += 1
+
+                    run_results.append(result)
+                    emit_to_user('group_factory_log', {
+                        'message': f"{'✅' if result.get('success') else '❌'} {group_name}: {result.get('error') or 'criado'}",
+                        'type': 'success' if result.get('success') else 'error'
+                    }, username)
+
+                    update_process(process_id, username=username, current=idx, message=f'{success_count} criado(s), {error_count} erro(s)', detail=group_name)
+                    if idx < len(group_names):
+                        await asyncio.sleep(delay)
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(runner())
+                status = 'completed' if error_count == 0 else 'error'
+                finish_process(process_id, username=username, status=status, message=f'{success_count} grupo(s) criado(s), {error_count} erro(s)')
+            except Exception as job_error:
+                error_count += 1
+                emit_to_user('group_factory_log', {'message': f'Erro geral: {job_error}', 'type': 'error'}, username)
+                finish_process(process_id, username=username, status='error', message=str(job_error))
+            finally:
+                try:
+                    if client:
+                        loop.run_until_complete(client.disconnect())
+                except Exception:
+                    pass
+                loop.close()
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+                data = load_group_factory_data(user_paths)
+                data.setdefault('jobs', []).append({
+                    'id': process_id,
+                    'created_at': datetime.now().isoformat(timespec='seconds'),
+                    'session': session_info.get('first_name') or session_info.get('session_name'),
+                    'total': len(group_names),
+                    'success_count': success_count,
+                    'error_count': error_count,
+                    'results': run_results[-100:]
+                })
+                data['jobs'] = data['jobs'][-50:]
+                save_group_factory_data(data, user_paths)
+                set_session_lock('group_factory', False, username=username)
+                thread_context.username = None
+
+        thread = threading.Thread(
+            target=run_job,
+            args=(current_username, paths, selected_session, names, admins, cover_paths, process_id, api_id, api_hash, add_members_enabled, delay_seconds),
+            daemon=True
+        )
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'process_id': process_id,
+            'message': f'Criação iniciada para {len(names)} grupo(s)'
+        })
+
+    except Exception as e:
+        try:
+            if locals().get('current_username'):
+                set_session_lock('group_factory', False, username=locals().get('current_username'))
+        except Exception:
+            pass
+        try:
+            shutil.rmtree(locals().get('temp_dir', ''), ignore_errors=True)
+        except Exception:
+            pass
+        log_error(f'❌ Erro ao iniciar criação de grupos: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/sessions/import', methods=['POST'])
 @login_required

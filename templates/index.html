@@ -4501,6 +4501,277 @@
                 width: 100% !important;
             }
         }
+
+        /* Product polish: stable layout, footer pinned to page end, faster UI */
+        *,
+        *::before,
+        *::after {
+            transition-duration: 120ms !important;
+            transition-timing-function: ease-out !important;
+        }
+
+        .tab-content,
+        .card,
+        .dashboard-card,
+        .dashboard-panel,
+        .menu-item,
+        .btn,
+        .dash-action,
+        .task-card-modern,
+        .session-item {
+            animation: none !important;
+        }
+
+        .btn:hover,
+        .dash-action:hover,
+        .menu-item:hover,
+        .dashboard-card:hover,
+        .stat-card:hover,
+        .session-item:hover,
+        .task-card-modern:hover {
+            transform: none !important;
+        }
+
+        .app-container {
+            align-items: stretch !important;
+            min-height: 100vh !important;
+        }
+
+        .main-content {
+            display: flex !important;
+            flex-direction: column !important;
+            min-height: 100vh !important;
+            overflow-x: hidden !important;
+        }
+
+        .tab-content {
+            width: 100% !important;
+        }
+
+        .tab-content.active {
+            display: block !important;
+            flex: 1 0 auto !important;
+        }
+
+        .tab-content:not(.active) {
+            display: none !important;
+        }
+
+        .app-footer {
+            flex: 0 0 auto !important;
+            margin-top: auto !important;
+            width: 100% !important;
+            min-height: 58px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            gap: 14px !important;
+            padding: 14px 18px !important;
+            border-radius: 8px 8px 0 0 !important;
+            border: 1px solid rgba(148, 163, 184, 0.1) !important;
+            border-bottom: 0 !important;
+            background: rgba(4, 10, 20, 0.72) !important;
+            color: #94a3b8 !important;
+            box-shadow: none !important;
+        }
+
+        .app-footer-brand {
+            display: flex !important;
+            align-items: center !important;
+            gap: 10px !important;
+            min-width: 0 !important;
+        }
+
+        .app-footer-brand i {
+            width: 32px !important;
+            height: 32px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border-radius: 8px !important;
+            color: #7dd3fc !important;
+            background: rgba(14, 165, 233, 0.1) !important;
+        }
+
+        .app-footer-brand strong {
+            display: block !important;
+            color: #e5eef8 !important;
+            font-size: 0.88rem !important;
+            line-height: 1.2 !important;
+        }
+
+        .app-footer-brand span {
+            display: block !important;
+            color: #7f8ea3 !important;
+            font-size: 0.76rem !important;
+            line-height: 1.25 !important;
+        }
+
+        .app-footer-links {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-end !important;
+            gap: 8px !important;
+            flex-wrap: wrap !important;
+        }
+
+        .footer-pill {
+            min-height: 28px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            padding: 5px 9px !important;
+            border-radius: 999px !important;
+            border: 1px solid rgba(148, 163, 184, 0.12) !important;
+            background: rgba(15, 23, 42, 0.48) !important;
+            color: #9fb0c4 !important;
+            font-size: 0.74rem !important;
+            font-weight: 750 !important;
+            white-space: nowrap !important;
+        }
+
+        .footer-pill.online {
+            color: #bbf7d0 !important;
+            border-color: rgba(34, 197, 94, 0.22) !important;
+            background: rgba(34, 197, 94, 0.08) !important;
+        }
+
+        .footer-pill.online i {
+            color: #22c55e !important;
+        }
+
+        .loading-spinner,
+        .spinner,
+        .fa-spin {
+            animation-duration: 850ms !important;
+            animation-iteration-count: infinite !important;
+        }
+
+        @media (max-width: 780px) {
+            .app-footer {
+                align-items: flex-start !important;
+                flex-direction: column !important;
+            }
+
+            .app-footer-links {
+                justify-content: flex-start !important;
+            }
+        }
+
+        .factory-layout {
+            display: grid;
+            grid-template-columns: minmax(320px, 0.85fr) minmax(420px, 1.15fr);
+            gap: 14px;
+            align-items: start;
+        }
+
+        .factory-panel {
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            background: var(--panel-surface);
+            padding: 16px;
+        }
+
+        .factory-panel h3 {
+            margin: 0 0 14px;
+            color: #f3f7fb;
+            font-size: 1rem;
+        }
+
+        .factory-session-list,
+        .factory-history-list {
+            display: grid;
+            gap: 8px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding: 8px;
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            background: rgba(2, 6, 23, 0.36);
+        }
+
+        .factory-session-option {
+            display: grid;
+            grid-template-columns: 20px minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            min-height: 50px;
+            padding: 10px;
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.55);
+            cursor: pointer;
+        }
+
+        .factory-session-option.selected {
+            border-color: rgba(56, 189, 248, 0.58);
+            background: rgba(14, 165, 233, 0.13);
+        }
+
+        .factory-session-option.disabled {
+            opacity: 0.52;
+            cursor: not-allowed;
+        }
+
+        .factory-session-option strong,
+        .factory-session-option small {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .factory-session-option strong {
+            color: #f8fafc;
+        }
+
+        .factory-session-option small,
+        .factory-muted {
+            color: var(--panel-muted);
+            font-size: 0.8rem;
+        }
+
+        .factory-form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .factory-form-grid .wide {
+            grid-column: 1 / -1;
+        }
+
+        .factory-file-note,
+        .factory-status {
+            min-height: 36px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+            background: rgba(15, 23, 42, 0.46);
+            color: var(--panel-muted);
+            font-size: 0.82rem;
+        }
+
+        .factory-history-item {
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            background: rgba(15, 23, 42, 0.48);
+        }
+
+        .factory-history-item strong {
+            color: #f8fafc;
+        }
+
+        @media (max-width: 980px) {
+            .factory-layout,
+            .factory-form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -4584,6 +4855,10 @@
                         <i class="fas fa-clone"></i>
                         <span>Clonagem</span>
                         <span class="badge" id="clones-badge" style="display:none;">0</span>
+                    </a>
+                    <a href="#" class="menu-item" data-tab="groupFactory">
+                        <i class="fas fa-people-roof"></i>
+                        <span>Criar grupos</span>
                     </a>
                     <a href="#" class="menu-item" data-tab="extract">
                         <i class="fas fa-download"></i>
@@ -5081,6 +5356,105 @@
             <div id="clones-list"></div>
         </div>
     </div>
+</div>
+
+<!-- Tab: Criar Grupos -->
+<div class="tab-content" id="groupFactory">
+    <div class="content-header">
+        <div>
+            <h2><i class="fas fa-people-roof"></i> Criar Grupos</h2>
+            <p>Use uma sessão autorizada para criar grupos em lote com capas aleatórias, admins e permissão de adicionar membros.</p>
+        </div>
+        <button class="btn btn-primary" onclick="loadGroupFactory()">
+            <i class="fas fa-sync"></i> Atualizar
+        </button>
+    </div>
+
+    <div class="factory-layout">
+        <section class="factory-panel">
+            <h3>Sessão criadora</h3>
+            <input type="hidden" id="factory-session-index">
+            <div id="factory-session-list" class="factory-session-list">
+                <p class="factory-muted">Carregando sessões...</p>
+            </div>
+            <div class="factory-status" style="margin-top:10px;">
+                <i class="fas fa-shield-halved"></i>
+                <span id="factory-session-counter">Selecione uma sessão ativa.</span>
+            </div>
+        </section>
+
+        <section class="factory-panel">
+            <h3>Configuração dos grupos</h3>
+            <div class="factory-form-grid">
+                <div class="form-group wide">
+                    <label>Nomes dos grupos</label>
+                    <textarea id="factory-group-names" rows="7" placeholder="Grupo VIP 01&#10;Grupo VIP 02&#10;Grupo de Teste"></textarea>
+                    <small class="factory-muted">Um nome por linha. O sistema cria um grupo para cada nome.</small>
+                </div>
+
+                <div class="form-group wide">
+                    <label>Importar arquivo de nomes (.txt)</label>
+                    <input type="file" id="factory-names-file" accept=".txt,.csv" onchange="importFactoryNamesFile()">
+                </div>
+
+                <div class="form-group">
+                    <label>Admins com permissão total</label>
+                    <textarea id="factory-admins" rows="5" placeholder="@admin1&#10;@admin2&#10;5511999999999"></textarea>
+                    <small class="factory-muted">Um admin por linha. Use @username, telefone ou ID quando a sessão conseguir resolver.</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Capas aleatórias</label>
+                    <input type="file" id="factory-covers" accept="image/*" multiple onchange="updateFactoryCoverNote()">
+                    <input type="file" id="factory-cover-folder" accept="image/*" multiple webkitdirectory directory style="display:none;" onchange="updateFactoryCoverFolderNote()">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+                        <button type="button" class="btn btn-primary" onclick="document.getElementById('factory-covers').click()">
+                            <i class="fas fa-images"></i> Imagens
+                        </button>
+                        <button type="button" class="btn btn-primary" onclick="document.getElementById('factory-cover-folder').click()">
+                            <i class="fas fa-folder-open"></i> Pasta
+                        </button>
+                    </div>
+                    <div id="factory-cover-note" class="factory-file-note" style="margin-top:8px;">
+                        <i class="fas fa-image"></i> Nenhuma imagem selecionada
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Permissões iniciais</label>
+                    <label class="task-toggle-row">
+                        <input type="checkbox" id="factory-add-members" checked>
+                        <span>Permitir adicionar membros no grupo</span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label>Delay entre grupos (segundos)</label>
+                    <input type="number" id="factory-delay" value="20" min="5" max="300">
+                    <small class="factory-muted">Recomendado: 20s ou mais para reduzir flood.</small>
+                </div>
+
+                <div class="form-group wide">
+                    <button class="btn btn-success" onclick="startGroupFactory()" style="width:100%;">
+                        <i class="fas fa-wand-magic-sparkles"></i> Criar grupos agora
+                    </button>
+                </div>
+            </div>
+
+            <div id="factory-status" class="status-box" style="display:none;"></div>
+            <div id="factory-logs" class="logs" style="display:none; margin-top:12px;"></div>
+        </section>
+    </div>
+
+    <section class="factory-panel" style="margin-top:14px;">
+        <div class="reaction-panel-title">
+            <h3>Histórico recente</h3>
+            <button type="button" class="mini-btn" onclick="loadGroupFactoryHistory()">Atualizar</button>
+        </div>
+        <div id="factory-history" class="factory-history-list">
+            <p class="factory-muted">Nenhuma execução carregada.</p>
+        </div>
+    </section>
 </div>
 
 <!-- Modal: Criar Sessão via Telefone -->
@@ -6128,6 +6502,7 @@
                     loadTasks();
                     loadTaskSessions();
                 }
+                if (tab === 'groupFactory') loadGroupFactory();
                 if (tab === 'extract') loadSessionsForExtract();
                 if (tab === 'add') loadActiveSessions();
                 if (tab === 'warming') loadWarmingGroups();
@@ -6145,6 +6520,210 @@
                 startPanelLiveRefresh();
             }
         });
+
+        let factorySessions = [];
+
+        async function loadGroupFactory() {
+            await Promise.all([
+                loadGroupFactorySessions(),
+                loadGroupFactoryHistory()
+            ]);
+        }
+
+        async function loadGroupFactorySessions() {
+            const list = document.getElementById('factory-session-list');
+            const counter = document.getElementById('factory-session-counter');
+            if (!list) return;
+            list.innerHTML = '<p class="factory-muted">Carregando sessões...</p>';
+
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+                factorySessions = (data.sessions || []).map((sessionItem, index) => ({session: sessionItem, index}));
+                const available = factorySessions.filter(({session}) => session.active && session.status !== 'flood');
+
+                if (!available.length) {
+                    list.innerHTML = '<p class="factory-muted">Nenhuma sessão ativa disponível.</p>';
+                    if (counter) counter.textContent = 'Valide uma sessão antes de criar grupos.';
+                    return;
+                }
+
+                list.innerHTML = factorySessions.map(({session: sessionItem, index}) => {
+                    const disabled = !sessionItem.active || sessionItem.status === 'flood';
+                    const selected = String(document.getElementById('factory-session-index')?.value || '') === String(index);
+                    const name = sessionItem.first_name || sessionItem.name || sessionItem.session_name || `Sessão ${index + 1}`;
+                    const meta = [sessionItem.username ? `@${sessionItem.username}` : '', sessionItem.phone || sessionItem.session_name || ''].filter(Boolean).join(' · ');
+                    const status = disabled ? (sessionItem.status === 'flood' ? 'Flood' : 'Inativa') : 'Disponível';
+                    return `
+                        <label class="factory-session-option ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}" onclick="${disabled ? '' : `selectFactorySession(${index})`}">
+                            <input type="radio" name="factory-session" value="${index}" ${selected ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+                            <div>
+                                <strong>${escapeHtml(name)}</strong>
+                                <small>${escapeHtml(meta)}</small>
+                            </div>
+                            <span class="factory-muted">${escapeHtml(status)}</span>
+                        </label>
+                    `;
+                }).join('');
+
+                if (!document.getElementById('factory-session-index').value && available.length) {
+                    selectFactorySession(available[0].index);
+                } else if (counter) {
+                    counter.textContent = `${available.length} sessão(ões) disponível(is)`;
+                }
+            } catch (error) {
+                list.innerHTML = `<p class="factory-muted">Erro ao carregar sessões: ${escapeHtml(error.message)}</p>`;
+            }
+        }
+
+        function selectFactorySession(index) {
+            const input = document.getElementById('factory-session-index');
+            if (input) input.value = String(index);
+            const selected = factorySessions.find(item => item.index === index);
+            const counter = document.getElementById('factory-session-counter');
+            if (counter && selected) {
+                const name = selected.session.first_name || selected.session.name || selected.session.session_name || `Sessão ${index + 1}`;
+                counter.textContent = `Selecionada: ${name}`;
+            }
+            loadGroupFactorySessions();
+        }
+
+        function importFactoryNamesFile() {
+            const fileInput = document.getElementById('factory-names-file');
+            const file = fileInput?.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                document.getElementById('factory-group-names').value = String(reader.result || '');
+                showNotification('Nomes importados para a lista', 'success');
+            };
+            reader.readAsText(file, 'utf-8');
+        }
+
+        function getFactoryCoverFiles() {
+            const fileInput = document.getElementById('factory-covers');
+            const folderInput = document.getElementById('factory-cover-folder');
+            return [
+                ...Array.from(fileInput?.files || []),
+                ...Array.from(folderInput?.files || [])
+            ].filter(file => file.type.startsWith('image/'));
+        }
+
+        function updateFactoryCoverNote() {
+            const note = document.getElementById('factory-cover-note');
+            const files = getFactoryCoverFiles();
+            if (note) {
+                note.innerHTML = `<i class="fas fa-image"></i> ${files.length ? `${files.length} imagem(ns) selecionada(s)` : 'Nenhuma imagem selecionada'}`;
+            }
+        }
+
+        function updateFactoryCoverFolderNote() {
+            updateFactoryCoverNote();
+        }
+
+        function setFactoryStatus(message, type = 'info') {
+            const status = document.getElementById('factory-status');
+            if (!status) return;
+            status.className = `status-box ${type}`;
+            status.style.display = 'block';
+            status.textContent = message;
+        }
+
+        async function startGroupFactory() {
+            const sessionIndex = document.getElementById('factory-session-index').value;
+            const names = document.getElementById('factory-group-names').value.trim();
+            const admins = document.getElementById('factory-admins').value.trim();
+            const delay = parseInt(document.getElementById('factory-delay').value || '20', 10);
+            const allowAddMembers = document.getElementById('factory-add-members').checked;
+            const files = getFactoryCoverFiles();
+
+            if (sessionIndex === '') {
+                showNotification('Selecione a sessão criadora.', 'warning');
+                return;
+            }
+
+            if (!names) {
+                showNotification('Informe pelo menos um nome de grupo.', 'warning');
+                return;
+            }
+
+            const groupCount = names.split(/\r?\n/).map(item => item.trim()).filter(Boolean).length;
+            if (groupCount > 30) {
+                showNotification('Limite máximo: 30 grupos por execução.', 'warning');
+                return;
+            }
+
+            if (!confirm(`Criar ${groupCount} grupo(s) com a sessão selecionada?`)) return;
+
+            const formData = new FormData();
+            formData.append('session_index', sessionIndex);
+            formData.append('group_names', names);
+            formData.append('admin_users', admins);
+            formData.append('delay_seconds', String(delay));
+            formData.append('add_members_enabled', String(allowAddMembers));
+            files.forEach(file => formData.append('covers', file));
+
+            document.getElementById('factory-logs').style.display = 'block';
+            document.getElementById('factory-logs').innerHTML = '';
+            setFactoryStatus('Iniciando criação dos grupos...', 'success');
+
+            try {
+                const response = await fetch('/api/group-factory/create', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showNotification(data.message || 'Criação iniciada', 'success');
+                    addLog('factory-logs', data.message || 'Criação iniciada.', 'success');
+                } else {
+                    setFactoryStatus(data.error || 'Erro ao iniciar criação.', 'error');
+                    showNotification(data.error || 'Erro ao iniciar criação.', 'error');
+                }
+            } catch (error) {
+                setFactoryStatus(`Erro: ${error.message}`, 'error');
+                showNotification(`Erro: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadGroupFactoryHistory() {
+            const container = document.getElementById('factory-history');
+            if (!container) return;
+            try {
+                const response = await fetch('/api/group-factory/history');
+                const data = await response.json();
+                const jobs = data.jobs || [];
+                if (!jobs.length) {
+                    container.innerHTML = '<p class="factory-muted">Nenhuma criação registrada ainda.</p>';
+                    return;
+                }
+
+                container.innerHTML = jobs.slice().reverse().map(job => `
+                    <div class="factory-history-item">
+                        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+                            <strong>${escapeHtml(job.session || 'Sessão')}</strong>
+                            <span class="factory-muted">${escapeHtml(job.created_at || '')}</span>
+                        </div>
+                        <div class="factory-muted" style="margin-top:6px;">
+                            ${job.success_count || 0} criado(s), ${job.error_count || 0} erro(s), ${job.total || 0} total
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                container.innerHTML = `<p class="factory-muted">Erro ao carregar histórico: ${escapeHtml(error.message)}</p>`;
+            }
+        }
+
+        if (typeof socket !== 'undefined') {
+            socket.on('group_factory_log', (data) => {
+                const logs = document.getElementById('factory-logs');
+                if (logs) {
+                    logs.style.display = 'block';
+                    addLog('factory-logs', data.message || '', data.type || 'info');
+                }
+                loadGroupFactoryHistory();
+            });
+        }
     </script>
 
     <!-- Script: Clonagem de Canais -->
