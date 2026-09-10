@@ -5395,6 +5395,100 @@
             background: #0f172a;
             color: #e5eef8;
         }
+
+        .panel-topbar {
+            position: sticky;
+            top: 14px;
+            z-index: 900;
+            width: 100%;
+            max-width: 1360px;
+            margin: 0 auto 16px;
+            min-height: 58px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 10px 12px;
+            border: 1px solid var(--ui-line);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--ui-card) 92%, transparent);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        .panel-topbar-user {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .panel-topbar .profile-copy strong {
+            color: var(--ui-ink);
+        }
+
+        .panel-topbar .profile-copy span {
+            color: var(--ui-muted);
+        }
+
+        .panel-topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .panel-topbar .theme-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-topbar .theme-control label {
+            color: var(--ui-muted);
+        }
+
+        .panel-topbar .theme-select {
+            width: min(240px, 42vw);
+            min-height: 36px !important;
+            background: var(--ui-soft) !important;
+            border-color: var(--ui-line) !important;
+            color: var(--ui-ink) !important;
+        }
+
+        .panel-topbar .profile-logout {
+            border-color: var(--ui-line);
+            background: var(--ui-soft);
+            color: var(--ui-danger);
+        }
+
+        .dashboard-welcome,
+        .dashboard-health,
+        .dashboard-card,
+        .dashboard-panel {
+            background: var(--ui-card) !important;
+        }
+
+        .dashboard-card .icon,
+        .content-header h2 i,
+        .app-footer-brand i {
+            background: var(--ui-soft) !important;
+            color: var(--ui-accent-strong) !important;
+        }
+
+        @media (max-width: 720px) {
+            .panel-topbar {
+                position: static;
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .panel-topbar-actions,
+            .panel-topbar .theme-control,
+            .panel-topbar .theme-select {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -5413,32 +5507,6 @@
         
         <!-- Sidebar -->
         <nav class="sidebar" id="sidebar">
-            <div class="sidebar-profile">
-                <div class="sidebar-profile-main">
-                    <div class="profile-avatar">
-                        <i class="fas fa-user"></i>
-                    </div>
-                    <div class="profile-copy">
-                        <strong>{{ username }}</strong>
-                        <span>Painel ativo</span>
-                    </div>
-                    <button class="profile-logout" onclick="logout()" type="button" title="Sair">
-                        <i class="fas fa-right-from-bracket"></i>
-                    </button>
-                </div>
-                <div class="theme-control">
-                    <label for="theme-select">Tema</label>
-                    <select id="theme-select" class="theme-select" onchange="setPanelTheme(this.value)">
-                        <option value="light">Claro profissional</option>
-                        <option value="dark">Escuro moderno</option>
-                        <option value="graphite">Grafite</option>
-                        <option value="ocean">Oceano</option>
-                        <option value="emerald">Esmeralda</option>
-                        <option value="violet">Violeta</option>
-                    </select>
-                </div>
-            </div>
-
             <div class="privacy-controls">
                 <button type="button" class="privacy-toggle" id="privacy-toggle" onclick="togglePrivacyMode()">
                     <i class="fas fa-eye-slash"></i>
@@ -5520,6 +5588,33 @@
         
         <!-- Main Content -->
         <main class="main-content">
+            <header class="panel-topbar">
+                <div class="panel-topbar-user">
+                    <div class="profile-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="profile-copy">
+                        <strong>{{ username }}</strong>
+                        <span>Painel ativo</span>
+                    </div>
+                </div>
+                <div class="panel-topbar-actions">
+                    <div class="theme-control">
+                        <label for="theme-select">Tema</label>
+                        <select id="theme-select" class="theme-select" onchange="setPanelTheme(this.value)">
+                            <option value="light">Claro profissional</option>
+                            <option value="dark">Escuro moderno</option>
+                            <option value="graphite">Grafite</option>
+                            <option value="ocean">Oceano</option>
+                            <option value="emerald">Esmeralda</option>
+                            <option value="violet">Violeta</option>
+                        </select>
+                    </div>
+                    <button class="profile-logout" onclick="logout()" type="button" title="Sair">
+                        <i class="fas fa-right-from-bracket"></i>
+                    </button>
+                </div>
+            </header>
             <!-- Tab: Dashboard -->
             <div class="tab-content active" id="dashboard">
                 <div class="dashboard-hero">
