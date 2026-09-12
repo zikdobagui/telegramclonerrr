@@ -509,6 +509,35 @@
             margin-bottom: 14px !important;
         }
 
+        #add .card {
+            max-height: calc(100vh - 210px);
+            overflow-y: auto;
+            scrollbar-gutter: stable;
+        }
+
+        #sessions-checkboxes {
+            max-height: 340px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        #add-progress,
+        #add-logs {
+            max-height: 280px;
+            overflow-y: auto;
+        }
+
+        @media (max-width: 768px) {
+            #add .card {
+                max-height: none;
+                overflow-y: visible;
+            }
+
+            #sessions-checkboxes {
+                max-height: 300px;
+            }
+        }
+
         body.compact-mode .menu-section {
             margin-bottom: 14px;
         }
