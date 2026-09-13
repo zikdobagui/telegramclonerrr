@@ -229,7 +229,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (tab === 'add') {
                 loadActiveSessions();
             }
-            if (tab === 'warming') loadWarmingGroups();
+            if (tab === 'warming') {
+                loadWarmingGroups();
+                loadWarmingStatus();
+            }
             if (tab === 'operations') loadOperations();
             if (tab === 'reactions') loadReactions();
             if (tab === 'stats') loadStats();
@@ -3523,6 +3526,7 @@ async function saveTaskEdit(taskId) {
 // ========== AQUECIMENTO ==========
 
 let warmingGroups = [];
+let warmingStatus = null;
 
 async function loadWarmingGroups() {
     try {
@@ -3619,29 +3623,41 @@ async function startWarming() {
     
     const minInterval = parseInt(document.getElementById('warming-min').value);
     const maxInterval = parseInt(document.getElementById('warming-max').value);
+    const durationDays = parseInt(document.getElementById('warming-duration').value) || 10;
+    const messagesPerDay = parseInt(document.getElementById('warming-messages-per-day').value) || 0;
+    const photosPerDay = parseInt(document.getElementById('warming-photos-per-day').value) || 0;
     
     if (minInterval >= maxInterval) {
         showNotification('O intervalo mínimo deve ser menor que o máximo!', 'warning');
         return;
     }
+
+    if (messagesPerDay <= 0 && photosPerDay <= 0) {
+        showNotification('Configure mensagens por dia ou fotos por dia!', 'warning');
+        return;
+    }
     
     try {
+        const formData = new FormData();
+        formData.append('min_interval', minInterval);
+        formData.append('max_interval', maxInterval);
+        formData.append('duration_days', durationDays);
+        formData.append('messages_per_day', messagesPerDay);
+        formData.append('photos_per_day', photosPerDay);
+        formData.append('random_hours', document.getElementById('warming-random-hours')?.checked ? '1' : '0');
+        formData.append('message_bank', getWarmingMessageBankLines().join('\n'));
+        getWarmingImageFiles().forEach(file => formData.append('warming_images', file));
+
         const response = await fetch('/api/warming/start', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                min_interval: minInterval,
-                max_interval: maxInterval
-            })
+            body: formData
         });
         
         const data = await response.json();
         
         if (data.success) {
-            document.getElementById('warming-status').innerHTML = '🟢 Ativo';
-            document.getElementById('warming-status').style.color = '#10b981';
-            document.querySelector('button[onclick="startWarming()"]').style.display = 'none';
-            document.getElementById('stop-warming-btn').style.display = 'inline-flex';
+            updateWarmingStatusBadge(true);
+            await loadWarmingStatus();
             addLog('warming-logs', '✅ Aquecimento iniciado!', 'success');
             showNotification('Aquecimento iniciado com sucesso!', 'success');
         } else {
@@ -3661,10 +3677,8 @@ async function stopWarming() {
         const data = await response.json();
         
         if (data.success) {
-            document.getElementById('warming-status').innerHTML = '⭕ Desativado';
-            document.getElementById('warming-status').style.color = '#fca5a5';
-            document.querySelector('button[onclick="startWarming()"]').style.display = 'inline-flex';
-            document.getElementById('stop-warming-btn').style.display = 'none';
+            updateWarmingStatusBadge(false);
+            await loadWarmingStatus();
             addLog('warming-logs', '⏹️ Aquecimento parado!', 'warning');
             showNotification('Aquecimento parado!', 'warning');
         } else {
@@ -3788,6 +3802,84 @@ function renderReactionQueue(queue) {
             <a class="btn btn-primary" href="${escapeHtml(item.post_link)}" target="_blank" style="padding:8px 10px;text-decoration:none;">Abrir</a>
         </div>
     `).join('');
+}
+
+async function loadWarmingStatus() {
+    try {
+        const response = await fetch('/api/warming/status');
+        const data = await response.json();
+        if (!data.success) return;
+
+        warmingStatus = data;
+        const settings = data.settings || {};
+        setNumberValue('warming-duration', settings.duration_days || 10);
+        setNumberValue('warming-messages-per-day', settings.messages_per_day ?? 3);
+        setNumberValue('warming-photos-per-day', settings.photos_per_day ?? 0);
+        setNumberValue('warming-min', settings.min_interval || 5);
+        setNumberValue('warming-max', settings.max_interval || 15);
+
+        const randomHours = document.getElementById('warming-random-hours');
+        if (randomHours) randomHours.checked = settings.random_hours !== false;
+
+        const messageBank = document.getElementById('warming-message-bank');
+        if (messageBank && Array.isArray(settings.message_bank) && !messageBank.value.trim()) {
+            messageBank.value = settings.message_bank.join('\n');
+        }
+
+        updateWarmingCurrentDayDisplay(data.current_day, settings.duration_days);
+        updateWarmingStatusBadge(data.active);
+    } catch (error) {
+        console.error('Erro ao carregar status de aquecimento:', error);
+    }
+}
+
+function setNumberValue(id, value) {
+    const element = document.getElementById(id);
+    if (element && value !== undefined && value !== null) {
+        element.value = value;
+    }
+}
+
+function updateWarmingStatusBadge(active) {
+    const status = document.getElementById('warming-status');
+    const startButton = document.querySelector('button[onclick="startWarming()"]');
+    const stopButton = document.getElementById('stop-warming-btn');
+    if (!status) return;
+
+    status.innerHTML = active ? '🟢 Ativo' : '⭕ Desativado';
+    status.style.color = active ? '#10b981' : '#fca5a5';
+    if (startButton) startButton.style.display = active ? 'none' : 'inline-flex';
+    if (stopButton) stopButton.style.display = active ? 'inline-flex' : 'none';
+}
+
+function updateWarmingCurrentDayDisplay(currentDay, durationDays) {
+    const durationInput = document.getElementById('warming-duration');
+    const currentDayEl = document.getElementById('warming-current-day');
+    if (!currentDayEl) return;
+
+    const duration = Math.max(1, parseInt(durationDays || durationInput?.value || 10, 10) || 10);
+    const day = Math.min(duration, Math.max(1, parseInt(currentDay || warmingStatus?.current_day || 1, 10) || 1));
+    currentDayEl.textContent = `${day}/${duration}`;
+}
+
+function getWarmingImageFiles() {
+    const directFiles = Array.from(document.getElementById('warming-images')?.files || []);
+    const folderFiles = Array.from(document.getElementById('warming-image-folder')?.files || []);
+    return [...directFiles, ...folderFiles].filter(file => file.type.startsWith('image/'));
+}
+
+function updateWarmingImageNote() {
+    const note = document.getElementById('warming-image-note');
+    if (!note) return;
+    const total = getWarmingImageFiles().length;
+    note.textContent = total
+        ? `${total} imagem(ns) selecionada(s) para o banco de imagens.`
+        : 'Selecione imagens soltas ou uma pasta com fotos para usar nos grupos.';
+}
+
+function getWarmingMessageBankLines() {
+    const value = document.getElementById('warming-message-bank')?.value || '';
+    return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 }
 
 async function clearReactionQueue() {
@@ -4234,8 +4326,10 @@ async function viewSystemLogs() {
 // Init
 loadConfig();
 loadWarmingGroups();
+loadWarmingStatus();
 document.addEventListener('DOMContentLoaded', () => {
     startPanelLiveRefresh();
+    loadWarmingStatus();
 });
 
 // ========== ADVANCED FEATURES ==========

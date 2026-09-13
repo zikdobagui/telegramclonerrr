@@ -196,6 +196,7 @@ def get_user_paths(username=None):
         'floods_file': os.path.join(user_manager.get_user_data_dir(username), 'session_floods.json'),
         'automation_file': os.path.join(user_manager.get_user_data_dir(username), 'automation_config.json'),
         'warming_file': os.path.join(user_manager.get_user_data_dir(username), 'warming_groups.json'),
+        'warming_state_file': os.path.join(user_manager.get_user_data_dir(username), 'warming_state.json'),
         'reactions_file': os.path.join(user_manager.get_user_data_dir(username), 'reactions.json'),
         'group_factory_file': os.path.join(user_manager.get_user_data_dir(username), 'group_factory.json'),
         'operations_db': os.path.join(user_manager.get_user_data_dir(username), 'operations.db'),
@@ -5106,6 +5107,89 @@ def save_warming_groups(groups, paths=None):
     warming_groups_file = paths['warming_file'] if paths else os.path.join(DATA_DIR, 'warming_groups.json')
     atomic_write_json(warming_groups_file, groups)
 
+def parse_warming_messages(raw_messages):
+    messages = []
+    for line in str(raw_messages or '').replace('\r', '\n').split('\n'):
+        message = line.strip()
+        if message and message not in messages:
+            messages.append(message[:500])
+        if len(messages) >= 500:
+            break
+    return messages
+
+def load_warming_runtime_state(paths=None):
+    paths = paths or get_user_paths()
+    state_file = paths.get('warming_state_file') if paths else os.path.join(DATA_DIR, 'warming_state.json')
+    default_state = {
+        'active': False,
+        'started_at': None,
+        'current_day': 1,
+        'settings': {
+            'duration_days': 10,
+            'messages_per_day': 3,
+            'photos_per_day': 0,
+            'random_hours': True,
+            'min_interval': 5,
+            'max_interval': 15,
+            'message_bank': [],
+            'image_count': 0
+        },
+        'groups': []
+    }
+    state = load_json_file(state_file, default_state) if state_file else default_state
+    if not isinstance(state, dict):
+        state = default_state
+    return {**default_state, **state, 'settings': {**default_state['settings'], **state.get('settings', {})}}
+
+def save_warming_runtime_state(state, paths=None):
+    paths = paths or get_user_paths()
+    state_file = paths.get('warming_state_file') if paths else os.path.join(DATA_DIR, 'warming_state.json')
+    atomic_write_json(state_file, state)
+
+def calculate_warming_day(started_at, duration_days):
+    try:
+        started = datetime.fromisoformat(started_at)
+        elapsed_days = max(0, (datetime.now() - started).days)
+        return min(max(1, int(duration_days or 10)), elapsed_days + 1)
+    except Exception:
+        return 1
+
+def normalize_warming_config(payload):
+    def read_int(key, default, minimum=0, maximum=1000):
+        try:
+            value = int(payload.get(key, default))
+        except Exception:
+            value = default
+        return max(minimum, min(maximum, value))
+
+    random_hours_raw = str(payload.get('random_hours', '1')).lower()
+    return {
+        'duration_days': read_int('duration_days', 10, 1, 60),
+        'messages_per_day': read_int('messages_per_day', 3, 0, 500),
+        'photos_per_day': read_int('photos_per_day', 0, 0, 500),
+        'random_hours': random_hours_raw not in {'0', 'false', 'off', 'no'},
+        'min_interval': read_int('min_interval', 5, 1, 1440),
+        'max_interval': read_int('max_interval', 15, 1, 1440),
+        'message_bank': parse_warming_messages(payload.get('message_bank', ''))
+    }
+
+def save_warming_images(files, paths):
+    saved_paths = []
+    if not files:
+        return saved_paths
+    media_dir = os.path.join(paths['data_dir'], 'warming_media')
+    os.makedirs(media_dir, exist_ok=True)
+    batch_dir = os.path.join(media_dir, datetime.now().strftime('%Y%m%d_%H%M%S'))
+    os.makedirs(batch_dir, exist_ok=True)
+    for index, file in enumerate(files[:500]):
+        if not file or not file.filename or not allowed_group_cover(file.filename):
+            continue
+        filename = secure_filename(file.filename) or f'warming_{index}.jpg'
+        target = os.path.join(batch_dir, f'{index + 1:04d}_{filename}')
+        file.save(target)
+        saved_paths.append(target)
+    return saved_paths
+
 @app.route('/api/warming/groups', methods=['GET', 'POST'])
 @login_required
 def manage_warming_groups():
@@ -5124,6 +5208,27 @@ def manage_warming_groups():
         save_warming_groups(groups)
     
     return jsonify({'success': True, 'groups': groups})
+
+@app.route('/api/warming/status', methods=['GET'])
+@login_required
+def get_warming_status():
+    """Retorna configuracoes e dia atual do aquecimento"""
+    current_username = get_current_username()
+    paths = get_user_paths(current_username)
+    runtime_state = load_warming_runtime_state(paths)
+    memory_state = get_warming_state(current_username)
+    settings = runtime_state.get('settings', {})
+    current_day = calculate_warming_day(runtime_state.get('started_at'), settings.get('duration_days', 10))
+    runtime_state['current_day'] = current_day
+    runtime_state['active'] = bool(memory_state.get('active'))
+    save_warming_runtime_state(runtime_state, paths)
+    return jsonify({
+        'success': True,
+        'active': runtime_state['active'],
+        'current_day': current_day,
+        'settings': settings,
+        'groups': runtime_state.get('groups', [])
+    })
 
 @app.route('/api/warming/groups/<int:index>', methods=['DELETE'])
 @login_required
@@ -5152,9 +5257,24 @@ def start_warming():
     if not can_warm:
         return jsonify({'success': False, 'error': message}), 400
     
-    data = request.json
-    min_interval = data.get('min_interval', 5)
-    max_interval = data.get('max_interval', 15)
+    paths = get_user_paths(current_username)
+    data = request.get_json(silent=True) if request.is_json else request.form
+    data = data or {}
+    warming_config = normalize_warming_config(data)
+    min_interval = warming_config['min_interval']
+    max_interval = warming_config['max_interval']
+
+    if min_interval >= max_interval:
+        return jsonify({'success': False, 'error': 'Intervalo mínimo deve ser menor que o máximo'}), 400
+
+    image_paths = save_warming_images(request.files.getlist('warming_images'), paths) if not request.is_json else []
+    warming_config['image_count'] = len(image_paths)
+
+    if warming_config['photos_per_day'] > 0 and not image_paths:
+        return jsonify({'success': False, 'error': 'Fotos por dia configurado, mas nenhum banco de imagens foi enviado'}), 400
+
+    if warming_config['messages_per_day'] <= 0 and warming_config['photos_per_day'] <= 0:
+        return jsonify({'success': False, 'error': 'Configure mensagens por dia ou fotos por dia'}), 400
     
     groups = load_warming_groups()
     if not groups:
@@ -5167,6 +5287,26 @@ def start_warming():
     api_id, api_hash = get_next_api()
     if not api_id:
         return jsonify({'success': False, 'error': 'API não configurada'}), 400
+
+    started_at = datetime.now().isoformat(timespec='seconds')
+    runtime_state = {
+        'active': True,
+        'started_at': started_at,
+        'current_day': 1,
+        'settings': warming_config,
+        'groups': [
+            {
+                'group_link': group_link,
+                'current_day': 1,
+                'status': 'aquecimento',
+                'messages_sent_today': 0,
+                'photos_sent_today': 0,
+                'last_action_at': None
+            }
+            for group_link in groups
+        ]
+    }
+    save_warming_runtime_state(runtime_state, paths)
     
     def warming_process():
         thread_context.username = current_username
@@ -5182,9 +5322,13 @@ def start_warming():
             import time
             
             bot = WarmingBot(api_id, api_hash)
+            message_bank = warming_config.get('message_bank') or []
+            photos_per_day = warming_config.get('photos_per_day', 0)
+            messages_per_day = warming_config.get('messages_per_day', 0)
+            total_daily_actions = max(1, photos_per_day + messages_per_day)
             
             emit_to_user('warming_log', {
-                'message': f'🔥 Aquecimento iniciado com {len(sessions)} sessão(ões) em {len(groups)} grupo(s)',
+                'message': f'🔥 Aquecimento iniciado por {warming_config["duration_days"]} dia(s), com {len(sessions)} sessão(ões) em {len(groups)} grupo(s)',
                 'type': 'success'
             }, current_username)
             
@@ -5247,17 +5391,35 @@ def start_warming():
                             break
                         
                         try:
+                            current_day = calculate_warming_day(started_at, warming_config['duration_days'])
+                            runtime_state['current_day'] = current_day
+                            for group_state in runtime_state.get('groups', []):
+                                if group_state.get('group_link') == group_link:
+                                    group_state['current_day'] = current_day
+                                    group_state['last_action_at'] = datetime.now().isoformat(timespec='seconds')
+
+                            use_photo = bool(image_paths) and random.randint(1, total_daily_actions) <= photos_per_day
+                            message_text = random.choice(message_bank) if message_bank else None
+                            image_path = random.choice(image_paths) if use_photo else None
+
                             # Executa envio de mensagem
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             success = loop.run_until_complete(
-                                bot.send_warming_message(session, group_link)
+                                bot.send_warming_message(session, group_link, message=message_text, image_path=image_path)
                             )
                             loop.close()
                             
                             if success:
+                                for group_state in runtime_state.get('groups', []):
+                                    if group_state.get('group_link') == group_link:
+                                        if image_path:
+                                            group_state['photos_sent_today'] = group_state.get('photos_sent_today', 0) + 1
+                                        else:
+                                            group_state['messages_sent_today'] = group_state.get('messages_sent_today', 0) + 1
+                                save_warming_runtime_state(runtime_state, paths)
                                 emit_to_user('warming_log', {
-                                    'message': f'✅ {session["first_name"]} → {group_link}',
+                                    'message': f'✅ Dia {current_day}/{warming_config["duration_days"]}: {session["first_name"]} → {group_link}',
                                     'type': 'success'
                                 }, current_username)
                             else:
@@ -5273,7 +5435,10 @@ def start_warming():
                         
                         # Delay aleatório entre mensagens
                         if warming_state.get('active'):
-                            delay = random.randint(min_interval * 60, max_interval * 60)
+                            if warming_config.get('random_hours', True):
+                                delay = random.randint(min_interval * 60, max_interval * 60)
+                            else:
+                                delay = min_interval * 60
                             minutes = delay // 60
                             emit_to_user('warming_log', {
                                 'message': f'⏳ Aguardando {minutes} minuto(s)...',
@@ -5293,6 +5458,11 @@ def start_warming():
         finally:
             # Libera aquecimento
             warming_state['active'] = False
+            try:
+                runtime_state['active'] = False
+                save_warming_runtime_state(runtime_state, paths)
+            except Exception:
+                pass
             set_session_lock('warming', False, username=current_username)
     
     warming_state['thread'] = threading.Thread(target=warming_process, daemon=True)
@@ -5304,11 +5474,20 @@ def start_warming():
 @login_required
 def stop_warming():
     """Para aquecimento automático"""
-    warming_state = get_warming_state()
+    current_username = get_current_username()
+    warming_state = get_warming_state(current_username)
     warming_state['active'] = False
+    paths = get_user_paths(current_username)
+    runtime_state = load_warming_runtime_state(paths)
+    runtime_state['active'] = False
+    runtime_state['current_day'] = calculate_warming_day(
+        runtime_state.get('started_at'),
+        runtime_state.get('settings', {}).get('duration_days', 10)
+    )
+    save_warming_runtime_state(runtime_state, paths)
     
     # Libera o lock (será liberado também no finally do thread)
-    set_session_lock('warming', False)
+    set_session_lock('warming', False, username=current_username)
     
     return jsonify({'success': True})
 

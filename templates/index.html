@@ -7450,7 +7450,7 @@
     <div class="card">
         <p class="info">
             <i class="fas fa-info-circle"></i>
-            O aquecimento mantém as sessões ativas enviando mensagens aleatórias nos grupos a cada 5-15 minutos.
+            Configure a linha do tempo de aquecimento, bancos de mensagens e imagens usados nos envios.
         </p>
         
         <div class="form-group">
@@ -7470,6 +7470,54 @@
             </div>
         </div>
         
+        <div class="form-row">
+            <div class="form-group">
+                <label>Duração (dias)</label>
+                <input type="number" id="warming-duration" value="10" min="1" max="60" oninput="updateWarmingCurrentDayDisplay()">
+            </div>
+            <div class="form-group">
+                <label>Dia Atual do Aquecimento</label>
+                <div style="background: rgba(15, 23, 42, 0.6); padding: 14px 16px; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2); color: #e2e8f0;">
+                    <strong id="warming-current-day">1/10</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Mensagens por Dia</label>
+                <input type="number" id="warming-messages-per-day" value="3" min="0" max="500">
+            </div>
+            <div class="form-group">
+                <label>Fotos por Dia</label>
+                <input type="number" id="warming-photos-per-day" value="0" min="0" max="500">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="warming-random-hours" checked style="width: auto;">
+                Horários aleatórios
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label>Banco de Mensagens</label>
+            <textarea id="warming-message-bank" rows="6" placeholder="Uma mensagem por linha. O sistema sorteia uma mensagem durante o aquecimento."></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>Banco de Imagens</label>
+            <div class="input-group">
+                <input type="file" id="warming-images" accept="image/*" multiple onchange="updateWarmingImageNote()">
+                <input type="file" id="warming-image-folder" accept="image/*" multiple webkitdirectory directory style="display:none;" onchange="updateWarmingImageNote()">
+                <button type="button" class="btn btn-primary" onclick="document.getElementById('warming-image-folder').click()">
+                    <i class="fas fa-folder-open"></i> Pasta
+                </button>
+            </div>
+            <small id="warming-image-note" style="color:#94a3b8;">Selecione imagens soltas ou uma pasta com fotos para usar nos grupos.</small>
+        </div>
+
         <div class="form-row">
             <div class="form-group">
                 <label>Intervalo Mínimo (minutos)</label>

@@ -217,7 +217,7 @@ class WarmingBot:
             
             self.log(f"=== ENSURE_IN_GROUP FINALIZADO ===\n")
     
-    async def send_warming_message(self, session_info, group_link):
+    async def send_warming_message(self, session_info, group_link, message=None, image_path=None):
         """Envia mensagem de aquecimento"""
         self.log(f"=== SEND_WARMING_MESSAGE INICIADO ===")
         self.log(f"Sessao: {session_info.get('first_name', 'Unknown')} ({session_info.get('session_name', 'Unknown')})")
@@ -318,19 +318,25 @@ class WarmingBot:
                     await client.disconnect()
                     return False
             
-            # Escolhe mensagem
-            use_text = random.choice([True, False])
-            if use_text:
-                message = random.choice(self.messages)
-                self.log(f"Enviando mensagem de texto: {message}")
+            if not message:
+                use_text = random.choice([True, False])
+                if use_text:
+                    message = random.choice(self.messages)
+                    self.log(f"Enviando mensagem de texto: {message}")
+                else:
+                    message = random.choice(self.stickers)
+                    self.log(f"Enviando emoji: {message}")
             else:
-                message = random.choice(self.stickers)
-                self.log(f"Enviando emoji: {message}")
-            
-            # Envia mensagem
-            self.log("Enviando mensagem...")
-            await client.send_message(group, message)
-            self.log("Mensagem enviada com sucesso!")
+                self.log(f"Enviando mensagem do banco: {message}")
+
+            if image_path and os.path.exists(image_path):
+                self.log(f"Enviando imagem: {image_path}")
+                await client.send_file(group, image_path, caption=message or '')
+                self.log("Imagem enviada com sucesso!")
+            else:
+                self.log("Enviando mensagem...")
+                await client.send_message(group, message)
+                self.log("Mensagem enviada com sucesso!")
             
             await client.disconnect()
             self.log("Desconectado!")
