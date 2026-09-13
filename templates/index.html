@@ -5766,7 +5766,7 @@
                 height: 62vh !important;
             }
         }
-        /* Modern 3D client-facing polish */
+        /* Modern lightweight visual polish */
         #panel-3d-bg {
             position: fixed;
             inset: 0;
@@ -5774,12 +5774,19 @@
             height: 100vh;
             z-index: 0;
             pointer-events: none;
-            background: linear-gradient(145deg, #07111f 0%, #101827 44%, #07131b 100%);
+            background: linear-gradient(145deg, #07111f 0%, #0c1a2b 44%, #07131b 100%);
+            opacity: 0.88;
         }
 
         body {
             background: #07111f !important;
             color: #e5edf7 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+
+        html {
+            background: #07111f !important;
         }
 
         body::before {
@@ -5798,6 +5805,13 @@
         .sidebar-collapse-toggle {
             position: relative;
             z-index: 1;
+        }
+
+        .app-container {
+            display: block !important;
+            width: 100vw !important;
+            min-height: 100vh !important;
+            background: rgba(7, 17, 31, 0.84) !important;
         }
 
         .main-content {
@@ -5834,10 +5848,24 @@
         }
 
         .sidebar {
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
             background: linear-gradient(180deg, rgba(6, 16, 29, 0.9), rgba(10, 21, 35, 0.82)) !important;
             border-right: 1px solid rgba(125, 211, 252, 0.18) !important;
             box-shadow: 26px 0 80px rgba(0, 0, 0, 0.34) !important;
-            backdrop-filter: blur(22px) saturate(1.15) !important;
+            backdrop-filter: blur(14px) saturate(1.08) !important;
+        }
+
+        .main-content {
+            margin-left: 236px !important;
+            width: calc(100vw - 236px) !important;
+            max-width: none !important;
+        }
+
+        body.sidebar-collapsed .main-content {
+            margin-left: 82px !important;
+            width: calc(100vw - 82px) !important;
         }
 
         .sidebar-logo h1 i,
@@ -5851,7 +5879,7 @@
 
         .menu-item {
             border: 1px solid transparent !important;
-            transform-style: preserve-3d;
+            transform-style: flat;
         }
 
         .menu-item:hover,
@@ -5860,7 +5888,7 @@
             box-shadow:
                 0 12px 34px rgba(2, 132, 199, 0.14),
                 inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
-            transform: translateX(2px) translateY(-1px) perspective(700px) rotateX(2deg) !important;
+            transform: translateX(2px) translateY(-1px) !important;
         }
 
         .content-header {
@@ -5871,7 +5899,7 @@
             box-shadow:
                 0 18px 60px rgba(0, 0, 0, 0.18),
                 inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
-            backdrop-filter: blur(18px) !important;
+            backdrop-filter: blur(12px) !important;
         }
 
         .card,
@@ -5892,7 +5920,7 @@
             box-shadow:
                 0 18px 48px rgba(0, 0, 0, 0.28),
                 0 1px 0 rgba(255, 255, 255, 0.06) inset !important;
-            backdrop-filter: blur(20px) saturate(1.1) !important;
+            backdrop-filter: blur(12px) saturate(1.06) !important;
         }
 
         .dashboard-card,
@@ -5900,7 +5928,7 @@
         .card,
         .factory-panel,
         .reaction-panel {
-            transform-style: preserve-3d;
+            transform-style: flat;
             transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
         }
 
@@ -5914,7 +5942,7 @@
                 0 26px 72px rgba(8, 145, 178, 0.14),
                 0 24px 70px rgba(0, 0, 0, 0.34),
                 0 1px 0 rgba(255, 255, 255, 0.1) inset !important;
-            transform: perspective(900px) rotateX(1.2deg) translateY(-2px);
+            transform: translateY(-2px);
         }
 
         .dashboard-hero {
@@ -5969,6 +5997,12 @@
                 opacity: 0.72;
             }
 
+            .main-content,
+            body.sidebar-collapsed .main-content {
+                margin-left: 0 !important;
+                width: 100vw !important;
+            }
+
             .content-header {
                 padding: 14px !important;
             }
@@ -5991,10 +6025,56 @@
                 animation: none;
             }
         }
+        /* Final dark polish overrides */
+        .panel-topbar {
+            background: rgba(7, 17, 31, 0.92) !important;
+            border: 1px solid rgba(125, 211, 252, 0.18) !important;
+            color: #e5edf7 !important;
+        }
+
+        .panel-topbar select,
+        .panel-topbar option {
+            background: #0b1626 !important;
+            color: #f8fafc !important;
+            border-color: rgba(125, 211, 252, 0.2) !important;
+        }
+
+        .dashboard-welcome h2,
+        .dashboard-panel h3,
+        .dashboard-health h3,
+        .dashboard-card strong,
+        .process-item strong {
+            color: #f8fafc !important;
+            opacity: 1 !important;
+            text-shadow: none !important;
+        }
+
+        .dashboard-welcome p,
+        .dashboard-health p,
+        .dashboard-row span,
+        .dashboard-card span,
+        .process-meta span {
+            color: #c4d0df !important;
+            opacity: 1 !important;
+        }
+
+        .process-item p,
+        .process-item .empty-state,
+        #process-list p {
+            background: transparent !important;
+            color: #c4d0df !important;
+        }
+
+        .dashboard-row b,
+        .dashboard-health b,
+        .dashboard-panel b {
+            color: #f8fafc !important;
+        }
     </style>
 </head>
 <body>
     <canvas id="panel-3d-bg" aria-hidden="true"></canvas>
+    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.1.2"></script>
     <div class="app-container">
         <button class="sidebar-collapse-toggle" id="sidebar-collapse-toggle" onclick="toggleSidebarCollapse()" type="button" title="Mostrar/ocultar menu">
             <i class="fas fa-bars"></i>
@@ -7740,8 +7820,6 @@
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='three.min.js') }}?v=0.158.0"></script>
-    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.0.1"></script>
     <script src="{{ url_for('static', filename='script.js') }}?v=2.3.0"></script>
     
     <script>
