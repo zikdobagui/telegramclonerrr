@@ -21,6 +21,7 @@ from session_creator import SessionCreator, get_session_creator, set_session_cre
 from config import CONFIG_FILE, SESSIONS_DIR, DATA_DIR, MEMBERS_FILE
 from logger import log_info, log_error, log_warning, log_debug, log_section, log_separator
 from data_store import atomic_write_json, load_json_file
+from operations_store import OperationsStore
 
 for stream in (sys.stdout, sys.stderr):
     try:
@@ -197,7 +198,14 @@ def get_user_paths(username=None):
         'warming_file': os.path.join(user_manager.get_user_data_dir(username), 'warming_groups.json'),
         'reactions_file': os.path.join(user_manager.get_user_data_dir(username), 'reactions.json'),
         'group_factory_file': os.path.join(user_manager.get_user_data_dir(username), 'group_factory.json'),
+        'operations_db': os.path.join(user_manager.get_user_data_dir(username), 'operations.db'),
     }
+
+def get_operations_store(username=None):
+    paths = get_user_paths(username)
+    if not paths:
+        raise RuntimeError('Usuário não autenticado')
+    return OperationsStore(paths['data_dir'])
 
 def get_session_manager_instance(username=None):
     username = get_current_username(username)
@@ -3341,6 +3349,113 @@ def update_task_members_file(task_id):
         return jsonify({'success': False, 'error': 'JSON inválido. Verifique o arquivo enviado.'}), 400
     except Exception as e:
         log_error(f'❌ Erro ao trocar arquivo de membros da tarefa #{task_id}: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/operations/dashboard', methods=['GET'])
+@login_required
+def operations_dashboard():
+    try:
+        manager = get_session_manager_instance()
+        sessions = manager.list_sessions() or []
+        store = get_operations_store()
+        store.sync_sessions(sessions)
+        return jsonify({'success': True, 'dashboard': store.dashboard()})
+    except Exception as e:
+        log_error(f'Erro no dashboard operacional: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/operations/groups', methods=['GET', 'POST'])
+@login_required
+def operations_groups():
+    try:
+        store = get_operations_store()
+        if request.method == 'GET':
+            return jsonify({'success': True, 'groups': store.list_groups()})
+        payload = request.get_json(silent=True) or request.form.to_dict()
+        group = store.upsert_group(payload)
+        return jsonify({'success': True, 'group': group})
+    except Exception as e:
+        log_error(f'Erro em grupos operacionais: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/operations/warmup-campaigns', methods=['POST'])
+@login_required
+def operations_warmup_campaigns():
+    try:
+        payload = request.get_json(silent=True) or {}
+        store = get_operations_store()
+        group_code = payload.get('group_code') or f"GRUPO_{int(datetime.now().timestamp())}"
+        group = store.upsert_group({
+            'code': group_code,
+            'name': payload.get('group_name') or group_code,
+            'description': payload.get('description') or '',
+            'photo_path': payload.get('photo_path') or '',
+            'state': 'AQUECIMENTO',
+            'session_name': payload.get('session_name') or '',
+        })
+        campaign_id = store.create_warmup_campaign(
+            group['id'],
+            payload.get('duration_days') or 10,
+            payload.get('messages_per_day') or 1,
+            payload.get('photos_per_day') or 0,
+            payload.get('random_hours', True),
+        )
+        return jsonify({'success': True, 'campaign_id': campaign_id, 'group': group})
+    except Exception as e:
+        log_error(f'Erro ao criar aquecimento persistente: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/operations/contacts/import', methods=['POST'])
+@login_required
+def operations_contacts_import():
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'Envie um arquivo TXT ou CSV'}), 400
+    file = request.files['file']
+    if not file.filename.lower().endswith(('.txt', '.csv')):
+        return jsonify({'success': False, 'error': 'Apenas TXT ou CSV são aceitos'}), 400
+    try:
+        stats = get_operations_store().import_contacts(file)
+        return jsonify({'success': True, 'stats': stats})
+    except Exception as e:
+        log_error(f'Erro ao importar leads operacionais: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/operations/jobs', methods=['GET', 'POST'])
+@login_required
+def operations_jobs():
+    try:
+        store = get_operations_store()
+        if request.method == 'GET':
+            return jsonify({'success': True, 'jobs': store.list_jobs()})
+        payload = request.get_json(silent=True) or request.form.to_dict()
+        job = store.create_distribution_job(payload)
+        return jsonify({'success': True, 'job': job})
+    except Exception as e:
+        log_error(f'Erro em jobs operacionais: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/operations/jobs/<int:job_id>/resume', methods=['POST'])
+@login_required
+def operations_resume_job(job_id):
+    try:
+        job = get_operations_store().resume_job(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job não encontrado'}), 404
+        return jsonify({'success': True, 'job': job})
+    except Exception as e:
+        log_error(f'Erro ao retomar job operacional: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/operations/jobs/<int:job_id>/interrupt', methods=['POST'])
+@login_required
+def operations_interrupt_job(job_id):
+    try:
+        job = get_operations_store().interrupt_job(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job não encontrado'}), 404
+        return jsonify({'success': True, 'job': job})
+    except Exception as e:
+        log_error(f'Erro ao interromper job operacional: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/tasks/<int:task_id>/start', methods=['POST'])

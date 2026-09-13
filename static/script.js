@@ -48,6 +48,7 @@ async function refreshActiveTab(silent = true) {
         if (tab === 'sessions' && typeof loadSessions === 'function') await loadSessions();
         if (tab === 'tasks' && typeof loadTasks === 'function') await loadTasks();
         if (tab === 'stats' && typeof loadStats === 'function') await loadStats();
+        if (tab === 'operations' && typeof loadOperations === 'function') await loadOperations();
 
         lastLiveRefreshAt = new Date();
         const indicator = document.getElementById('live-refresh-at');
@@ -229,6 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 loadActiveSessions();
             }
             if (tab === 'warming') loadWarmingGroups();
+            if (tab === 'operations') loadOperations();
             if (tab === 'reactions') loadReactions();
             if (tab === 'stats') loadStats();
         });
@@ -1882,6 +1884,176 @@ function openDashboardTab(tab) {
 function openSessionsWithFilter(filter) {
     currentSessionFilter = filter;
     openDashboardTab('sessions');
+}
+
+async function loadOperations() {
+    try {
+        const response = await fetch(`/api/operations/dashboard?_=${Date.now()}`, {cache: 'no-store'});
+        const data = await readJsonResponse(response);
+        if (!data.success) throw new Error(data.error || 'Falha ao carregar operação');
+        const dashboard = data.dashboard || {};
+        setText('op-sessions', dashboard.sessions || 0);
+        setText('op-groups', dashboard.groups || 0);
+        setText('op-leads', dashboard.leads_imported || 0);
+        setText('op-processed', dashboard.processed || 0);
+        setText('op-pending', dashboard.pending || 0);
+        setText('op-errors', dashboard.errors || 0);
+        setText('op-progress', `${Number(dashboard.progress || 0).toFixed(2)}%`);
+        renderOperationJobs(dashboard.latest_jobs || []);
+    } catch (error) {
+        console.error('Erro ao carregar operação:', error);
+        const list = document.getElementById('op-jobs-list');
+        if (list) list.innerHTML = `<p style="color:#fca5a5;margin:0;">${escapeHtml(error.message)}</p>`;
+    }
+}
+
+function renderOperationJobs(jobs) {
+    const list = document.getElementById('op-jobs-list');
+    if (!list) return;
+    if (!jobs.length) {
+        list.innerHTML = '<p style="color:#94a3b8;margin:0;">Nenhum job criado ainda.</p>';
+        return;
+    }
+    list.innerHTML = jobs.map(job => {
+        const status = job.status || 'pending';
+        const canResume = ['interrupted', 'failed', 'pending'].includes(status);
+        return `
+            <div class="process-item">
+                <div class="process-head">
+                    <strong>${escapeHtml(job.job_code || `JOB #${job.id}`)}</strong>
+                    <span class="process-badge ${escapeHtml(status)}">${escapeHtml(status)}</span>
+                </div>
+                <div class="process-meta">
+                    <span>Grupo ${escapeHtml(String(job.group_id || '--'))} · Sessão ${escapeHtml(job.session_name || '--')}</span>
+                    <b>${job.completed_quantity || 0}/${job.expected_quantity || 0}</b>
+                </div>
+                <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                    ${canResume ? `<button class="btn btn-sm btn-primary" onclick="resumeOperationJob(${Number(job.id)})"><i class="fas fa-play"></i> Retomar</button>` : ''}
+                    ${status === 'running' ? `<button class="btn btn-sm btn-warning" onclick="interruptOperationJob(${Number(job.id)})"><i class="fas fa-pause"></i> Interromper</button>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function importOperationLeads() {
+    const input = document.getElementById('op-leads-file');
+    if (!input || !input.files.length) {
+        showNotification('Selecione um TXT ou CSV de leads autorizados.', 'warning');
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    const result = document.getElementById('op-import-result');
+    if (result) result.textContent = 'Importando e validando...';
+    try {
+        const response = await fetch('/api/operations/contacts/import', {method: 'POST', body: formData});
+        const data = await readJsonResponse(response);
+        if (!data.success) throw new Error(data.error || 'Falha na importação');
+        const stats = data.stats || {};
+        if (result) {
+            result.textContent = `Válidos: ${stats.valid_rows || 0} · Duplicados: ${stats.duplicate_rows || 0} · Inválidos: ${stats.invalid_rows || 0} · Já processados: ${stats.already_processed_rows || 0}`;
+        }
+        showNotification('Leads importados para a fila persistente.', 'success');
+        await loadOperations();
+    } catch (error) {
+        if (result) result.textContent = error.message;
+        showNotification(error.message, 'error');
+    }
+}
+
+async function saveOperationGroup() {
+    const payload = {
+        code: document.getElementById('op-group-code')?.value || '',
+        name: document.getElementById('op-group-name')?.value || '',
+        description: document.getElementById('op-group-description')?.value || '',
+        state: 'CRIADO'
+    };
+    try {
+        const response = await fetch('/api/operations/groups', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await readJsonResponse(response);
+        if (!data.success) throw new Error(data.error || 'Falha ao salvar grupo');
+        document.getElementById('op-group-code').value = data.group.code;
+        showNotification('Grupo salvo na máquina de estados.', 'success');
+        await loadOperations();
+    } catch (error) {
+        showNotification(error.message, 'error');
+    }
+}
+
+async function startOperationWarmup() {
+    const payload = {
+        group_code: document.getElementById('op-group-code')?.value || '',
+        group_name: document.getElementById('op-group-name')?.value || '',
+        description: document.getElementById('op-group-description')?.value || '',
+        duration_days: 10,
+        messages_per_day: Number(document.getElementById('op-warmup-messages')?.value || 1),
+        photos_per_day: Number(document.getElementById('op-warmup-photos')?.value || 0),
+        random_hours: true
+    };
+    try {
+        const response = await fetch('/api/operations/warmup-campaigns', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await readJsonResponse(response);
+        if (!data.success) throw new Error(data.error || 'Falha ao criar aquecimento');
+        document.getElementById('op-group-code').value = data.group.code;
+        showNotification('Aquecimento persistente criado para 10 dias.', 'success');
+        await loadOperations();
+    } catch (error) {
+        showNotification(error.message, 'error');
+    }
+}
+
+async function createOperationJob() {
+    const payload = {
+        group_code: document.getElementById('op-group-code')?.value || '',
+        session_name: document.getElementById('op-job-session')?.value || '',
+        quantity: Number(document.getElementById('op-job-quantity')?.value || 30)
+    };
+    try {
+        const response = await fetch('/api/operations/jobs', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await readJsonResponse(response);
+        if (!data.success) throw new Error(data.error || 'Falha ao criar job');
+        showNotification(`${data.job.job_code} criado com fila persistente.`, 'success');
+        await loadOperations();
+    } catch (error) {
+        showNotification(error.message, 'error');
+    }
+}
+
+async function resumeOperationJob(jobId) {
+    try {
+        const response = await fetch(`/api/operations/jobs/${jobId}/resume`, {method: 'POST'});
+        const data = await readJsonResponse(response);
+        if (!data.success) throw new Error(data.error || 'Falha ao retomar job');
+        showNotification('Job marcado para retomada.', 'success');
+        await loadOperations();
+    } catch (error) {
+        showNotification(error.message, 'error');
+    }
+}
+
+async function interruptOperationJob(jobId) {
+    try {
+        const response = await fetch(`/api/operations/jobs/${jobId}/interrupt`, {method: 'POST'});
+        const data = await readJsonResponse(response);
+        if (!data.success) throw new Error(data.error || 'Falha ao interromper job');
+        showNotification('Job interrompido com checkpoint preservado.', 'warning');
+        await loadOperations();
+    } catch (error) {
+        showNotification(error.message, 'error');
+    }
 }
 
 const taskLogsById = {};
@@ -4100,7 +4272,7 @@ function showQuickSearch() {
         }
         
         // Busca em tabs
-        const tabs = ['config', 'sessions', 'tasks', 'extract', 'add', 'warming', 'reactions', 'stats', 'help'];
+        const tabs = ['config', 'sessions', 'tasks', 'extract', 'add', 'warming', 'operations', 'reactions', 'stats', 'help'];
         const matches = tabs.filter(tab => tab.includes(query));
         
         if (matches.length > 0) {

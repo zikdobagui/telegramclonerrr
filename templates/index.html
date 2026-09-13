@@ -5842,6 +5842,10 @@
                         <i class="fas fa-fire"></i>
                         <span>Aquecimento</span>
                     </a>
+                    <a href="#" class="menu-item" data-tab="operations">
+                        <i class="fas fa-database"></i>
+                        <span>Operação</span>
+                    </a>
                     <a href="#" class="menu-item" data-tab="reactions">
                         <i class="fas fa-heart"></i>
                         <span>Reações</span>
@@ -7162,6 +7166,65 @@
         </button>
         
         <div id="warming-logs" class="logs" style="margin-top: 20px;"></div>
+    </div>
+</div>
+
+<!-- Tab: Operação persistente -->
+<div class="tab-content" id="operations">
+    <div class="content-header">
+        <h2><i class="fas fa-database"></i> Operação com checkpoint</h2>
+        <p>Leads, grupos, aquecimento e jobs persistidos em banco local com retomada.</p>
+    </div>
+
+    <div class="dashboard-grid">
+        <article class="dashboard-card"><div class="icon"><i class="fas fa-mobile-alt"></i></div><strong id="op-sessions">0</strong><span>Sessões</span></article>
+        <article class="dashboard-card"><div class="icon"><i class="fas fa-users"></i></div><strong id="op-groups">0</strong><span>Grupos</span></article>
+        <article class="dashboard-card"><div class="icon"><i class="fas fa-address-book"></i></div><strong id="op-leads">0</strong><span>Leads importados</span></article>
+        <article class="dashboard-card"><div class="icon"><i class="fas fa-chart-line"></i></div><strong id="op-progress">0%</strong><span>Progresso</span></article>
+    </div>
+
+    <div class="dashboard-panels">
+        <section class="dashboard-panel">
+            <h3><i class="fas fa-file-import"></i> Importar leads autorizados</h3>
+            <div class="form-group">
+                <label>Arquivo TXT / CSV</label>
+                <input type="file" id="op-leads-file" accept=".txt,.csv">
+            </div>
+            <button class="btn btn-primary" onclick="importOperationLeads()"><i class="fas fa-upload"></i> Importar</button>
+            <div id="op-import-result" class="info" style="margin-top: 12px;">Aguardando arquivo.</div>
+        </section>
+
+        <section class="dashboard-panel">
+            <h3><i class="fas fa-layer-group"></i> Grupo e aquecimento</h3>
+            <div class="form-row">
+                <div class="form-group"><label>Código</label><input id="op-group-code" placeholder="GRUPO_0182"></div>
+                <div class="form-group"><label>Nome</label><input id="op-group-name" placeholder="Nome do grupo"></div>
+            </div>
+            <div class="form-group"><label>Descrição</label><input id="op-group-description" placeholder="Descrição do grupo"></div>
+            <div class="form-row">
+                <div class="form-group"><label>Mensagens/dia</label><input id="op-warmup-messages" type="number" value="1" min="0"></div>
+                <div class="form-group"><label>Fotos/dia</label><input id="op-warmup-photos" type="number" value="0" min="0"></div>
+            </div>
+            <button class="btn btn-primary" onclick="saveOperationGroup()"><i class="fas fa-save"></i> Salvar grupo</button>
+            <button class="btn btn-warning" onclick="startOperationWarmup()"><i class="fas fa-fire"></i> Aquecer 10 dias</button>
+        </section>
+
+        <section class="dashboard-panel">
+            <h3><i class="fas fa-truck-loading"></i> Distribuição</h3>
+            <div class="form-row">
+                <div class="form-group"><label>Contatos/grupo/dia</label><select id="op-job-quantity"><option>20</option><option selected>30</option><option>40</option></select></div>
+                <div class="form-group"><label>Sessão</label><input id="op-job-session" placeholder="SESSION_037"></div>
+            </div>
+            <button class="btn btn-primary" onclick="createOperationJob()"><i class="fas fa-plus"></i> Criar job</button>
+            <div class="dashboard-row"><span>Processados</span><b id="op-processed">0</b></div>
+            <div class="dashboard-row"><span>Pendentes</span><b id="op-pending">0</b></div>
+            <div class="dashboard-row"><span>Erros</span><b id="op-errors">0</b></div>
+        </section>
+
+        <section class="dashboard-panel">
+            <h3><i class="fas fa-history"></i> Jobs e retomada</h3>
+            <div id="op-jobs-list">Carregando jobs...</div>
+        </section>
     </div>
 </div>
 
