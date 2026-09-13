@@ -345,6 +345,17 @@ def parse_group_factory_names(raw_names):
             break
     return names
 
+def parse_group_factory_descriptions(raw_descriptions):
+    descriptions = []
+    normalized = str(raw_descriptions or '').replace('\r\n', '\n').replace('\r', '\n')
+    for line in normalized.splitlines():
+        description = line.strip()
+        if description and description not in descriptions:
+            descriptions.append(description[:255])
+        if len(descriptions) >= 100:
+            break
+    return descriptions
+
 def parse_group_factory_admins(raw_admins):
     admins = []
     for line in str(raw_admins or '').replace(',', '\n').splitlines():
@@ -1253,6 +1264,7 @@ def create_groups_factory():
             return jsonify({'success': False, 'error': 'Selecione uma sessão válida'}), 400
 
         names = parse_group_factory_names(request.form.get('group_names', ''))
+        descriptions = parse_group_factory_descriptions(request.form.get('group_descriptions', ''))
         admins = parse_group_factory_admins(request.form.get('admin_users', ''))
         add_members_enabled = request.form.get('add_members_enabled', 'true') != 'false'
         member_permissions = parse_group_member_permissions(
@@ -1306,7 +1318,7 @@ def create_groups_factory():
             'results': []
         }
 
-        def run_job(username, user_paths, session_info, group_names, admin_refs, covers, process_id, api_id, api_hash, permissions, delay):
+        def run_job(username, user_paths, session_info, group_names, group_descriptions, admin_refs, covers, process_id, api_id, api_hash, permissions, delay):
             import asyncio
             import time
             from telethon import TelegramClient
@@ -1370,10 +1382,10 @@ def create_groups_factory():
                         break
                 await client(EditAdminRequest(channel=channel, user_id=entity, admin_rights=rights, rank='Admin'))
 
-            async def create_one_group(group_name, cover_path):
+            async def create_one_group(group_name, group_description, cover_path):
                 updates = await client(CreateChannelRequest(
                     title=group_name,
-                    about='Grupo criado pelo painel TG Auto.',
+                    about=group_description or 'Grupo criado pelo painel TG Auto.',
                     megagroup=True
                 ))
                 channel = updates.chats[0]
@@ -1460,9 +1472,11 @@ def create_groups_factory():
                     update_process(process_id, username=username, current=idx - 1, message=f'Criando grupo {idx}/{len(group_names)}', detail=group_name)
                     try:
                         cover_path = random.choice(covers) if covers else None
-                        result = await create_one_group(group_name, cover_path)
+                        group_description = group_descriptions[idx - 1] if idx - 1 < len(group_descriptions) else (random.choice(group_descriptions) if group_descriptions else '')
+                        result = await create_one_group(group_name, group_description, cover_path)
                         result['success'] = True
                         result['cover_used'] = os.path.basename(cover_path) if cover_path else None
+                        result['description_used'] = group_description
                         success_count += 1
                     except Exception as group_error:
                         result = {'name': group_name, 'success': False, 'error': str(group_error)}
@@ -1506,6 +1520,8 @@ def create_groups_factory():
                     'created_at': datetime.now().isoformat(timespec='seconds'),
                     'session': session_info.get('first_name') or session_info.get('session_name'),
                     'total': len(group_names),
+                    'descriptions_total': len(group_descriptions),
+                    'covers_total': len(covers),
                     'success_count': success_count,
                     'error_count': error_count,
                     'results': run_results[-100:]
@@ -1517,7 +1533,7 @@ def create_groups_factory():
 
         thread = threading.Thread(
             target=run_job,
-            args=(current_username, paths, selected_session, names, admins, cover_paths, process_id, api_id, api_hash, member_permissions, delay_seconds),
+            args=(current_username, paths, selected_session, names, descriptions, admins, cover_paths, process_id, api_id, api_hash, member_permissions, delay_seconds),
             daemon=True
         )
         thread.start()

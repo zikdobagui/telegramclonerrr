@@ -6715,9 +6715,47 @@
             <div class="factory-config-body">
             <div class="factory-form-grid">
                 <div class="form-group wide">
+                    <label>Gerador por lista de palavras</label>
+                    <div class="factory-form-grid">
+                        <div class="form-group">
+                            <label>Palavras para nomes</label>
+                            <textarea id="factory-name-words" rows="5" placeholder="VIP&#10;Oficial&#10;Premium&#10;Brasil&#10;Networking"></textarea>
+                            <small class="factory-muted">Uma palavra por linha. O sistema combina essas palavras para montar nomes.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Descrições disponíveis</label>
+                            <textarea id="factory-description-bank" rows="5" placeholder="Grupo oficial da comunidade.&#10;Conteúdo exclusivo e novidades diárias.&#10;Networking, oportunidades e atualizações."></textarea>
+                            <small class="factory-muted">Uma descrição por linha. Será usada na descrição/sobre do grupo.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Quantidade para gerar</label>
+                            <input type="number" id="factory-generate-count" value="10" min="1" max="50">
+                        </div>
+                        <div class="form-group">
+                            <label>Prefixo opcional</label>
+                            <input type="text" id="factory-name-prefix" placeholder="Grupo">
+                        </div>
+                        <div class="form-group wide" style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button type="button" class="btn btn-primary" onclick="generateFactoryNamesFromWords()">
+                                <i class="fas fa-wand-magic-sparkles"></i> Gerar nomes
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="copyFactoryDescriptionsToGroups()">
+                                <i class="fas fa-align-left"></i> Usar descrições
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group wide">
                     <label>Nomes dos grupos</label>
                     <textarea id="factory-group-names" rows="7" placeholder="Grupo VIP 01&#10;Grupo VIP 02&#10;Grupo de Teste"></textarea>
                     <small class="factory-muted">Um nome por linha. O sistema cria um grupo para cada nome.</small>
+                </div>
+
+                <div class="form-group wide">
+                    <label>Descrições dos grupos</label>
+                    <textarea id="factory-group-descriptions" rows="5" placeholder="Descrição do Grupo VIP 01&#10;Descrição do Grupo VIP 02&#10;Descrição do Grupo de Teste"></textarea>
+                    <small class="factory-muted">Uma descrição por linha. Se houver menos descrições que nomes, o sistema reutiliza aleatoriamente as descrições informadas.</small>
                 </div>
 
                 <div class="form-group wide">
@@ -6732,20 +6770,21 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Capas aleatórias</label>
+                    <label>Fotos/capas aleatórias</label>
                     <input type="file" id="factory-covers" accept="image/*" multiple onchange="updateFactoryCoverNote()">
                     <input type="file" id="factory-cover-folder" accept="image/*" multiple webkitdirectory directory style="display:none;" onchange="updateFactoryCoverFolderNote()">
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
                         <button type="button" class="btn btn-primary" onclick="document.getElementById('factory-covers').click()">
-                            <i class="fas fa-images"></i> Imagens
+                            <i class="fas fa-images"></i> Enviar imagens
                         </button>
                         <button type="button" class="btn btn-primary" onclick="document.getElementById('factory-cover-folder').click()">
-                            <i class="fas fa-folder-open"></i> Pasta
+                            <i class="fas fa-folder-open"></i> Escolher pasta
                         </button>
                     </div>
                     <div id="factory-cover-note" class="factory-file-note" style="margin-top:8px;">
                         <i class="fas fa-image"></i> Nenhuma imagem selecionada
                     </div>
+                    <small class="factory-muted">Você pode selecionar várias imagens ou uma pasta inteira. Cada grupo usa uma foto aleatória da lista.</small>
                 </div>
 
                 <div class="form-group wide">
@@ -8077,6 +8116,56 @@
             reader.readAsText(file, 'utf-8');
         }
 
+        function getFactoryLines(id) {
+            return String(document.getElementById(id)?.value || '')
+                .split(/\r?\n|,/)
+                .map(item => item.trim())
+                .filter(Boolean);
+        }
+
+        function uniqueFactoryLines(lines) {
+            return [...new Set(lines.map(item => item.trim()).filter(Boolean))];
+        }
+
+        function generateFactoryNamesFromWords() {
+            const words = uniqueFactoryLines(getFactoryLines('factory-name-words'));
+            const count = Math.max(1, Math.min(50, parseInt(document.getElementById('factory-generate-count')?.value || '10', 10)));
+            const prefix = String(document.getElementById('factory-name-prefix')?.value || '').trim();
+
+            if (!words.length) {
+                showNotification('Informe pelo menos uma palavra para gerar nomes.', 'warning');
+                return;
+            }
+
+            const names = [];
+            let attempts = 0;
+            while (names.length < count && attempts < count * 20) {
+                attempts += 1;
+                const first = words[Math.floor(Math.random() * words.length)];
+                const second = words.length > 1 ? words[Math.floor(Math.random() * words.length)] : '';
+                const number = String(names.length + 1).padStart(2, '0');
+                const parts = [prefix, first, second && second !== first ? second : '', number].filter(Boolean);
+                const name = parts.join(' ').slice(0, 128);
+                if (!names.includes(name)) names.push(name);
+            }
+
+            const target = document.getElementById('factory-group-names');
+            if (target) target.value = names.join('\n');
+            copyFactoryDescriptionsToGroups(false);
+            showNotification(`${names.length} nome(s) gerado(s).`, 'success');
+        }
+
+        function copyFactoryDescriptionsToGroups(showToast = true) {
+            const descriptions = uniqueFactoryLines(getFactoryLines('factory-description-bank'));
+            const target = document.getElementById('factory-group-descriptions');
+            if (!descriptions.length) {
+                if (showToast) showNotification('Informe pelo menos uma descrição.', 'warning');
+                return;
+            }
+            if (target) target.value = descriptions.join('\n');
+            if (showToast) showNotification('Descrições preparadas para os grupos.', 'success');
+        }
+
         function getFactoryCoverFiles() {
             const fileInput = document.getElementById('factory-covers');
             const folderInput = document.getElementById('factory-cover-folder');
@@ -8117,6 +8206,7 @@
         async function startGroupFactory() {
             const sessionIndex = document.getElementById('factory-session-index').value;
             const names = document.getElementById('factory-group-names').value.trim();
+            const descriptions = document.getElementById('factory-group-descriptions').value.trim();
             const admins = document.getElementById('factory-admins').value.trim();
             const delay = parseInt(document.getElementById('factory-delay').value || '20', 10);
             const memberPermissions = getFactoryMemberPermissions();
@@ -8143,6 +8233,7 @@
             const formData = new FormData();
             formData.append('session_index', sessionIndex);
             formData.append('group_names', names);
+            formData.append('group_descriptions', descriptions);
             formData.append('admin_users', admins);
             formData.append('delay_seconds', String(delay));
             formData.append('add_members_enabled', String(!!memberPermissions.invite_users));
@@ -8191,7 +8282,7 @@
                             <span class="factory-muted">${escapeHtml(job.created_at || '')}</span>
                         </div>
                         <div class="factory-muted" style="margin-top:6px;">
-                            ${job.success_count || 0} criado(s), ${job.error_count || 0} erro(s), ${job.total || 0} total
+                            ${job.success_count || 0} criado(s), ${job.error_count || 0} erro(s), ${job.total || 0} total · ${job.descriptions_total || 0} descrição(ões) · ${job.covers_total || 0} foto(s)
                         </div>
                     </div>
                 `).join('');
