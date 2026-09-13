@@ -1327,9 +1327,9 @@ def create_groups_factory():
                 CreateChannelRequest,
                 EditAdminRequest,
                 EditPhotoRequest,
-                InviteToChannelRequest,
-                EditBannedDefaultRightsRequest
+                InviteToChannelRequest
             )
+            from telethon.tl.functions.messages import EditChatDefaultBannedRightsRequest
             from telethon.tl.types import ChatAdminRights, ChatBannedRights, InputChatUploadedPhoto
 
             thread_context.username = username
@@ -1430,8 +1430,8 @@ def create_groups_factory():
                                 invite_users=not permissions.get('invite_users', True)
                             )
                             break
-                    await client(EditBannedDefaultRightsRequest(
-                        channel=channel,
+                    await client(EditChatDefaultBannedRightsRequest(
+                        peer=channel,
                         banned_rights=banned_rights
                     ))
                 except Exception as rights_error:
