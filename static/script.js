@@ -1899,12 +1899,32 @@ async function loadOperations() {
         setText('op-pending', dashboard.pending || 0);
         setText('op-errors', dashboard.errors || 0);
         setText('op-progress', `${Number(dashboard.progress || 0).toFixed(2)}%`);
+        renderOperationSessionSelect(dashboard.session_list || []);
         renderOperationJobs(dashboard.latest_jobs || []);
     } catch (error) {
         console.error('Erro ao carregar operação:', error);
         const list = document.getElementById('op-jobs-list');
         if (list) list.innerHTML = `<p style="color:#fca5a5;margin:0;">${escapeHtml(error.message)}</p>`;
     }
+}
+
+function renderOperationSessionSelect(sessions) {
+    const select = document.getElementById('op-job-session');
+    if (!select) return;
+    const currentValue = select.value;
+    if (!sessions.length) {
+        select.innerHTML = '<option value="">Nenhuma sessão cadastrada</option>';
+        return;
+    }
+    select.innerHTML = [
+        '<option value="">Selecione uma sessão</option>',
+        ...sessions.map(session => {
+            const name = session.name || '';
+            const status = session.status || 'OFF';
+            const selected = currentValue && currentValue === name ? 'selected' : '';
+            return `<option value="${escapeHtml(name)}" ${selected}>${escapeHtml(name)} · ${escapeHtml(status)}</option>`;
+        })
+    ].join('');
 }
 
 function renderOperationJobs(jobs) {

@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 
 
@@ -29,8 +30,17 @@ class OperationsStore:
         conn.execute('PRAGMA foreign_keys=ON')
         return conn
 
+    @contextmanager
+    def connection(self):
+        conn = self.connect()
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
     def init_db(self):
-        with self.connect() as conn:
+        with self.connection() as conn:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -191,7 +201,7 @@ class OperationsStore:
         return [dict(row) for row in rows]
 
     def dashboard(self):
-        with self.connect() as conn:
+        with self.connection() as conn:
             contact_counts = {row['status']: row['total'] for row in conn.execute(
                 'SELECT status, COUNT(*) total FROM contacts GROUP BY status'
             )}
@@ -204,6 +214,7 @@ class OperationsStore:
             progress = round((processed / total_contacts) * 100, 2) if total_contacts else 0
             return {
                 'sessions': conn.execute('SELECT COUNT(*) FROM sessions').fetchone()[0],
+                'session_list': self.list_sessions(),
                 'groups': conn.execute('SELECT COUNT(*) FROM groups').fetchone()[0],
                 'leads_imported': total_contacts,
                 'processed': processed,
@@ -242,9 +253,9 @@ class OperationsStore:
 
     def sync_sessions(self, sessions):
         now = utc_now()
-        with self.connect() as conn:
+        with self.connection() as conn:
             for session in sessions:
-                name = session.get('name') or session.get('session_name') or session.get('phone')
+                name = session.get('session_name') or session.get('name') or session.get('phone')
                 if not name:
                     continue
                 enabled = session.get('enabled', session.get('active', True))
@@ -259,8 +270,12 @@ class OperationsStore:
                 )
 
     def list_groups(self):
-        with self.connect() as conn:
+        with self.connection() as conn:
             return self.dicts(conn.execute('SELECT * FROM groups ORDER BY id DESC LIMIT 200'))
+
+    def list_sessions(self):
+        with self.connection() as conn:
+            return self.dicts(conn.execute('SELECT * FROM sessions ORDER BY name COLLATE NOCASE'))
 
     def upsert_group(self, payload):
         now = utc_now()
@@ -268,7 +283,7 @@ class OperationsStore:
         state = payload.get('state') or 'CRIADO'
         if state not in GROUP_STATES:
             state = 'CRIADO'
-        with self.connect() as conn:
+        with self.connection() as conn:
             conn.execute(
                 """INSERT INTO groups(code, name, description, photo_path, state, session_name, created_at, updated_at)
                    VALUES(?, ?, ?, ?, ?, ?, ?, ?)
@@ -291,7 +306,7 @@ class OperationsStore:
 
     def create_warmup_campaign(self, group_id, duration_days=10, messages_per_day=1, photos_per_day=0, random_hours=True):
         now = utc_now()
-        with self.connect() as conn:
+        with self.connection() as conn:
             conn.execute(
                 'UPDATE groups SET state = ?, updated_at = ? WHERE id = ?',
                 ('AQUECIMENTO', now, group_id),
@@ -323,7 +338,7 @@ class OperationsStore:
         now = utc_now()
         seen = set()
         stats = {'total_rows': len(rows), 'valid_rows': 0, 'duplicate_rows': 0, 'invalid_rows': 0, 'already_processed_rows': 0}
-        with self.connect() as conn:
+        with self.connection() as conn:
             cur = conn.execute(
                 'INSERT INTO contact_imports(filename, total_rows, created_at) VALUES(?, ?, ?)',
                 (filename, len(rows), now),
@@ -393,7 +408,7 @@ class OperationsStore:
         group_code = payload.get('group_code') or ''
         session_name = payload.get('session_name') or ''
         now = utc_now()
-        with self.connect() as conn:
+        with self.connection() as conn:
             group = conn.execute('SELECT * FROM groups WHERE code = ?', (group_code,)).fetchone()
             if not group:
                 group = self.upsert_group({'code': group_code or None, 'name': group_code or 'Grupo distribuição'})
@@ -427,7 +442,7 @@ class OperationsStore:
 
     def resume_job(self, job_id):
         now = utc_now()
-        with self.connect() as conn:
+        with self.connection() as conn:
             job = conn.execute('SELECT * FROM distribution_jobs WHERE id = ?', (job_id,)).fetchone()
             if not job:
                 return None
@@ -443,7 +458,7 @@ class OperationsStore:
 
     def interrupt_job(self, job_id):
         now = utc_now()
-        with self.connect() as conn:
+        with self.connection() as conn:
             conn.execute(
                 "UPDATE distribution_jobs SET status='interrupted', interrupted_at=?, updated_at=? WHERE id=?",
                 (now, now, job_id),
@@ -451,7 +466,7 @@ class OperationsStore:
             return dict(conn.execute('SELECT * FROM distribution_jobs WHERE id = ?', (job_id,)).fetchone())
 
     def list_jobs(self):
-        with self.connect() as conn:
+        with self.connection() as conn:
             return self.dicts(conn.execute(
                 """SELECT dj.*, g.code group_code, g.name group_name
                    FROM distribution_jobs dj

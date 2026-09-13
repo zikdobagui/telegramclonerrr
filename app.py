@@ -3356,7 +3356,8 @@ def update_task_members_file(task_id):
 def operations_dashboard():
     try:
         manager = get_session_manager_instance()
-        sessions = manager.list_sessions() or []
+        manager.invalidate_cache()
+        sessions = manager.load_sessions(force_reload=True) or []
         store = get_operations_store()
         store.sync_sessions(sessions)
         return jsonify({'success': True, 'dashboard': store.dashboard()})
