@@ -362,42 +362,29 @@ async function loadApiList() {
     
     if (!data.configured || data.api_credentials.length === 0) {
         apiList.innerHTML = `
-            <p style="color: #94a3b8; text-align: center; padding: 20px;">
-                Nenhuma API cadastrada ainda
-            </p>
+            <p class="factory-muted" style="text-align:center;padding:24px 12px;">Nenhuma API cadastrada ainda.</p>
         `;
-        apiCount.textContent = '(0)';
+        apiCount.textContent = '0 APIs';
         return;
     }
     
-    apiCount.textContent = `(${data.total})`;
+    apiCount.textContent = `${data.total} ${data.total === 1 ? 'API' : 'APIs'}`;
     
     apiList.innerHTML = data.api_credentials.map((api, index) => `
-        <div style="background: rgba(15, 23, 42, 0.6); padding: 20px; border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.2);">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
-                <div>
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                        <span style="background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); color: white; padding: 4px 12px; border-radius: 6px; font-size: 0.85em; font-weight: 600;">
-                            #${index + 1}
-                        </span>
-                        <h4 style="margin: 0; color: #e2e8f0; font-size: 1.1em;">
-                            ${api.name || 'Sem nome'}
-                        </h4>
-                    </div>
-                    <div style="color: #94a3b8; font-size: 0.9em;">
-                        <i class="fas fa-key"></i> API ID: <span style="color: #6ee7b7; font-family: monospace;">${api.api_id}</span>
-                    </div>
-                </div>
-                <button onclick="removeApi(${api.api_id})" class="btn btn-danger" style="padding: 8px 16px;">
-                    <i class="fas fa-trash"></i>
-                </button>
+        <div class="api-list-row">
+            <span class="api-list-index">${index + 1}</span>
+            <div class="api-list-main">
+                <strong>${escapeHtml(api.name || 'API sem nome')}</strong>
+                <small>Hash</small>
+                <code>${escapeHtml(api.api_hash || '')}</code>
             </div>
-            <div style="background: rgba(59, 130, 246, 0.1); padding: 10px; border-radius: 6px; border-left: 3px solid #3b82f6;">
-                <div style="color: #94a3b8; font-size: 0.85em; margin-bottom: 4px;">API Hash:</div>
-                <div style="color: #cbd5e1; font-family: monospace; font-size: 0.9em; word-break: break-all;">
-                    ${api.api_hash}
-                </div>
+            <div class="api-list-id">
+                <span>API ID</span>
+                <code>${escapeHtml(String(api.api_id || ''))}</code>
             </div>
+            <button onclick="removeApi(${Number(api.api_id)})" class="btn btn-danger api-remove-button" type="button" title="Remover API ${index + 1}">
+                <i class="fas fa-trash"></i>
+            </button>
         </div>
     `).join('');
 }

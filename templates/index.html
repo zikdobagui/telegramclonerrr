@@ -6300,6 +6300,189 @@
             box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
         }
 
+        .app-container,
+        .main-content,
+        body[data-theme] .main-content {
+            background: transparent !important;
+        }
+
+        body[data-theme] .main-content {
+            backdrop-filter: none !important;
+        }
+
+        #config .content-header {
+            margin-bottom: 12px !important;
+        }
+
+        .config-workspace {
+            display: grid;
+            grid-template-columns: minmax(300px, 0.72fr) minmax(440px, 1.28fr);
+            gap: 14px;
+            align-items: start;
+        }
+
+        .config-editor,
+        .config-list-panel {
+            min-width: 0;
+            padding: 16px;
+            border: 1px solid rgba(125, 211, 252, 0.16);
+            border-radius: 8px;
+            background: rgba(7, 17, 31, 0.88);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .config-section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .config-section-head h3 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            color: #f8fafc;
+            font-size: 0.95rem;
+        }
+
+        .config-api-count {
+            padding: 4px 8px;
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 6px;
+            color: #7dd3fc;
+            background: rgba(14, 165, 233, 0.08);
+            font-size: 0.74rem;
+            font-weight: 800;
+        }
+
+        .config-help {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 12px;
+            padding: 9px 10px;
+            border-left: 3px solid #38bdf8;
+            background: rgba(14, 165, 233, 0.07);
+            color: #b8c8d9;
+            font-size: 0.78rem;
+        }
+
+        .config-help a {
+            color: #7dd3fc;
+            font-weight: 700;
+        }
+
+        .config-form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .config-form-grid .form-group {
+            margin: 0 !important;
+        }
+
+        .config-form-grid .wide {
+            grid-column: 1 / -1;
+        }
+
+        .config-submit-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .config-submit-row .btn {
+            flex: 0 0 auto;
+        }
+
+        #config-status {
+            flex: 1 1 auto;
+            min-height: 38px;
+            margin: 0 !important;
+        }
+
+        .api-list-scroll {
+            display: grid;
+            align-content: start;
+            gap: 7px !important;
+            height: min(620px, calc(149.2537vh - 260px));
+            min-height: 320px;
+            overflow-y: auto;
+            padding: 4px 6px 4px 0;
+            scrollbar-gutter: stable;
+        }
+
+        .api-list-row {
+            display: grid;
+            grid-template-columns: 34px minmax(0, 1fr) minmax(120px, 0.45fr) 34px;
+            align-items: center;
+            gap: 10px;
+            min-height: 52px;
+            padding: 8px 9px;
+            border: 1px solid rgba(148, 163, 184, 0.13);
+            border-radius: 7px;
+            background: rgba(15, 27, 44, 0.72);
+        }
+
+        .api-list-index {
+            display: grid;
+            place-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            color: #7dd3fc;
+            background: rgba(14, 165, 233, 0.1);
+            font-size: 0.72rem;
+            font-weight: 900;
+        }
+
+        .api-list-main,
+        .api-list-id {
+            min-width: 0;
+        }
+
+        .api-list-main strong,
+        .api-list-main small,
+        .api-list-id span,
+        .api-list-id code {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .api-list-main strong {
+            color: #eef6ff;
+            font-size: 0.84rem;
+        }
+
+        .api-list-main small,
+        .api-list-id span {
+            color: #8094aa;
+            font-size: 0.67rem;
+        }
+
+        .api-list-main code,
+        .api-list-id code {
+            margin-top: 3px;
+            color: #b8d8e8;
+            font-size: 0.73rem;
+        }
+
+        .api-remove-button {
+            display: grid;
+            place-items: center;
+            width: 32px;
+            height: 32px;
+            padding: 0 !important;
+            border-radius: 6px !important;
+        }
+
         .panel-topbar select,
         .panel-topbar option {
             background: #0b1626 !important;
@@ -6340,6 +6523,14 @@
         }
 
         @media (max-width: 1024px) {
+            .config-workspace {
+                grid-template-columns: 1fr;
+            }
+
+            .api-list-scroll {
+                height: 430px;
+            }
+
             .panel-topbar {
                 width: calc(100% + 32px) !important;
                 margin: -78px -16px 16px !important;
@@ -6348,6 +6539,27 @@
         }
 
         @media (max-width: 720px) {
+            .config-form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .config-form-grid .wide {
+                grid-column: auto;
+            }
+
+            .config-submit-row {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .api-list-row {
+                grid-template-columns: 30px minmax(0, 1fr) 34px;
+            }
+
+            .api-list-id {
+                display: none;
+            }
+
             .panel-topbar {
                 position: relative !important;
                 min-height: 0 !important;
@@ -6388,7 +6600,7 @@
 </head>
 <body>
     <canvas id="panel-3d-bg" aria-hidden="true"></canvas>
-    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.2.0"></script>
+    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.3.0"></script>
     <div class="app-container">
         <button class="sidebar-collapse-toggle" id="sidebar-collapse-toggle" onclick="toggleSidebarCollapse()" type="button" title="Mostrar/ocultar menu">
             <i class="fas fa-bars"></i>
@@ -6627,53 +6839,49 @@
             <div class="tab-content" id="config">
                 <div class="content-header">
                     <h2><i class="fas fa-cog"></i> Configuração</h2>
-                    <p>Configure suas credenciais da API do Telegram (Rotação Automática)</p>
+                    <p>Credenciais e rotação das APIs do Telegram.</p>
                 </div>
-                
-                <div class="card">
-                    <p class="info">
-                        <i class="fas fa-info-circle"></i> 
-                        Obtenha suas credenciais em: <a href="https://my.telegram.org/apps" target="_blank">my.telegram.org/apps</a>
-                    </p>
-                    
-                    <p class="info" style="background: rgba(59, 130, 246, 0.1); padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6;">
-                        <i class="fas fa-sync-alt"></i> 
-                        <strong>Rotação com pausa segura:</strong> Cadastre múltiplas APIs para distribuir carga operacional e respeitar limites da plataforma.
-                    </p>
-                    
-                    <div class="form-group">
-                        <label>Nome da API (Opcional)</label>
-                        <input type="text" id="api_name" placeholder="Ex: API Principal, API Secundária, etc.">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>API ID</label>
-                        <input type="text" id="api_id" placeholder="Digite o API ID">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>API Hash</label>
-                        <input type="text" id="api_hash" placeholder="Digite o API Hash">
-                    </div>
-                    
-                    <button class="btn btn-success" onclick="addApiConfig()">
-                        <i class="fas fa-plus"></i> Adicionar API
-                    </button>
-                    
-                    <div id="config-status" class="status-box"></div>
-                    
-                    <hr style="border: 1px solid rgba(59, 130, 246, 0.2); margin: 30px 0;">
-                    
-                    <h3 style="color: #e2e8f0; margin-bottom: 20px;">
-                        <i class="fas fa-list"></i> APIs Cadastradas
-                        <span id="api-count" style="color: #6ee7b7; font-size: 0.9em;">(0)</span>
-                    </h3>
-                    
-                    <div id="api-list" style="display: grid; gap: 15px;">
-                        <p style="color: #94a3b8; text-align: center; padding: 20px;">
-                            Nenhuma API cadastrada ainda
+
+                <div class="config-workspace">
+                    <section class="config-editor">
+                        <div class="config-section-head">
+                            <h3><i class="fas fa-key"></i> Nova API</h3>
+                        </div>
+                        <p class="config-help">
+                            <i class="fas fa-circle-info"></i>
+                            Credenciais disponíveis em <a href="https://my.telegram.org/apps" target="_blank" rel="noopener">my.telegram.org/apps</a>. APIs adicionais entram na rotação automática.
                         </p>
-                    </div>
+                        <div class="config-form-grid">
+                            <div class="form-group wide">
+                                <label for="api_name">Nome opcional</label>
+                                <input type="text" id="api_name" placeholder="Ex.: API principal">
+                            </div>
+                            <div class="form-group">
+                                <label for="api_id">API ID</label>
+                                <input type="text" id="api_id" inputmode="numeric" placeholder="Digite o ID">
+                            </div>
+                            <div class="form-group">
+                                <label for="api_hash">API Hash</label>
+                                <input type="text" id="api_hash" autocomplete="off" placeholder="Digite o hash">
+                            </div>
+                        </div>
+                        <div class="config-submit-row">
+                            <button class="btn btn-success" onclick="addApiConfig()">
+                                <i class="fas fa-plus"></i> Adicionar API
+                            </button>
+                            <div id="config-status" class="status-box"></div>
+                        </div>
+                    </section>
+
+                    <section class="config-list-panel">
+                        <div class="config-section-head">
+                            <h3><i class="fas fa-list"></i> APIs cadastradas</h3>
+                            <span id="api-count" class="config-api-count">0 APIs</span>
+                        </div>
+                        <div id="api-list" class="api-list-scroll">
+                            <p class="factory-muted">Nenhuma API cadastrada ainda.</p>
+                        </div>
+                    </section>
                 </div>
             </div>
 
@@ -8260,7 +8468,7 @@
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='script.js') }}?v=2.3.1"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v=2.4.0"></script>
     
     <script>
         const PANEL_THEME_KEY = 'panelTheme';
