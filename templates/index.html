@@ -4868,6 +4868,77 @@
             grid-column: 1 / -1;
         }
 
+        .factory-text-pair {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            grid-column: 1 / -1;
+        }
+
+        .factory-text-block {
+            min-width: 0;
+            margin: 0 !important;
+            padding: 12px;
+            border: 1px solid var(--ui-line, var(--panel-border));
+            border-radius: 8px;
+            background: var(--ui-soft, rgba(15, 23, 42, 0.32));
+        }
+
+        .factory-text-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .factory-text-heading label {
+            display: flex;
+            align-items: center;
+            margin: 0 !important;
+            color: var(--ui-ink, #eef6ff);
+        }
+
+        .factory-item-count {
+            flex: 0 0 auto;
+            padding: 4px 7px;
+            border: 1px solid var(--ui-line, rgba(125, 211, 252, 0.22));
+            border-radius: 6px;
+            color: var(--ui-accent-strong, #bae6fd);
+            background: var(--ui-card, rgba(14, 165, 233, 0.1));
+            font-size: 0.72rem;
+            font-weight: 800;
+        }
+
+        .factory-text-block textarea {
+            width: 100%;
+            min-height: 132px;
+            resize: vertical;
+            padding: 11px 12px !important;
+            border-color: var(--ui-line, rgba(125, 211, 252, 0.2)) !important;
+            background: var(--ui-card, rgba(2, 6, 23, 0.48)) !important;
+            color: var(--ui-ink, #eef6ff) !important;
+            font-family: inherit;
+            line-height: 1.45;
+        }
+
+        .factory-text-block textarea:focus {
+            border-color: var(--ui-accent, #38bdf8) !important;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12) !important;
+        }
+
+        .factory-text-block .factory-muted {
+            display: block;
+            margin-top: 7px;
+            line-height: 1.35;
+        }
+
+        .factory-generator-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
         .factory-file-note,
         .factory-status {
             min-height: 36px;
@@ -4922,6 +4993,10 @@
         @media (max-width: 980px) {
             .factory-layout,
             .factory-form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .factory-text-pair {
                 grid-template-columns: 1fr;
             }
 
@@ -6798,7 +6873,7 @@
                             <label>Prefixo opcional</label>
                             <input type="text" id="factory-name-prefix" placeholder="Grupo">
                         </div>
-                        <div class="form-group wide" style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <div class="form-group wide factory-generator-actions">
                             <button type="button" class="btn btn-primary" onclick="generateFactoryNamesFromWords()">
                                 <i class="fas fa-wand-magic-sparkles"></i> Gerar nomes
                             </button>
@@ -6809,16 +6884,24 @@
                     </div>
                 </div>
 
-                <div class="form-group wide">
-                    <label><span class="factory-step">3</span>Nomes dos grupos</label>
-                    <textarea id="factory-group-names" rows="7" placeholder="Grupo VIP 01&#10;Grupo VIP 02&#10;Grupo de Teste"></textarea>
-                    <small class="factory-muted">Um nome por linha. O sistema cria um grupo para cada nome.</small>
-                </div>
+                <div class="factory-text-pair">
+                    <div class="form-group factory-text-block">
+                        <div class="factory-text-heading">
+                            <label for="factory-group-names"><span class="factory-step">3</span>Nomes dos grupos</label>
+                            <span class="factory-item-count" id="factory-names-count">0 nomes</span>
+                        </div>
+                        <textarea id="factory-group-names" rows="6" placeholder="Grupo VIP 01&#10;Grupo VIP 02&#10;Grupo de Teste" oninput="updateFactoryTextMetrics()"></textarea>
+                        <small class="factory-muted">Um nome por linha. Cada linha cria um grupo.</small>
+                    </div>
 
-                <div class="form-group wide">
-                    <label><span class="factory-step">4</span>Descrições dos grupos</label>
-                    <textarea id="factory-group-descriptions" rows="5" placeholder="Descrição do Grupo VIP 01&#10;Descrição do Grupo VIP 02&#10;Descrição do Grupo de Teste"></textarea>
-                    <small class="factory-muted">Uma descrição por linha. Se houver menos descrições que nomes, o sistema reutiliza aleatoriamente as descrições informadas.</small>
+                    <div class="form-group factory-text-block">
+                        <div class="factory-text-heading">
+                            <label for="factory-group-descriptions"><span class="factory-step">4</span>Descrições dos grupos</label>
+                            <span class="factory-item-count" id="factory-descriptions-count">0 descrições</span>
+                        </div>
+                        <textarea id="factory-group-descriptions" rows="6" placeholder="Descrição do Grupo VIP 01&#10;Descrição do Grupo VIP 02&#10;Descrição do Grupo de Teste" oninput="updateFactoryTextMetrics()"></textarea>
+                        <small class="factory-muted">Uma por linha. Quando faltarem, o sistema reutiliza as disponíveis.</small>
+                    </div>
                 </div>
 
                 <div class="form-group wide">
@@ -8262,6 +8345,15 @@
             if (input) input.value = String(count);
         }
 
+        function updateFactoryTextMetrics() {
+            const namesCount = getFactoryLines('factory-group-names').length;
+            const descriptionsCount = getFactoryLines('factory-group-descriptions').length;
+            const namesLabel = document.getElementById('factory-names-count');
+            const descriptionsLabel = document.getElementById('factory-descriptions-count');
+            if (namesLabel) namesLabel.textContent = `${namesCount} ${namesCount === 1 ? 'nome' : 'nomes'}`;
+            if (descriptionsLabel) descriptionsLabel.textContent = `${descriptionsCount} ${descriptionsCount === 1 ? 'descrição' : 'descrições'}`;
+        }
+
         function importFactoryNamesFile() {
             const fileInput = document.getElementById('factory-names-file');
             const file = fileInput?.files?.[0];
@@ -8269,6 +8361,7 @@
             const reader = new FileReader();
             reader.onload = () => {
                 document.getElementById('factory-group-names').value = String(reader.result || '');
+                updateFactoryTextMetrics();
                 showNotification('Nomes importados para a lista', 'success');
             };
             reader.readAsText(file, 'utf-8');
@@ -8310,6 +8403,7 @@
             const target = document.getElementById('factory-group-names');
             if (target) target.value = names.join('\n');
             copyFactoryDescriptionsToGroups(false);
+            updateFactoryTextMetrics();
             showNotification(`${names.length} nome(s) gerado(s).`, 'success');
         }
 
@@ -8321,6 +8415,7 @@
                 return;
             }
             if (target) target.value = descriptions.join('\n');
+            updateFactoryTextMetrics();
             if (showToast) showNotification('Descrições preparadas para os grupos.', 'success');
         }
 
