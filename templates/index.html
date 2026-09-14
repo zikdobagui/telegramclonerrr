@@ -6652,6 +6652,158 @@
                 flex: 1 1 220px;
             }
         }
+        /* Compact workflows for extraction, adding, warming, operations and reactions */
+        .workflow-actions {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            flex-wrap: wrap;
+        }
+
+        .workflow-output {
+            min-height: 0 !important;
+            max-height: 220px !important;
+            overflow: auto;
+        }
+
+        .extract-workspace,
+        .add-workspace,
+        .warming-workspace {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px 12px;
+            align-items: start;
+        }
+
+        .extract-workspace > .form-group,
+        .add-workspace > .form-group,
+        .warming-workspace > .form-group {
+            padding: 11px !important;
+            margin: 0 !important;
+            border: 1px solid var(--ui-line);
+            border-radius: 7px;
+            background: var(--ui-soft);
+        }
+
+        .extract-workspace > hr,
+        .add-workspace > hr { display: none; }
+
+        .extract-sessions-panel { grid-column: 1; }
+        .extract-targets-panel { grid-column: 2; grid-row: 1 / span 2; }
+        .extract-batches-panel { grid-column: 1; }
+        .extract-filters-panel,
+        .extract-workspace > .workflow-actions,
+        .extract-workspace > .workflow-output { grid-column: 1 / -1; }
+        #extract .service-session-list { max-height: 190px !important; }
+        #extract #extract-group-list { min-height: 124px !important; }
+        #extract .extract-filter-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            gap: 6px !important;
+        }
+        #extract .extract-filter-option { min-height: 34px; padding: 7px 9px !important; }
+        #extract .extract-private-id-box { padding: 8px 10px !important; margin-top: 7px !important; }
+
+        .add-import-panel { grid-column: 1; }
+        .add-target-panel { grid-column: 1; }
+        .add-mode-panel { grid-column: 1; }
+        .add-limits-panel,
+        .add-loop-panel { grid-column: 1; }
+        .add-sessions-panel { grid-column: 2; grid-row: 1 / span 5; }
+        .add-actions-panel,
+        .add-workspace > .workflow-output { grid-column: 1 / -1; }
+        #add .add-sessions-panel > div {
+            padding: 9px !important;
+            border-radius: 7px !important;
+            background: transparent !important;
+            border-color: transparent !important;
+        }
+        #add #sessions-checkboxes {
+            max-height: 330px;
+            padding-right: 4px;
+            overflow-y: auto;
+            gap: 6px !important;
+        }
+        #add .add-sessions-panel [style*="margin-bottom: 15px"] { margin-bottom: 7px !important; }
+
+        .warming-intro,
+        .warming-actions-panel,
+        .warming-workspace > .workflow-output { grid-column: 1 / -1; }
+        .warming-add-panel { grid-column: 1; }
+        .warming-groups-panel { grid-column: 2; grid-row: 2 / span 2; }
+        .warming-timeline-panel,
+        .warming-volume-panel,
+        .warming-toggle-panel,
+        .warming-interval-panel { grid-column: 1; }
+        .warming-messages-panel,
+        .warming-images-panel,
+        .warming-status-panel { grid-column: 2; }
+        #warming #warming-groups-list {
+            min-height: 74px !important;
+            max-height: 150px;
+            padding: 9px !important;
+            overflow-y: auto;
+            border-radius: 7px !important;
+        }
+        #warming #warming-message-bank { min-height: 104px !important; }
+        #warming .warming-status-panel > div { padding: 10px !important; border-radius: 7px !important; }
+        #warming #warming-status { margin: 0 !important; font-size: 0.86rem !important; }
+        #warming .warming-actions-panel a,
+        #warming .warming-actions-panel button { margin-left: 0 !important; }
+
+        #operations > .dashboard-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+            gap: 8px !important;
+            margin-bottom: 10px !important;
+        }
+        #operations > .dashboard-grid .dashboard-card {
+            min-height: 74px !important;
+            padding: 10px 12px !important;
+        }
+        #operations > .dashboard-panels {
+            display: grid !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            gap: 10px !important;
+            align-items: start;
+        }
+        #operations > .dashboard-panels > .dashboard-panel:last-child { grid-column: 1 / -1; }
+        #operations #op-jobs-list { max-height: 230px; overflow-y: auto; }
+        #operations .dashboard-row { padding: 6px 0 !important; }
+
+        #reactions > .card { padding: 12px !important; }
+        #reactions .reactions-grid {
+            grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr) !important;
+            gap: 10px !important;
+        }
+        #reactions .reaction-session-list { max-height: 170px !important; }
+        #reactions #reaction-link { min-height: 80px !important; }
+        #reactions .reaction-picker { gap: 5px !important; }
+        #reactions .reaction-picker label { min-width: 34px; min-height: 32px; padding: 5px !important; }
+        #reactions .reaction-live-log,
+        #reactions .reaction-table { max-height: 220px !important; overflow-y: auto; }
+        #reactions .reaction-history-panel { margin-top: 10px !important; }
+        #reactions .custom-reaction-box { gap: 6px !important; padding: 7px !important; }
+
+        @media (max-width: 1080px) {
+            .extract-workspace,
+            .add-workspace,
+            .warming-workspace,
+            #operations > .dashboard-panels,
+            #reactions .reactions-grid { grid-template-columns: 1fr !important; }
+
+            .extract-workspace > *,
+            .add-workspace > *,
+            .warming-workspace > *,
+            #operations > .dashboard-panels > .dashboard-panel:last-child {
+                grid-column: 1 !important;
+                grid-row: auto !important;
+            }
+        }
+
+        @media (max-width: 680px) {
+            #extract .extract-filter-grid,
+            #operations > .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+        }
+
         /* Dense workspace: keep operational pages scannable without wasted space */
         .tab-content:not(#dashboard) > .content-header {
             min-height: 0 !important;
@@ -6756,8 +6908,8 @@
         #sessions .session-status-tab { min-height: 30px !important; padding: 5px 9px !important; }
 
         #operations .dashboard-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            gap: 10px !important;
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+            gap: 8px !important;
         }
         #operations .dashboard-panel,
         #reactions .reaction-panel { padding: 13px !important; }
@@ -6808,7 +6960,7 @@
                 margin-top: 5px !important;
                 text-align: left;
             }
-            #operations .dashboard-grid { grid-template-columns: 1fr !important; }
+            #operations .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
         }
 
         /* Sidebar final: compact, structured and independent from page scroll */
@@ -8154,8 +8306,8 @@
         <p>Extraia membros de qualquer grupo do Telegram</p>
     </div>
     
-    <div class="card">
-        <div class="form-group">
+    <div class="card extract-workspace">
+        <div class="form-group extract-sessions-panel">
             <label>Selecionar Sessão</label>
             <select id="extract-session" class="form-control" style="display:none;"></select>
             <div class="service-session-picker">
@@ -8167,7 +8319,7 @@
             </div>
         </div>
         
-        <div class="form-group">
+        <div class="form-group extract-targets-panel">
             <label>Lista de grupos para extração</label>
             <p class="info">
                 <i class="fas fa-info-circle"></i>
@@ -8187,7 +8339,7 @@
             </div>
         </div>
         
-        <div class="form-group">
+        <div class="form-group extract-batches-panel">
             <label>Dividir em Lotes (Opcional)</label>
             <p class="info">
                 <i class="fas fa-info-circle"></i> 
@@ -8200,7 +8352,7 @@
             </small>
         </div>
 
-        <div class="form-group">
+        <div class="form-group extract-filters-panel">
             <label>Filtros da Extração</label>
             <div class="extract-filter-grid">
                 <label class="extract-filter-option">
@@ -8234,7 +8386,7 @@
             </p>
         </div>
         
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <div class="workflow-actions">
             <button type="button" class="btn btn-success" onclick="extractMembersList()">
                 <i class="fas fa-download"></i> Iniciar Extração
             </button>
@@ -8246,10 +8398,10 @@
             </button>
         </div>
         
-        <div id="extract-logs" class="logs"></div>
+        <div id="extract-logs" class="logs workflow-output"></div>
         
         <!-- Lista de arquivos de lotes -->
-        <div id="batch-files-list" style="margin-top: 20px; display: none;">
+        <div id="batch-files-list" class="workflow-output" style="margin-top: 20px; display: none;">
             <hr style="border: 1px solid rgba(59, 130, 246, 0.2); margin: 20px 0;">
             <h3 style="color: #3b82f6; margin-bottom: 15px;">
                 <i class="fas fa-folder-open"></i> Arquivos de Lotes Disponíveis
@@ -8267,8 +8419,8 @@
         <p>Adicione membros automaticamente em grupos</p>
     </div>
     
-    <div class="card">
-        <div class="form-group">
+    <div class="card add-workspace">
+        <div class="form-group add-import-panel">
             <label>Importar Lista de Membros (Opcional)</label>
             <p class="info">
                 <i class="fas fa-info-circle"></i> 
@@ -8288,12 +8440,12 @@
         
         <hr style="border: 1px solid rgba(59, 130, 246, 0.2); margin: 30px 0;">
         
-        <div class="form-group">
+        <div class="form-group add-target-panel">
             <label>Grupo Alvo</label>
             <input type="text" id="target-group" placeholder="@grupoalvo ou https://t.me/grupoalvo">
         </div>
         
-        <div class="form-group">
+        <div class="form-group add-mode-panel">
             <label>Modo de Operação</label>
             <select id="operation-mode" onchange="toggleOperationMode()">
                 <option value="single">Uma Rodada (Cada sessão adiciona e para)</option>
@@ -8301,7 +8453,7 @@
             </select>
         </div>
         
-        <div class="form-row">
+        <div class="form-row add-limits-panel">
             <div class="form-group">
                 <label>Membros por Sessão</label>
                 <input type="number" id="members-per-session" value="50" min="1" max="200">
@@ -8318,7 +8470,7 @@
             </div>
         </div>
         
-        <div id="loop-options" style="display:none;">
+        <div id="loop-options" class="add-loop-panel" style="display:none;">
             <div class="form-row">
                 <div class="form-group">
                     <label>Delay entre Rodadas (s)</label>
@@ -8328,7 +8480,7 @@
             </div>
         </div>
         
-        <div class="form-group">
+        <div class="form-group add-sessions-panel">
             <label>Sessões para Usar</label>
             <div style="background: rgba(15, 23, 42, 0.6); padding: 15px; border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.2);">
                 <div class="session-mini-search">
@@ -8347,6 +8499,7 @@
             </div>
         </div>
         
+        <div class="workflow-actions add-actions-panel">
         <button class="btn btn-success" onclick="startAddingProcess()">
             <i class="fas fa-play"></i> Iniciar Processo
         </button>
@@ -8354,9 +8507,10 @@
         <button class="btn btn-danger" onclick="stopAddingProcess()" style="display:none;" id="stop-btn">
             <i class="fas fa-stop"></i> Parar Processo
         </button>
+        </div>
         
-        <div id="add-progress" class="progress-container"></div>
-        <div id="add-logs" class="logs"></div>
+        <div id="add-progress" class="progress-container workflow-output"></div>
+        <div id="add-logs" class="logs workflow-output"></div>
     </div>
 </div>
 
@@ -8368,13 +8522,13 @@
         <p>Mantenha suas sessões ativas automaticamente</p>
     </div>
     
-    <div class="card">
-        <p class="info">
+    <div class="card warming-workspace">
+        <p class="info warming-intro">
             <i class="fas fa-info-circle"></i>
             Configure a linha do tempo de aquecimento, bancos de mensagens e imagens usados nos envios.
         </p>
         
-        <div class="form-group">
+        <div class="form-group warming-add-panel">
             <label>Adicionar Grupo para Aquecimento</label>
             <div class="input-group">
                 <input type="text" id="warming-group-input" placeholder="@grupo ou https://t.me/grupo">
@@ -8384,14 +8538,14 @@
             </div>
         </div>
         
-        <div class="form-group">
+        <div class="form-group warming-groups-panel">
             <label>Grupos Configurados</label>
             <div id="warming-groups-list" style="background: rgba(15, 23, 42, 0.6); padding: 15px; border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.2); min-height: 100px;">
                 <p style="color: #94a3b8;">Nenhum grupo adicionado</p>
             </div>
         </div>
         
-        <div class="form-row">
+        <div class="form-row warming-timeline-panel">
             <div class="form-group">
                 <label>Duração (dias)</label>
                 <input type="number" id="warming-duration" value="10" min="1" max="60" oninput="updateWarmingCurrentDayDisplay()">
@@ -8404,7 +8558,7 @@
             </div>
         </div>
 
-        <div class="form-row">
+        <div class="form-row warming-volume-panel">
             <div class="form-group">
                 <label>Mensagens por Dia</label>
                 <input type="number" id="warming-messages-per-day" value="3" min="0" max="500">
@@ -8415,19 +8569,19 @@
             </div>
         </div>
 
-        <div class="form-group">
+        <div class="form-group warming-toggle-panel">
             <label style="display: flex; align-items: center; gap: 10px;">
                 <input type="checkbox" id="warming-random-hours" checked style="width: auto;">
                 Horários aleatórios
             </label>
         </div>
 
-        <div class="form-group">
+        <div class="form-group warming-messages-panel">
             <label>Banco de Mensagens</label>
             <textarea id="warming-message-bank" rows="6" placeholder="Uma mensagem por linha. O sistema sorteia uma mensagem durante o aquecimento."></textarea>
         </div>
 
-        <div class="form-group">
+        <div class="form-group warming-images-panel">
             <label>Banco de Imagens</label>
             <div class="input-group">
                 <input type="file" id="warming-images" accept="image/*" multiple onchange="updateWarmingImageNote()">
@@ -8439,7 +8593,7 @@
             <small id="warming-image-note" style="color:#94a3b8;">Selecione imagens soltas ou uma pasta com fotos para usar nos grupos.</small>
         </div>
 
-        <div class="form-row">
+        <div class="form-row warming-interval-panel">
             <div class="form-group">
                 <label>Intervalo Mínimo (minutos)</label>
                 <input type="number" id="warming-min" value="5" min="1" max="30">
@@ -8450,7 +8604,7 @@
             </div>
         </div>
         
-        <div class="form-group">
+        <div class="form-group warming-status-panel">
             <label>Status do Aquecimento</label>
             <div style="background: rgba(15, 23, 42, 0.6); padding: 20px; border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.2);">
                 <p id="warming-status" style="color: #fca5a5; font-size: 1.2em;">
@@ -8459,6 +8613,7 @@
             </div>
         </div>
         
+        <div class="workflow-actions warming-actions-panel">
         <button class="btn btn-success" onclick="startWarming()">
             <i class="fas fa-play"></i> Iniciar Aquecimento
         </button>
@@ -8478,8 +8633,9 @@
         <button class="btn btn-primary" onclick="viewSystemLogs()" style="margin-left: 10px;">
             <i class="fas fa-eye"></i> Visualizar Logs
         </button>
+        </div>
         
-        <div id="warming-logs" class="logs" style="margin-top: 20px;"></div>
+        <div id="warming-logs" class="logs workflow-output" style="margin-top: 20px;"></div>
     </div>
 </div>
 
