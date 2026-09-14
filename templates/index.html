@@ -6783,6 +6783,135 @@
         #reactions .reaction-history-panel { margin-top: 10px !important; }
         #reactions .custom-reaction-box { gap: 6px !important; padding: 7px !important; }
 
+        #reactions > .card {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            align-items: start;
+        }
+
+        #reactions > .card > .reactions-grid {
+            grid-column: 1 / -1;
+            margin: 0 !important;
+        }
+
+        #reactions > .card > .reaction-history-panel {
+            margin: 0 !important;
+            min-width: 0;
+        }
+
+        #reactions .reaction-builder {
+            display: grid;
+            grid-template-columns: minmax(270px, 0.8fr) minmax(340px, 1.2fr);
+            gap: 9px 12px;
+            align-items: start;
+        }
+
+        #reactions .reaction-builder-title,
+        #reactions .reaction-run-panel {
+            grid-column: 1 / -1;
+        }
+
+        #reactions .reaction-builder-title {
+            min-height: 30px;
+            padding-bottom: 7px;
+            margin-bottom: 0 !important;
+            border-bottom: 1px solid var(--ui-line);
+        }
+
+        #reactions .reaction-sessions-panel {
+            grid-column: 1;
+            grid-row: 2 / span 3;
+            margin: 0 !important;
+        }
+
+        #reactions .reaction-targets-panel {
+            grid-column: 2;
+            margin: 0 !important;
+        }
+
+        #reactions .reaction-options-panel {
+            grid-column: 2;
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) 110px !important;
+            gap: 8px !important;
+            margin: 0 !important;
+        }
+
+        #reactions .reaction-picker-panel,
+        #reactions .reaction-delay-panel {
+            margin: 0 !important;
+        }
+
+        #reactions .reaction-toggle-panel {
+            grid-column: 2;
+            min-height: 34px;
+            margin: 0 !important;
+            padding: 7px 9px !important;
+        }
+
+        #reactions .reaction-session-toolbar {
+            gap: 6px !important;
+            margin-bottom: 6px !important;
+        }
+
+        #reactions .reaction-session-limit {
+            display: grid !important;
+            grid-template-columns: auto 62px auto;
+            align-items: center;
+            gap: 5px !important;
+        }
+
+        #reactions .reaction-session-limit input {
+            width: 62px !important;
+        }
+
+        #reactions .reaction-session-actions,
+        #reactions .reaction-preset-actions {
+            gap: 5px !important;
+        }
+
+        #reactions .reaction-session-list {
+            min-height: 118px !important;
+            max-height: 210px !important;
+            margin-top: 6px !important;
+        }
+
+        #reactions .reaction-picker-panel > label,
+        #reactions .reaction-delay-panel > label,
+        #reactions .reaction-targets-panel > label,
+        #reactions .reaction-sessions-panel > label {
+            display: block;
+            margin-bottom: 5px !important;
+        }
+
+        #reactions .custom-reaction-box {
+            grid-template-columns: minmax(120px, 1fr) auto !important;
+        }
+
+        #reactions .custom-reaction-box > span {
+            display: none;
+        }
+
+        #reactions .reaction-run-panel {
+            padding-top: 8px;
+            border-top: 1px solid var(--ui-line);
+        }
+
+        #reactions .reaction-run-panel .btn {
+            flex: 1 1 135px;
+        }
+
+        #reactions .reaction-history-panel .reaction-panel-title {
+            min-height: 30px;
+            margin-bottom: 6px !important;
+        }
+
+        #reactions .reaction-table {
+            min-height: 90px;
+            max-height: 190px !important;
+        }
+
         @media (max-width: 1080px) {
             .extract-workspace,
             .add-workspace,
@@ -6797,11 +6926,24 @@
                 grid-column: 1 !important;
                 grid-row: auto !important;
             }
+
+            #reactions .reaction-builder {
+                grid-template-columns: 1fr !important;
+            }
+
+            #reactions .reaction-builder > * {
+                grid-column: 1 !important;
+                grid-row: auto !important;
+            }
         }
 
         @media (max-width: 680px) {
             #extract .extract-filter-grid,
             #operations > .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+            #reactions > .card { grid-template-columns: 1fr; }
+            #reactions > .card > * { grid-column: 1 !important; }
+            #reactions .reaction-options-panel { grid-template-columns: 1fr !important; }
         }
 
         /* Dense workspace: keep operational pages scannable without wasted space */
@@ -7201,10 +7343,6 @@
                     <a href="#" class="menu-item" data-tab="warming">
                         <i class="fas fa-fire"></i>
                         <span>Aquecimento</span>
-                    </a>
-                    <a href="#" class="menu-item" data-tab="operations">
-                        <i class="fas fa-database"></i>
-                        <span>Operação</span>
                     </a>
                     <a href="#" class="menu-item" data-tab="reactions">
                         <i class="fas fa-heart"></i>
@@ -8715,9 +8853,12 @@
 
     <div class="card">
         <div class="reactions-grid">
-            <section class="reaction-panel">
-                <h3>Adicionar à fila</h3>
-                <div class="form-group">
+            <section class="reaction-panel reaction-builder">
+                <div class="reaction-panel-title reaction-builder-title">
+                    <h3>Nova reação</h3>
+                    <span id="reaction-session-counter" class="reaction-session-counter">0 sessão(ões) selecionada(s)</span>
+                </div>
+                <div class="form-group reaction-sessions-panel">
                     <label>Sessões disponíveis</label>
                     <div class="reaction-session-toolbar">
                         <div class="reaction-session-limit">
@@ -8735,15 +8876,14 @@
                         <input type="search" id="reaction-session-search" placeholder="Pesquisar sessão para reação..." oninput="renderReactionSessionList(reactionAvailableSessions, new Set(getSelectedReactionSessions()))">
                     </div>
                     <div id="reaction-session-list" class="reaction-session-list"></div>
-                    <span id="reaction-session-counter" class="reaction-session-counter">0 sessão(ões) selecionada(s)</span>
                 </div>
-                <div class="form-group">
+                <div class="form-group reaction-targets-panel">
                     <label>Canais, grupos, chats ou links dos posts</label>
                     <textarea id="reaction-link" rows="5" placeholder="Um por linha:&#10;https://t.me/chat/123&#10;@outrocanal/456&#10;https://t.me/+convite"></textarea>
                     <small style="color:#93a4b8;">Cole um canal/post por linha. Cada alvo vira uma tarefa de reação na fila.</small>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
+                <div class="form-row reaction-options-panel">
+                    <div class="form-group reaction-picker-panel">
                         <label>Reações</label>
                         <div class="reaction-picker" id="reaction-picker">
                             <label><input type="checkbox" value="👍" checked> <span>👍</span></label>
@@ -8769,16 +8909,16 @@
                         </div>
                         <div id="custom-reactions-list" class="custom-reactions-list"></div>
                     </div>
-                    <div class="form-group">
+                    <div class="form-group reaction-delay-panel">
                         <label>Delay entre itens</label>
                         <input type="number" id="reaction-delay" min="1" max="300" value="5">
                     </div>
                 </div>
-                <label class="task-toggle-row">
+                <label class="task-toggle-row reaction-toggle-panel">
                     <input type="checkbox" id="reaction-disable-add-interactions">
                     <span>Desativar interações no grupo de adição</span>
                 </label>
-                <div class="reaction-actions">
+                <div class="reaction-actions reaction-run-panel">
                     <button class="btn btn-primary" onclick="addReactionToQueue()">
                         <i class="fas fa-plus"></i> Adicionar selecionadas
                     </button>
