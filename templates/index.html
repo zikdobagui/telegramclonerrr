@@ -6212,15 +6212,85 @@
             top: 0 !important;
             width: calc(100% + 56px) !important;
             max-width: none !important;
-            min-height: 72px !important;
-            margin: -22px -28px 20px !important;
-            padding: 12px 28px !important;
-            border-radius: 0 0 8px 8px !important;
-            background: rgba(7, 17, 31, 0.92) !important;
-            border: 1px solid rgba(125, 211, 252, 0.18) !important;
-            border-top: 0 !important;
+            min-height: 58px !important;
+            margin: -22px -28px 16px !important;
+            padding: 8px 20px !important;
+            border: 0 !important;
+            border-bottom: 1px solid rgba(125, 211, 252, 0.18) !important;
+            border-radius: 0 !important;
+            background: rgba(6, 16, 29, 0.82) !important;
             color: #e5edf7 !important;
-            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24) !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+            backdrop-filter: blur(14px) saturate(1.04) !important;
+            display: grid !important;
+            grid-template-columns: minmax(160px, auto) minmax(280px, 1fr) auto;
+            align-items: center !important;
+            gap: 14px !important;
+        }
+
+        .panel-topbar-user {
+            flex: 0 1 220px;
+        }
+
+        .panel-topbar-actions {
+            gap: 6px !important;
+            flex-wrap: nowrap !important;
+        }
+
+        #system-status {
+            min-width: 0;
+            margin: 0 !important;
+            justify-self: center;
+        }
+
+        .panel-topbar .quick-stats {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            flex-wrap: nowrap;
+        }
+
+        .panel-topbar .quick-stat {
+            min-width: 92px;
+            min-height: 36px;
+            padding: 5px 9px;
+            gap: 7px;
+            border-radius: 6px;
+            border-color: rgba(125, 211, 252, 0.14);
+            background: rgba(14, 165, 233, 0.07);
+        }
+
+        .panel-topbar .quick-stat i {
+            font-size: 0.9rem;
+            color: #7dd3fc;
+        }
+
+        .panel-topbar .quick-stat-value {
+            color: #f8fafc;
+            font-size: 0.82rem;
+            line-height: 1;
+        }
+
+        .panel-topbar .quick-stat-label {
+            margin-top: 3px;
+            color: #8da2b8;
+            font-size: 0.58rem;
+            letter-spacing: 0;
+        }
+
+        .api-health-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+        }
+
+        .api-health-dot.online {
+            background: #22c55e;
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
         }
 
         .panel-topbar select,
@@ -6265,8 +6335,8 @@
         @media (max-width: 1024px) {
             .panel-topbar {
                 width: calc(100% + 32px) !important;
-                margin: -78px -16px 18px !important;
-                padding: 12px 16px 12px 72px !important;
+                margin: -78px -16px 16px !important;
+                padding: 8px 16px 8px 72px !important;
             }
         }
 
@@ -6274,12 +6344,28 @@
             .panel-topbar {
                 position: relative !important;
                 min-height: 0 !important;
-                padding-top: 14px !important;
-                padding-bottom: 14px !important;
+                padding-top: 10px !important;
+                padding-bottom: 10px !important;
+                grid-template-columns: 1fr !important;
+            }
+
+            #system-status {
+                width: 100%;
+                justify-self: stretch;
+            }
+
+            .panel-topbar .quick-stats {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .panel-topbar .quick-stat {
+                min-width: 0;
             }
 
             .panel-topbar-actions {
                 justify-content: stretch;
+                flex-wrap: wrap !important;
             }
 
             .panel-topbar .effect-toggle,
@@ -6406,6 +6492,7 @@
                         <span>Painel ativo</span>
                     </div>
                 </div>
+                <div id="system-status" aria-label="Status resumido do sistema"></div>
                 <div class="panel-topbar-actions">
                     <button id="snow-effect-toggle" class="effect-toggle active" onclick="toggleSnowEffect()" type="button" title="Desativar efeito de neve" aria-pressed="true">
                         <i class="fas fa-snowflake"></i>
@@ -8166,7 +8253,7 @@
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='script.js') }}?v=2.3.0"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v=2.3.1"></script>
     
     <script>
         const PANEL_THEME_KEY = 'panelTheme';

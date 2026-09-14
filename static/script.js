@@ -4601,7 +4601,7 @@ async function updateSystemStatus() {
         <div class="quick-stat">
             <i class="fas fa-server"></i>
             <div>
-                <div class="quick-stat-value">${health.api_configured ? '🟢' : '🔴'}</div>
+                <div class="quick-stat-value"><span class="api-health-dot ${health.api_configured ? 'online' : ''}"></span></div>
                 <div class="quick-stat-label">API</div>
             </div>
         </div>
@@ -4629,21 +4629,11 @@ async function updateSystemStatus() {
     
     statusHtml += '</div>';
     
-    // Adiciona ao header se existir
-    const header = document.querySelector('header');
-    
-    if (!header) {
-        console.warn('Header não encontrado, pulando atualização de status');
-        return;
-    }
-    
     let statusDiv = document.getElementById('system-status');
     
     if (!statusDiv) {
-        statusDiv = document.createElement('div');
-        statusDiv.id = 'system-status';
-        statusDiv.style.marginTop = '30px';
-        header.appendChild(statusDiv);
+        console.warn('Área de status do header não encontrada');
+        return;
     }
     
     statusDiv.innerHTML = statusHtml;
