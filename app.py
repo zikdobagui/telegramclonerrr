@@ -8,6 +8,7 @@ import tempfile
 import shutil
 import sys
 import random
+import asyncio
 from functools import wraps
 from datetime import datetime
 from werkzeug.utils import secure_filename
@@ -1244,7 +1245,76 @@ def get_processes():
 @login_required
 def get_group_factory_history():
     data = load_group_factory_data()
-    return jsonify({'success': True, 'jobs': data.get('jobs', [])[-20:]})
+    running = bool(get_user_lock_state(session.get('username')).get('group_factory'))
+    return jsonify({'success': True, 'running': running, 'jobs': data.get('jobs', [])[-20:]})
+
+@app.route('/api/group-factory/invite-link', methods=['POST'])
+@login_required
+def create_group_factory_invite_link():
+    payload = request.get_json(silent=True) or {}
+    if get_user_lock_state(session.get('username')).get('group_factory'):
+        return jsonify({'success': False, 'error': 'Aguarde a criação atual terminar para gerar outro convite'}), 409
+    job_id = str(payload.get('job_id') or '')
+    try:
+        group_id = int(payload.get('group_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Grupo inválido'}), 400
+
+    paths = get_user_paths()
+    data = load_group_factory_data(paths)
+    job = next((item for item in data.get('jobs', []) if str(item.get('id')) == job_id), None)
+    if not job:
+        return jsonify({'success': False, 'error': 'Execução não encontrada'}), 404
+    result = next((
+        item for item in job.get('results', [])
+        if str(item.get('id') or '') == str(group_id)
+    ), None)
+    if not result:
+        return jsonify({'success': False, 'error': 'Grupo não encontrado no histórico'}), 404
+    if result.get('invite_link'):
+        return jsonify({'success': True, 'invite_link': result['invite_link']})
+
+    session_manager_instance = get_session_manager_instance(session.get('username'))
+    sessions = session_manager_instance.load_sessions(force_reload=True)
+    session_reference = job.get('session_name') or job.get('session')
+    selected_session = next((item for item in sessions if session_reference in {
+        item.get('session_name'), item.get('first_name'), item.get('name')
+    }), None)
+    if not selected_session:
+        return jsonify({'success': False, 'error': 'Sessão criadora não encontrada'}), 404
+
+    api_id, api_hash = get_next_api()
+    if not api_id:
+        return jsonify({'success': False, 'error': 'Configure uma API primeiro'}), 400
+
+    async def export_invite():
+        from telethon import TelegramClient
+        from telethon.tl.functions.messages import ExportChatInviteRequest
+        from telethon.tl.types import PeerChannel
+
+        session_path = os.path.join(paths['sessions_dir'], selected_session['session_name'])
+        client = TelegramClient(session_path, api_id, api_hash)
+        await client.connect()
+        try:
+            if not await client.is_user_authorized():
+                raise RuntimeError('A sessão criadora não está autorizada')
+            peer = await client.get_input_entity(PeerChannel(group_id))
+            invite = await client(ExportChatInviteRequest(peer=peer))
+            return getattr(invite, 'link', None)
+        finally:
+            await client.disconnect()
+
+    try:
+        invite_link = asyncio.run(export_invite())
+        if not invite_link:
+            raise RuntimeError('O Telegram não retornou o convite')
+        result['invite_link'] = invite_link
+        result['invite_error'] = None
+        save_group_factory_data(data, paths)
+        return jsonify({'success': True, 'invite_link': invite_link})
+    except Exception as error:
+        log_error(f'Erro ao recuperar convite do grupo {group_id}: {error}')
+        return jsonify({'success': False, 'error': str(error)}), 500
 
 @app.route('/api/group-factory/create', methods=['POST'])
 @login_required
@@ -1313,11 +1383,19 @@ def create_groups_factory():
             'id': process_id,
             'created_at': datetime.now().isoformat(timespec='seconds'),
             'session': selected_session.get('first_name') or selected_session.get('session_name'),
+            'session_name': selected_session.get('session_name'),
             'total': len(names),
+            'descriptions_total': len(descriptions),
+            'covers_total': len(cover_paths),
             'success_count': 0,
             'error_count': 0,
+            'status': 'running',
             'results': []
         }
+        factory_data = load_group_factory_data(paths)
+        factory_data.setdefault('jobs', []).append(job)
+        factory_data['jobs'] = factory_data['jobs'][-50:]
+        save_group_factory_data(factory_data, paths)
 
         def run_job(username, user_paths, session_info, group_names, group_descriptions, admin_refs, covers, process_id, api_id, api_hash, permissions, delay):
             import asyncio
@@ -1330,6 +1408,7 @@ def create_groups_factory():
                 InviteToChannelRequest
             )
             from telethon.tl.functions.messages import EditChatDefaultBannedRightsRequest
+            from telethon.tl.functions.messages import ExportChatInviteRequest
             from telethon.tl.types import ChatAdminRights, ChatBannedRights, InputChatUploadedPhoto
 
             thread_context.username = username
@@ -1337,6 +1416,30 @@ def create_groups_factory():
             run_results = []
             success_count = 0
             error_count = 0
+
+            def persist_job_snapshot(status='running'):
+                data = load_group_factory_data(user_paths)
+                jobs = data.setdefault('jobs', [])
+                stored_job = next((item for item in jobs if item.get('id') == process_id), None)
+                snapshot = {
+                    'id': process_id,
+                    'created_at': job['created_at'],
+                    'session': session_info.get('first_name') or session_info.get('session_name'),
+                    'session_name': session_info.get('session_name'),
+                    'total': len(group_names),
+                    'descriptions_total': len(group_descriptions),
+                    'covers_total': len(covers),
+                    'success_count': success_count,
+                    'error_count': error_count,
+                    'status': status,
+                    'results': run_results[-100:]
+                }
+                if stored_job is None:
+                    jobs.append(snapshot)
+                else:
+                    stored_job.update(snapshot)
+                data['jobs'] = jobs[-50:]
+                save_group_factory_data(data, user_paths)
 
             async def promote_admin(channel, admin_ref):
                 entity = await client.get_entity(admin_ref)
@@ -1452,10 +1555,21 @@ def create_groups_factory():
                     except Exception as admin_error:
                         admin_results.append({'admin': admin_ref, 'success': False, 'error': str(admin_error)})
 
+                invite_link = None
+                invite_error = None
+                try:
+                    invite = await client(ExportChatInviteRequest(peer=channel))
+                    invite_link = getattr(invite, 'link', None)
+                except Exception as link_error:
+                    invite_error = str(link_error)
+                    log_warning(f'Grupo {group_name} criado, mas não foi possível gerar o convite: {link_error}')
+
                 return {
                     'name': group_name,
                     'id': getattr(channel, 'id', None),
                     'title': getattr(channel, 'title', group_name),
+                    'invite_link': invite_link,
+                    'invite_error': invite_error,
                     'admins': admin_results,
                     'member_permissions': permissions,
                     'add_members_enabled': permissions.get('invite_users', True)
@@ -1484,9 +1598,14 @@ def create_groups_factory():
                         error_count += 1
 
                     run_results.append(result)
+                    try:
+                        persist_job_snapshot('running')
+                    except Exception as persist_error:
+                        log_warning(f'Não foi possível atualizar o histórico parcial: {persist_error}')
                     emit_to_user('group_factory_log', {
                         'message': f"{'✅' if result.get('success') else '❌'} {group_name}: {result.get('error') or 'criado'}",
-                        'type': 'success' if result.get('success') else 'error'
+                        'type': 'success' if result.get('success') else 'error',
+                        'result': result
                     }, username)
 
                     update_process(process_id, username=username, current=idx, message=f'{success_count} criado(s), {error_count} erro(s)', detail=group_name)
@@ -1515,21 +1634,18 @@ def create_groups_factory():
                 except Exception:
                     pass
 
-                data = load_group_factory_data(user_paths)
-                data.setdefault('jobs', []).append({
-                    'id': process_id,
-                    'created_at': datetime.now().isoformat(timespec='seconds'),
-                    'session': session_info.get('first_name') or session_info.get('session_name'),
-                    'total': len(group_names),
-                    'descriptions_total': len(group_descriptions),
-                    'covers_total': len(covers),
-                    'success_count': success_count,
-                    'error_count': error_count,
-                    'results': run_results[-100:]
-                })
-                data['jobs'] = data['jobs'][-50:]
-                save_group_factory_data(data, user_paths)
+                final_status = 'completed' if error_count == 0 else 'error'
+                try:
+                    persist_job_snapshot(final_status)
+                except Exception as persist_error:
+                    log_error(f'Não foi possível finalizar o histórico da criação: {persist_error}')
                 set_session_lock('group_factory', False, username=username)
+                emit_to_user('group_factory_finished', {
+                    'process_id': process_id,
+                    'status': final_status,
+                    'success_count': success_count,
+                    'error_count': error_count
+                }, username)
                 thread_context.username = None
 
         thread = threading.Thread(
