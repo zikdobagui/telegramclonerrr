@@ -926,6 +926,18 @@ function updateSessionFilterCounts(sessions, locks = {}, blockedSessions = []) {
     });
 }
 
+function getSessionOptionSearchText(session, fallback = '') {
+    return [
+        fallback,
+        session?.first_name,
+        session?.name,
+        session?.username,
+        session?.phone,
+        session?.session_name,
+        session?.status
+    ].filter(Boolean).join(' ').toLowerCase();
+}
+
 function setSessionFilter(filter) {
     currentSessionFilter = filter;
     selectedSessionIndex = null;
@@ -1581,6 +1593,8 @@ function toggleOperationMode() {
 }
 
 // Carregar sessões ativas na aba de adicionar
+let addSessionRows = [];
+
 async function loadActiveSessions() {
     const response = await fetch('/api/sessions');
     const data = await response.json();
@@ -1590,17 +1604,41 @@ async function loadActiveSessions() {
     const blockedData = await tasksResponse.json();
     const blockedSessions = blockedData.blocked_sessions || [];
     
-    const activeSessions = data.sessions.filter(s => s.active);
+    const activeSessions = data.sessions
+        .map((session, originalIndex) => ({...session, originalIndex}))
+        .filter(s => s.active);
     const container = document.getElementById('sessions-checkboxes');
     
     if (activeSessions.length === 0) {
         container.innerHTML = '<p style="color: #fca5a5;">⚠️ Nenhuma sessão ativa disponível</p>';
         return;
     }
+
+    addSessionRows = activeSessions.map((session) => ({
+        session,
+        isBlocked: blockedSessions.includes(session.originalIndex),
+        isFlood: session.status === 'flood'
+    }));
+    renderAddSessionList();
     
-    container.innerHTML = activeSessions.map((s, index) => {
-        const isBlocked = blockedSessions.includes(index);
-        const isFlood = s.status === 'flood';
+    // Marca "Selecionar Todas" como checked se houver sessões disponíveis
+    const availableSessions = addSessionRows.filter(({isBlocked, isFlood}) => !isBlocked && !isFlood);
+    document.getElementById('select-all-sessions').checked = availableSessions.length > 0;
+}
+
+function renderAddSessionList() {
+    const container = document.getElementById('sessions-checkboxes');
+    if (!container) return;
+    const query = String(document.getElementById('add-session-search')?.value || '').trim().toLowerCase();
+    const rows = addSessionRows.filter(({session}) => !query || getSessionOptionSearchText(session).includes(query));
+
+    if (!rows.length) {
+        container.innerHTML = '<p style="color: #94a3b8;">Nenhuma sessão encontrada.</p>';
+        return;
+    }
+
+    container.innerHTML = rows.map(({session: s, isBlocked, isFlood}) => {
+        const index = s.originalIndex;
         const disabled = isBlocked || isFlood;
         const opacity = disabled ? '0.5' : '1';
         const cursor = disabled ? 'not-allowed' : 'pointer';
@@ -1616,16 +1654,12 @@ async function loadActiveSessions() {
         <label style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; cursor: ${cursor}; transition: all 0.2s; opacity: ${opacity};" ${!disabled ? `onmouseover="this.style.background='rgba(59, 130, 246, 0.2)'" onmouseout="this.style.background='rgba(59, 130, 246, 0.1)'"` : ''}>
             <input type="checkbox" class="session-checkbox" value="${index}" ${disabled ? 'disabled' : 'checked'} style="width: 18px; height: 18px; cursor: ${cursor};">
             <div style="flex: 1;">
-                <div style="color: #e2e8f0; font-weight: 600;">${s.first_name} ${statusBadge}</div>
-                <div style="color: #94a3b8; font-size: 12px;">@${s.username} • ${s.phone}</div>
+                <div style="color: #e2e8f0; font-weight: 600;">${escapeHtml(s.first_name || s.name || s.session_name || 'Sessão')} ${statusBadge}</div>
+                <div style="color: #94a3b8; font-size: 12px;">${s.username ? '@' + escapeHtml(s.username) : escapeHtml(s.session_name || '')} • ${escapeHtml(s.phone || '')}</div>
             </div>
         </label>
     `;
     }).join('');
-    
-    // Marca "Selecionar Todas" como checked se houver sessões disponíveis
-    const availableSessions = activeSessions.filter((s, i) => !blockedSessions.includes(i) && s.status !== 'flood');
-    document.getElementById('select-all-sessions').checked = availableSessions.length > 0;
 }
 
 function toggleAllSessions() {
@@ -1914,14 +1948,21 @@ async function loadOperations() {
 function renderOperationSessionSelect(sessions) {
     const select = document.getElementById('op-job-session');
     if (!select) return;
+    window.operationSessions = sessions;
     const currentValue = select.value;
+    const query = String(document.getElementById('op-session-search')?.value || '').trim().toLowerCase();
+    const filteredSessions = sessions.filter(session => !query || getSessionOptionSearchText(session, session.name || '').includes(query));
     if (!sessions.length) {
         select.innerHTML = '<option value="">Nenhuma sessão cadastrada</option>';
         return;
     }
+    if (!filteredSessions.length) {
+        select.innerHTML = '<option value="">Nenhuma sessão encontrada</option>';
+        return;
+    }
     select.innerHTML = [
         '<option value="">Selecione uma sessão</option>',
-        ...sessions.map(session => {
+        ...filteredSessions.map(session => {
             const name = session.name || '';
             const status = session.status || 'OFF';
             const selected = currentValue && currentValue === name ? 'selected' : '';
@@ -2318,6 +2359,8 @@ function showStatus(elementId, message, type) {
 
 // ========== TAREFAS (MULTI-GRUPOS) ==========
 
+let taskSessionRows = [];
+
 async function loadTaskSessions() {
     const response = await fetch('/api/sessions');
     const data = await response.json();
@@ -2340,10 +2383,28 @@ async function loadTaskSessions() {
         container.innerHTML = '<p style="color: #fca5a5;">⚠️ Nenhuma sessão disponível</p>';
         return;
     }
+
+    taskSessionRows = taskSessions.map(session => ({
+        session,
+        isBlocked: reservedSessions.includes(session.originalIndex)
+    }));
+    renderTaskSessionsList();
+}
+
+function renderTaskSessionsList() {
+    const container = document.getElementById('task-sessions-checkboxes');
+    if (!container) return;
+    const query = String(document.getElementById('task-session-search')?.value || '').trim().toLowerCase();
+    const rows = taskSessionRows.filter(({session}) => !query || getSessionOptionSearchText(session).includes(query));
+
+    if (!rows.length) {
+        container.innerHTML = '<p style="color: #94a3b8;">Nenhuma sessão encontrada.</p>';
+        updateTaskSessionCounter();
+        return;
+    }
     
-    container.innerHTML = taskSessions.map((s) => {
+    container.innerHTML = rows.map(({session: s, isBlocked}) => {
         const originalIndex = s.originalIndex;
-        const isBlocked = reservedSessions.includes(originalIndex);
         const isUsable = s.active && (s.status || 'active') === 'active';
         const isDisabled = isBlocked || !isUsable;
         const opacity = isBlocked ? '0.5' : '1';
@@ -3749,19 +3810,21 @@ function renderReactionSessionList(sessions, selectedSessions = new Set()) {
     const container = document.getElementById('reaction-session-list');
     const countInput = document.getElementById('reaction-session-count');
     if (!container) return;
+    const query = String(document.getElementById('reaction-session-search')?.value || '').trim().toLowerCase();
+    const visibleSessions = sessions.filter(session => !query || getSessionOptionSearchText(session, `sessão ${session.index}`).includes(query));
 
     if (countInput) {
-        countInput.max = Math.max(sessions.length, 1);
-        countInput.value = Math.min(parseInt(countInput.value) || 1, Math.max(sessions.length, 1));
+        countInput.max = Math.max(visibleSessions.length, 1);
+        countInput.value = Math.min(parseInt(countInput.value) || 1, Math.max(visibleSessions.length, 1));
     }
 
-    if (!sessions.length) {
-        container.innerHTML = '<p style="color:#a1a1aa;margin:0;">Nenhuma sessão disponível.</p>';
+    if (!visibleSessions.length) {
+        container.innerHTML = `<p style="color:#a1a1aa;margin:0;">${sessions.length ? 'Nenhuma sessão encontrada.' : 'Nenhuma sessão disponível.'}</p>`;
         updateReactionSessionCounter();
         return;
     }
 
-    container.innerHTML = sessions.map(session => {
+    container.innerHTML = visibleSessions.map(session => {
         const details = [
             session.username ? `@${session.username}` : '',
             session.phone || '',
