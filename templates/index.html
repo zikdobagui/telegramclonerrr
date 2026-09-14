@@ -6652,6 +6652,159 @@
                 flex: 1 1 220px;
             }
         }
+        /* Sidebar final: compact, structured and independent from page scroll */
+        .sidebar {
+            display: flex !important;
+            flex-direction: column !important;
+            height: 100vh !important;
+            min-height: 100vh !important;
+            padding: 12px 10px 10px !important;
+            overflow: hidden !important;
+            background: linear-gradient(180deg, rgba(14, 28, 45, 0.96), var(--ui-sidebar) 46%) !important;
+        }
+
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 50px;
+            padding: 6px 8px 12px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .sidebar-brand-mark {
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+            display: grid;
+            place-items: center;
+            border-radius: 8px;
+            color: #fff;
+            background: var(--ui-accent);
+            box-shadow: 0 8px 22px rgba(14, 165, 233, 0.22);
+        }
+
+        .sidebar-brand-copy { min-width: 0; flex: 1; }
+        .sidebar-brand-copy strong,
+        .sidebar-brand-copy span {
+            display: block;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+        .sidebar-brand-copy strong { color: #f8fafc; font-size: 0.9rem; line-height: 1.15; }
+        .sidebar-brand-copy span { margin-top: 3px; color: #8499af; font-size: 0.68rem; }
+
+        .sidebar-live-dot {
+            width: 8px;
+            height: 8px;
+            flex: 0 0 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1);
+        }
+
+        .sidebar .privacy-controls {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 6px !important;
+            padding: 0 2px 10px !important;
+            margin: 0 0 6px !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+        }
+
+        .sidebar .privacy-toggle {
+            min-width: 0;
+            min-height: 32px !important;
+            padding: 6px 8px !important;
+            gap: 6px !important;
+            border-radius: 7px !important;
+            color: #aebfd1 !important;
+            font-size: 0.7rem !important;
+        }
+
+        .sidebar .privacy-toggle span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+        .sidebar-menu {
+            flex: 1 1 auto;
+            min-height: 0;
+            padding: 2px 2px 8px !important;
+            overflow-x: hidden;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(125, 211, 252, 0.24) transparent;
+        }
+        .sidebar-menu::-webkit-scrollbar { width: 4px; }
+        .sidebar-menu::-webkit-scrollbar-thumb { border-radius: 4px; background: rgba(125, 211, 252, 0.24); }
+
+        .sidebar .menu-section {
+            margin: 0 0 8px !important;
+            padding: 8px 0 0 !important;
+            border-top: 0 !important;
+        }
+        .sidebar .menu-section:first-child { padding-top: 2px !important; }
+        .sidebar .menu-section-title {
+            padding: 0 10px 5px !important;
+            color: #71879e !important;
+            font-size: 0.59rem !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.08em !important;
+        }
+
+        .sidebar .menu-item {
+            min-height: 36px !important;
+            padding: 5px 8px !important;
+            margin: 2px 0 !important;
+            gap: 9px !important;
+            border: 1px solid transparent !important;
+            border-radius: 7px !important;
+            color: #aebfd1 !important;
+            background: transparent !important;
+            transform: none !important;
+        }
+        .sidebar .menu-item i {
+            width: 25px !important;
+            height: 25px !important;
+            flex: 0 0 25px;
+            display: grid !important;
+            place-items: center !important;
+            border-radius: 6px !important;
+            color: #8fb2cf !important;
+            background: rgba(255, 255, 255, 0.045) !important;
+            font-size: 0.78rem !important;
+        }
+        .sidebar .menu-item span:not(.badge) { font-size: 0.79rem !important; font-weight: 650 !important; }
+        .sidebar .menu-item:hover {
+            color: #eef7ff !important;
+            border-color: rgba(125, 211, 252, 0.1) !important;
+            background: rgba(125, 211, 252, 0.055) !important;
+        }
+        .sidebar .menu-item:hover i { color: #bce9ff !important; background: rgba(56, 189, 248, 0.11) !important; }
+        .sidebar .menu-item.active {
+            color: #fff !important;
+            border-color: rgba(125, 211, 252, 0.17) !important;
+            background: rgba(14, 165, 233, 0.15) !important;
+            box-shadow: inset 2px 0 0 var(--ui-accent), 0 5px 16px rgba(0, 0, 0, 0.12) !important;
+        }
+        .sidebar .menu-item.active i { color: #fff !important; background: var(--ui-accent) !important; }
+        .sidebar .menu-item .badge { min-width: 20px; padding: 2px 6px; border-radius: 6px; line-height: 1.2; }
+
+        .sidebar-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex: 0 0 auto;
+            min-height: 34px;
+            padding: 9px 9px 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            color: #71879e;
+            font-size: 0.66rem;
+        }
+        .sidebar-footer span:last-child { color: #22c55e; font-weight: 700; }
+        body.compact-mode .sidebar-brand-copy span,
+        body.compact-mode .sidebar-footer span:first-child { display: none; }
     </style>
 </head>
 <body>
@@ -6672,6 +6825,14 @@
         
         <!-- Sidebar -->
         <nav class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="sidebar-brand-mark"><i class="fab fa-telegram-plane"></i></div>
+                <div class="sidebar-brand-copy">
+                    <strong>TG Auto</strong>
+                    <span>Central de automação</span>
+                </div>
+                <span class="sidebar-live-dot" title="Sistema online"></span>
+            </div>
             <div class="privacy-controls">
                 <button type="button" class="privacy-toggle" id="privacy-toggle" onclick="togglePrivacyMode()">
                     <i class="fas fa-eye-slash"></i>
@@ -6752,6 +6913,10 @@
                         <span>Ajuda</span>
                     </a>
                 </div>
+            </div>
+            <div class="sidebar-footer">
+                <span>Painel operacional</span>
+                <span><i class="fas fa-circle"></i> Online</span>
             </div>
         </nav>
         
