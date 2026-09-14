@@ -5988,11 +5988,11 @@
             display: block !important;
             width: 149.2537vw !important;
             min-height: 149.2537vh !important;
-            background: transparent !important;
+            background: rgba(7, 17, 31, 0.48) !important;
         }
 
         .main-content {
-            background: transparent !important;
+            background: linear-gradient(180deg, rgba(7, 17, 31, 0.24), rgba(7, 17, 31, 0.54)) !important;
         }
 
         body[data-theme] .main-content,
@@ -6005,8 +6005,7 @@
         }
 
         body[data-theme] .main-content {
-            background: transparent !important;
-            backdrop-filter: none !important;
+            background: linear-gradient(180deg, rgba(7, 17, 31, 0.38), rgba(9, 18, 32, 0.58)) !important;
         }
 
         body[data-theme] .content-header h2,
@@ -6208,6 +6207,14 @@
             }
         }
         /* Final dark polish overrides */
+        .sidebar {
+            height: 149.2537vh !important;
+            min-height: 149.2537vh !important;
+            max-height: 149.2537vh !important;
+            overflow-y: auto !important;
+            overscroll-behavior: contain;
+        }
+
         .panel-topbar {
             top: 0 !important;
             width: calc(100% + 56px) !important;
@@ -6381,7 +6388,7 @@
 </head>
 <body>
     <canvas id="panel-3d-bg" aria-hidden="true"></canvas>
-    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.2.1"></script>
+    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.2.0"></script>
     <div class="app-container">
         <button class="sidebar-collapse-toggle" id="sidebar-collapse-toggle" onclick="toggleSidebarCollapse()" type="button" title="Mostrar/ocultar menu">
             <i class="fas fa-bars"></i>
