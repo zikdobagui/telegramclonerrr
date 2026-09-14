@@ -4939,6 +4939,52 @@
             flex-wrap: wrap;
         }
 
+        .factory-generator {
+            grid-column: 1 / -1;
+            margin: 0 !important;
+            padding: 10px 12px;
+            border: 1px solid var(--ui-line, var(--panel-border));
+            border-radius: 8px;
+            background: var(--ui-soft, rgba(15, 23, 42, 0.32));
+        }
+
+        .factory-generator-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .factory-generator-head label {
+            margin: 0 !important;
+        }
+
+        .factory-generator.collapsed .factory-generator-body {
+            display: none;
+        }
+
+        .factory-generator-body {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--ui-line, var(--panel-border));
+        }
+
+        .effect-toggle {
+            width: 38px;
+            min-width: 38px;
+            height: 38px;
+            border: 1px solid var(--ui-line) !important;
+            border-radius: 8px;
+            color: var(--ui-muted);
+            background: var(--ui-soft) !important;
+            cursor: pointer;
+        }
+
+        .effect-toggle.active {
+            color: var(--ui-accent-strong);
+            border-color: var(--ui-accent) !important;
+        }
+
         .factory-file-note,
         .factory-status {
             min-height: 36px;
@@ -5942,11 +5988,11 @@
             display: block !important;
             width: 149.2537vw !important;
             min-height: 149.2537vh !important;
-            background: rgba(7, 17, 31, 0.84) !important;
+            background: rgba(7, 17, 31, 0.48) !important;
         }
 
         .main-content {
-            background: linear-gradient(180deg, rgba(7, 17, 31, 0.28), rgba(7, 17, 31, 0.72)) !important;
+            background: linear-gradient(180deg, rgba(7, 17, 31, 0.24), rgba(7, 17, 31, 0.54)) !important;
         }
 
         body[data-theme] .main-content,
@@ -5956,6 +6002,10 @@
             color: #e5edf7 !important;
             border-color: rgba(125, 211, 252, 0.16) !important;
             backdrop-filter: blur(22px) saturate(1.12) !important;
+        }
+
+        body[data-theme] .main-content {
+            background: linear-gradient(180deg, rgba(7, 17, 31, 0.38), rgba(9, 18, 32, 0.58)) !important;
         }
 
         body[data-theme] .content-header h2,
@@ -6205,7 +6255,7 @@
 </head>
 <body>
     <canvas id="panel-3d-bg" aria-hidden="true"></canvas>
-    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.1.2"></script>
+    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.2.0"></script>
     <div class="app-container">
         <button class="sidebar-collapse-toggle" id="sidebar-collapse-toggle" onclick="toggleSidebarCollapse()" type="button" title="Mostrar/ocultar menu">
             <i class="fas fa-bars"></i>
@@ -6317,6 +6367,9 @@
                     </div>
                 </div>
                 <div class="panel-topbar-actions">
+                    <button id="snow-effect-toggle" class="effect-toggle active" onclick="toggleSnowEffect()" type="button" title="Desativar efeito de neve" aria-pressed="true">
+                        <i class="fas fa-snowflake"></i>
+                    </button>
                     <div class="theme-control">
                         <label for="theme-select">Tema</label>
                         <select id="theme-select" class="theme-select" onchange="setPanelTheme(this.value)">
@@ -6847,8 +6900,15 @@
             </div>
             <div class="factory-config-body">
             <div class="factory-form-grid">
-                <div class="form-group wide">
-                    <label>Gerador rápido</label>
+                <div class="form-group wide factory-generator collapsed" id="factory-generator">
+                    <div class="factory-generator-head">
+                        <label><i class="fas fa-wand-magic-sparkles"></i> Gerador rápido</label>
+                        <button type="button" class="factory-toggle" onclick="toggleFactoryGenerator()" aria-expanded="false" id="factory-generator-toggle">
+                            <i class="fas fa-chevron-down"></i>
+                            <span>Mostrar gerador</span>
+                        </button>
+                    </div>
+                    <div class="factory-generator-body">
                     <div class="factory-quick-actions">
                         <button type="button" class="mini-btn" onclick="setFactoryGenerateCount(10)">10 grupos</button>
                         <button type="button" class="mini-btn" onclick="setFactoryGenerateCount(20)">20 grupos</button>
@@ -6881,6 +6941,7 @@
                                 <i class="fas fa-align-left"></i> Usar descrições
                             </button>
                         </div>
+                    </div>
                     </div>
                 </div>
 
@@ -8088,12 +8149,21 @@
         function applyViewPreferences() {
             const privacyEnabled = localStorage.getItem('privacyMode') === 'true';
             const compactEnabled = localStorage.getItem('compactMode') === 'true';
+            const snowEnabled = localStorage.getItem('panelSnowEnabled') !== 'false';
             document.body.classList.toggle('privacy-mode', privacyEnabled);
             document.body.classList.toggle('compact-mode', compactEnabled);
             applyPanelTheme();
 
             const privacyButton = document.getElementById('privacy-toggle');
             const compactButton = document.getElementById('compact-toggle');
+            const snowButton = document.getElementById('snow-effect-toggle');
+
+            if (snowButton) {
+                snowButton.classList.toggle('active', snowEnabled);
+                snowButton.setAttribute('aria-pressed', String(snowEnabled));
+                snowButton.title = snowEnabled ? 'Desativar efeito de neve' : 'Ativar efeito de neve';
+            }
+            window.dispatchEvent(new CustomEvent('panel-snow-change', { detail: { enabled: snowEnabled } }));
 
             if (privacyButton) {
                 privacyButton.classList.toggle('active', privacyEnabled);
@@ -8114,6 +8184,12 @@
 
         function toggleCompactMode() {
             localStorage.setItem('compactMode', String(!document.body.classList.contains('compact-mode')));
+            applyViewPreferences();
+        }
+
+        function toggleSnowEffect() {
+            const enabled = localStorage.getItem('panelSnowEnabled') !== 'false';
+            localStorage.setItem('panelSnowEnabled', String(!enabled));
             applyViewPreferences();
         }
 
@@ -8240,9 +8316,26 @@
             setGroupFactoryConfigCollapsed(!panel.classList.contains('collapsed'));
         }
 
+        function setFactoryGeneratorCollapsed(collapsed) {
+            const generator = document.getElementById('factory-generator');
+            const button = document.getElementById('factory-generator-toggle');
+            if (!generator || !button) return;
+            generator.classList.toggle('collapsed', collapsed);
+            button.setAttribute('aria-expanded', String(!collapsed));
+            button.querySelector('i').className = collapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+            button.querySelector('span').textContent = collapsed ? 'Mostrar gerador' : 'Ocultar gerador';
+            localStorage.setItem('factoryGeneratorCollapsed', collapsed ? '1' : '0');
+        }
+
+        function toggleFactoryGenerator() {
+            const generator = document.getElementById('factory-generator');
+            if (generator) setFactoryGeneratorCollapsed(!generator.classList.contains('collapsed'));
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const storedState = localStorage.getItem('factoryConfigCollapsed');
             setGroupFactoryConfigCollapsed(storedState !== '0');
+            setFactoryGeneratorCollapsed(localStorage.getItem('factoryGeneratorCollapsed') !== '0');
         });
 
         async function loadGroupFactory() {
