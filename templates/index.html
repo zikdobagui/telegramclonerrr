@@ -6209,9 +6209,18 @@
         }
         /* Final dark polish overrides */
         .panel-topbar {
+            top: 0 !important;
+            width: calc(100% + 56px) !important;
+            max-width: none !important;
+            min-height: 72px !important;
+            margin: -22px -28px 20px !important;
+            padding: 12px 28px !important;
+            border-radius: 0 0 8px 8px !important;
             background: rgba(7, 17, 31, 0.92) !important;
             border: 1px solid rgba(125, 211, 252, 0.18) !important;
+            border-top: 0 !important;
             color: #e5edf7 !important;
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24) !important;
         }
 
         .panel-topbar select,
@@ -6251,6 +6260,36 @@
         .dashboard-health b,
         .dashboard-panel b {
             color: #f8fafc !important;
+        }
+
+        @media (max-width: 1024px) {
+            .panel-topbar {
+                width: calc(100% + 32px) !important;
+                margin: -78px -16px 18px !important;
+                padding: 12px 16px 12px 72px !important;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .panel-topbar {
+                position: relative !important;
+                min-height: 0 !important;
+                padding-top: 14px !important;
+                padding-bottom: 14px !important;
+            }
+
+            .panel-topbar-actions {
+                justify-content: stretch;
+            }
+
+            .panel-topbar .effect-toggle,
+            .panel-topbar .profile-logout {
+                flex: 0 0 38px;
+            }
+
+            .panel-topbar .theme-control {
+                flex: 1 1 220px;
+            }
         }
     </style>
 </head>
