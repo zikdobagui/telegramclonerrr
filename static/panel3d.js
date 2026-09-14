@@ -71,7 +71,7 @@
             );
         }
 
-        ctx.strokeStyle = 'rgba(148, 163, 184, 0.025)';
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.055)';
         const gridGap = 72;
         for (let x = 0; x < state.width; x += gridGap) {
             ctx.beginPath();

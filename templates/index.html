@@ -5988,11 +5988,11 @@
             display: block !important;
             width: 149.2537vw !important;
             min-height: 149.2537vh !important;
-            background: rgba(7, 17, 31, 0.48) !important;
+            background: transparent !important;
         }
 
         .main-content {
-            background: linear-gradient(180deg, rgba(7, 17, 31, 0.24), rgba(7, 17, 31, 0.54)) !important;
+            background: transparent !important;
         }
 
         body[data-theme] .main-content,
@@ -6005,7 +6005,8 @@
         }
 
         body[data-theme] .main-content {
-            background: linear-gradient(180deg, rgba(7, 17, 31, 0.38), rgba(9, 18, 32, 0.58)) !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
         }
 
         body[data-theme] .content-header h2,
@@ -6255,7 +6256,7 @@
 </head>
 <body>
     <canvas id="panel-3d-bg" aria-hidden="true"></canvas>
-    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.2.0"></script>
+    <script src="{{ url_for('static', filename='panel3d.js') }}?v=1.2.1"></script>
     <div class="app-container">
         <button class="sidebar-collapse-toggle" id="sidebar-collapse-toggle" onclick="toggleSidebarCollapse()" type="button" title="Mostrar/ocultar menu">
             <i class="fas fa-bars"></i>
