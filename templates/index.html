@@ -6652,6 +6652,165 @@
                 flex: 1 1 220px;
             }
         }
+        /* Dense workspace: keep operational pages scannable without wasted space */
+        .tab-content:not(#dashboard) > .content-header {
+            min-height: 0 !important;
+            margin-bottom: 10px !important;
+            padding: 10px 14px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            gap: 16px !important;
+        }
+
+        .tab-content:not(#dashboard) > .content-header h2 {
+            margin: 0 !important;
+            font-size: 1.08rem !important;
+            white-space: nowrap;
+        }
+
+        .tab-content:not(#dashboard) > .content-header h2 i {
+            width: 28px !important;
+            height: 28px !important;
+            font-size: 0.8rem !important;
+        }
+
+        .tab-content:not(#dashboard) > .content-header p {
+            max-width: 680px;
+            margin: 0 !important;
+            text-align: right;
+            font-size: 0.76rem !important;
+            line-height: 1.35;
+        }
+
+        .tab-content:not(#dashboard) > .card {
+            padding: 15px !important;
+        }
+
+        .tab-content:not(#dashboard) .form-group {
+            min-width: 0;
+            margin-bottom: 10px !important;
+        }
+
+        .tab-content:not(#dashboard) .form-group label {
+            margin-bottom: 5px !important;
+            font-size: 0.76rem !important;
+        }
+
+        .tab-content:not(#dashboard) .form-row {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+            gap: 10px !important;
+            margin-bottom: 0 !important;
+        }
+
+        .tab-content:not(#dashboard) input,
+        .tab-content:not(#dashboard) select {
+            min-height: 34px !important;
+            padding-top: 6px !important;
+            padding-bottom: 6px !important;
+        }
+
+        .tab-content:not(#dashboard) textarea {
+            min-height: 78px !important;
+        }
+
+        .tab-content:not(#dashboard) .btn {
+            min-height: 32px !important;
+            padding: 6px 10px !important;
+            font-size: 0.75rem !important;
+        }
+
+        .tab-content:not(#dashboard) .info,
+        .tab-content:not(#dashboard) .status-box {
+            padding: 8px 10px !important;
+            margin-top: 8px !important;
+            margin-bottom: 8px !important;
+            font-size: 0.74rem !important;
+        }
+
+        .tab-content:not(#dashboard) hr {
+            margin: 12px 0 !important;
+            border-color: rgba(148, 163, 184, 0.12) !important;
+        }
+
+        #sessions .sessions-robo-card { padding: 12px !important; }
+        #sessions .robo-action-bar {
+            margin-bottom: 8px !important;
+            padding-bottom: 8px !important;
+            border-bottom: 1px solid var(--ui-line);
+        }
+        #sessions .session-import-panel { padding: 9px 10px !important; }
+        #sessions .session-import-actions { gap: 5px !important; }
+        #sessions .session-selection-controls {
+            padding: 8px 10px !important;
+            margin-bottom: 8px !important;
+            border-radius: 7px !important;
+            background: var(--ui-soft) !important;
+            border-color: var(--ui-line) !important;
+        }
+        #sessions .session-selection-controls > div:first-child { margin-bottom: 6px !important; }
+        #sessions .session-selection-controls .btn { min-width: 110px !important; }
+        #sessions .session-search-bar { margin-bottom: 8px !important; }
+        #sessions .session-status-tabs { margin-bottom: 8px !important; gap: 5px !important; }
+        #sessions .session-status-tab { min-height: 30px !important; padding: 5px 9px !important; }
+
+        #operations .dashboard-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 10px !important;
+        }
+        #operations .dashboard-panel,
+        #reactions .reaction-panel { padding: 13px !important; }
+        #operations .dashboard-panel h3,
+        #reactions .reaction-panel h3 { margin-bottom: 9px !important; font-size: 0.9rem !important; }
+
+        #stats > .card { padding: 12px !important; }
+        #stats .stats-grid {
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+            gap: 8px !important;
+            margin-bottom: 10px !important;
+        }
+        #stats .stat-card { min-height: 92px !important; padding: 12px !important; }
+        #stats .stat-card i { font-size: 1rem !important; }
+        #stats .stat-card h3 { margin: 5px 0 2px !important; font-size: 1.25rem !important; }
+        #stats .stat-card p { margin: 0 !important; font-size: 0.72rem !important; }
+
+        #help > .card { padding: 14px !important; }
+        #help > .card > div { max-width: none !important; }
+        #help > .card > div > div {
+            margin-bottom: 12px !important;
+            padding: 12px !important;
+            border: 1px solid var(--ui-line);
+            border-radius: 7px !important;
+            background: var(--ui-soft);
+        }
+        #help h3 { margin-bottom: 8px !important; font-size: 0.9rem !important; }
+        #help p,
+        #help ul,
+        #help ol { margin-bottom: 6px !important; line-height: 1.55 !important; font-size: 0.78rem !important; }
+
+        @media (min-width: 1100px) {
+            #help > .card > div {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+                align-items: start;
+            }
+            #help > .card > div > div { margin-bottom: 0 !important; }
+        }
+
+        @media (max-width: 760px) {
+            .tab-content:not(#dashboard) > .content-header {
+                display: block !important;
+                padding: 10px !important;
+            }
+            .tab-content:not(#dashboard) > .content-header p {
+                margin-top: 5px !important;
+                text-align: left;
+            }
+            #operations .dashboard-grid { grid-template-columns: 1fr !important; }
+        }
+
         /* Sidebar final: compact, structured and independent from page scroll */
         .sidebar {
             display: flex !important;
@@ -7117,18 +7276,6 @@
                         <button class="btn btn-success" onclick="showCreateSessionModal()">
                             <i class="fas fa-plus-circle"></i> Nova conta
                         </button>
-                        <button class="btn btn-primary" onclick="document.getElementById('session-files').click()">
-                            <i class="fas fa-folder-open"></i> Selecionar arquivos
-                        </button>
-                        <button class="btn btn-success" onclick="selectSessionsFolder()">
-                            <i class="fas fa-folder-tree"></i> Selecionar pasta
-                        </button>
-                        <button class="btn btn-primary" onclick="importSessions()">
-                            <i class="fas fa-check"></i> Importar
-                        </button>
-                        <button class="btn btn-primary" onclick="scanSessions()">
-                            <i class="fas fa-magnifying-glass"></i> Escanear pasta
-                        </button>
                         <button class="btn btn-warning" onclick="validateAllSessions()">
                             <i class="fas fa-user-check"></i> Validar todas
                         </button>
@@ -7174,7 +7321,7 @@
                     <hr style="border: 1px solid rgba(59, 130, 246, 0.2); margin: 30px 0;">
                     
                     <!-- Controles de seleção em massa -->
-                    <div id="session-selection-controls" style="margin-bottom: 15px; padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.3);">
+                    <div id="session-selection-controls" class="session-selection-controls" style="margin-bottom: 15px; padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.3);">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
                             <span style="color: #93C5FD; font-weight: 600;">
                                 <i class="fas fa-check-square"></i> Seleção em Massa
