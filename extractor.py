@@ -210,28 +210,36 @@ class MemberExtractor:
                         if group is None:
                             try:
                                 result = await client(ImportChatInviteRequest(invite_hash))
-                                await asyncio.sleep(2)
                             except Exception as join_error:
                                 from telethon.errors import UserAlreadyParticipantError
                                 if not isinstance(join_error, UserAlreadyParticipantError):
                                     raise
-                                invite_info = await client(CheckChatInviteRequest(invite_hash))
-                                group = getattr(invite_info, 'chat', None)
-                        
-                        if hasattr(result, 'chats') and result.chats:
-                            group = result.chats[0]
+                            update_result = getattr(result, 'updates', result)
+                            chats = getattr(update_result, 'chats', None) or []
+                            if chats:
+                                group = chats[0]
+                            await asyncio.sleep(2)
+                            invite_info = await client(CheckChatInviteRequest(invite_hash))
+                            group = getattr(invite_info, 'chat', None) or group
+
+                        if group is not None:
+                            from telethon.tl.types import Channel, InputPeerSelf
+                            if isinstance(group, Channel):
+                                from telethon.tl.functions.channels import GetParticipantRequest
+                                await client(GetParticipantRequest(group, InputPeerSelf()))
+                            elif getattr(invite_info, 'chat', None) is None:
+                                raise ValueError('O convite foi aceito, mas a participacao no grupo nao foi confirmada.')
                             if self.progress_callback:
-                                self.progress_callback('success', f'✅ Entrou no grupo: {group.title}')
-                        elif group is not None and self.progress_callback:
-                            self.progress_callback('success', f'✅ Sessão já participa do grupo: {group.title}')
+                                self.progress_callback('success', f'✅ Participação confirmada no grupo: {group.title}')
                         if group is None:
                             last_error = (
                                 'O convite nao retornou uma entidade de grupo '
                                 f'(consulta: {type(invite_info).__name__}; '
                                 f'entrada: {type(result).__name__}). '
-                                'Confirme que o convite continua valido e que a sessao tem acesso ao grupo.'
+                                'Confirme que o convite permite entrada direta e nao exige aprovacao.'
                             )
                     except Exception as e:
+                        group = None
                         last_error = str(e)
                         if self.progress_callback:
                             self.progress_callback('error', f'❌ Erro ao entrar no grupo privado: {last_error}')
