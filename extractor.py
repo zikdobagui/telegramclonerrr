@@ -354,8 +354,6 @@ class MemberExtractor:
                         if hasattr(participant, 'participant'):
                             if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator, ChatParticipantAdmin, ChatParticipantCreator)):
                                 found_admins.add(participant.id)
-                        else:
-                            found_admins.add(participant.id)
                     return found_admins
 
                 admin_ids = await asyncio.wait_for(collect_admins(), timeout=20)
@@ -479,7 +477,7 @@ class MemberExtractor:
                     self.progress_callback('info', f'ℹ️ Membros extraídos até o erro: {len(all_participants)}')
                 # Continua com os membros que conseguiu extrair
             
-            # Salva membros (filtrando bots, admins e dono)
+            # Salva pessoas reais, incluindo administradores e dono.
             members_data = []
             filtered_count = 0
             user_filter_count = 0
@@ -499,11 +497,6 @@ class MemberExtractor:
                     filtered_count += 1
                     continue
                 
-                # Ignora admins e dono
-                if user.id in admin_ids:
-                    filtered_count += 1
-                    continue
-
                 if not self._passes_member_filters(user, filters):
                     user_filter_count += 1
                     continue
@@ -515,6 +508,7 @@ class MemberExtractor:
                     'first_name': user.first_name,
                     'last_name': user.last_name,
                     'phone': user.phone,
+                    'is_admin': user.id in admin_ids,
                     'source_group_id': getattr(group, 'id', None),
                     'source_group_access_hash': getattr(group, 'access_hash', None),
                     'extracted_by_user_id': getattr(me, 'id', None),
@@ -522,9 +516,18 @@ class MemberExtractor:
                 })
             
             if self.progress_callback:
-                self.progress_callback('warning', f'🚫 Filtrados: {filtered_count} (bots/admins/dono)')
+                self.progress_callback('warning', f'🚫 Filtrados: {filtered_count} (bots/deletados)')
                 if user_filter_count:
                     self.progress_callback('warning', f'🔎 Removidos pelos filtros escolhidos: {user_filter_count}')
+
+            if not members_data:
+                self.last_error = (
+                    f'Nenhum membro exportavel: {len(all_participants)} recebido(s), '
+                    f'{filtered_count} bot(s)/deletado(s), {user_filter_count} removido(s) pelos filtros.'
+                )
+                if self.progress_callback:
+                    self.progress_callback('error', self.last_error)
+                return []
             
             self.save_members(members_data)
             

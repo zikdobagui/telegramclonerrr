@@ -2806,6 +2806,8 @@ def handle_extract_members(data):
                 emit_extract_log('ℹ️ Se a sessão não estiver no grupo privado, o Telegram não libera access_hash dos membros.', 'warning')
             update_process(process_id, username=current_username, current=0, message='Extraindo membros...', detail=group_link)
             members = extractor.extract_members(session_info, group_link, extraction_filters)
+            if extractor.last_error:
+                raise RuntimeError(extractor.last_error)
             
             # Se deve dividir em lotes
             if split_batches > 1 and len(members) > 0:
