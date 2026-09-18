@@ -7258,6 +7258,90 @@
         .sidebar-footer span:last-child { color: #22c55e; font-weight: 700; }
         body.compact-mode .sidebar-brand-copy span,
         body.compact-mode .sidebar-footer span:first-child { display: none; }
+
+        /* Viewport normalization: the old 67% page zoom made the whole panel tiny. */
+        html {
+            width: 100% !important;
+            min-height: 100% !important;
+        }
+
+        body {
+            width: 100% !important;
+            min-height: 100vh !important;
+            zoom: 1 !important;
+        }
+
+        .app-container {
+            width: 100% !important;
+            min-height: 100vh !important;
+        }
+
+        .sidebar {
+            height: 100vh !important;
+            min-height: 100vh !important;
+            max-height: 100vh !important;
+        }
+
+        .main-content {
+            width: calc(100% - 256px) !important;
+            min-height: 100vh !important;
+            margin-left: 256px !important;
+            padding: 22px 28px 24px !important;
+        }
+
+        body.sidebar-collapsed .main-content {
+            width: calc(100% - 78px) !important;
+            margin-left: 78px !important;
+        }
+
+        #dashboard.tab-content {
+            max-width: 1440px !important;
+        }
+
+        @media (max-width: 1180px) {
+            #dashboard .dashboard-hero {
+                grid-template-columns: minmax(0, 1fr) 300px !important;
+            }
+
+            #dashboard .dashboard-panels {
+                grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr) !important;
+            }
+
+            #dashboard .dashboard-panels .dashboard-panel:first-child {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .main-content,
+            body.sidebar-collapsed .main-content {
+                width: 100% !important;
+                margin-left: 0 !important;
+                padding: 78px 16px 22px !important;
+            }
+
+            #dashboard .dashboard-hero,
+            #dashboard .dashboard-panels {
+                grid-template-columns: 1fr 1fr !important;
+            }
+        }
+
+        @media (max-width: 720px) {
+            #dashboard .dashboard-hero,
+            #dashboard .dashboard-panels {
+                grid-template-columns: 1fr !important;
+            }
+
+            #dashboard .dashboard-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+        }
+
+        @media (max-width: 440px) {
+            #dashboard .dashboard-grid {
+                grid-template-columns: 1fr !important;
+            }
+        }
     </style>
 </head>
 <body>

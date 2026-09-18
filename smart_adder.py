@@ -522,6 +522,22 @@ class SmartAdder:
         emit_log(f'📈 Limite diário do grupo: {daily_limit} membros', 'info', socketio)
         add_delay_min = max(1, int(delay_between_adds or 1))
         add_delay_max = max(add_delay_min, int(delay_between_adds_max if delay_between_adds_max is not None else add_delay_min))
+        if task_data:
+            try:
+                task_daily_limit = int(task_data.get('daily_limit') or daily_limit or 0)
+                task_added_today = int(task_data.get('added_today') or 0)
+                remaining_today = max(0, task_daily_limit - task_added_today)
+                members_per_session = min(int(members_per_session or 0), remaining_today)
+                if members_per_session <= 0:
+                    self._set_last_result('daily_limit_reached', 'Limite diario da tarefa ja foi atingido')
+                    emit_log(
+                        f'Limite diario atingido ({task_added_today}/{task_daily_limit}). Nenhum convite sera enviado nesta sessao.',
+                        'warning',
+                        socketio
+                    )
+                    return 0
+            except Exception:
+                pass
         if add_delay_min == add_delay_max:
             emit_log(f'⏱️ Delay entre adições: {add_delay_min}s', 'info', socketio)
         else:
@@ -958,6 +974,35 @@ class SmartAdder:
                     try:
                         if not client.is_connected():
                             raise ConnectionError('Cannot send requests while disconnected')
+                        if task_data:
+                            task_daily_limit = int(task_data.get('daily_limit') or daily_limit or 0)
+                            task_added_today = int(task_data.get('added_today') or 0)
+                            automation_manager = task_data.get('automation_manager')
+
+                            if automation_manager and task_data.get('task_id'):
+                                automation_manager.load_config()
+                                disk_task = next(
+                                    (
+                                        group for group in automation_manager.config.get('groups', [])
+                                        if group.get('id') == task_data.get('task_id')
+                                    ),
+                                    None
+                                )
+                                if disk_task:
+                                    task_added_today = int(disk_task.get('added_today') or 0)
+                                    task_data['added_today'] = task_added_today
+                                    task_data['total_added'] = int(disk_task.get('total_added') or task_data.get('total_added') or 0)
+                                    task_data['daily_limit'] = int(disk_task.get('daily_limit') or task_daily_limit)
+                                    task_daily_limit = int(task_data['daily_limit'])
+
+                            if task_daily_limit > 0 and task_added_today >= task_daily_limit:
+                                self._set_last_result('daily_limit_reached', 'Limite diario atingido antes do proximo convite')
+                                emit_log(
+                                    f'Limite diario atingido ({task_added_today}/{task_daily_limit}). Parando esta sessao sem enviar novo convite.',
+                                    'warning',
+                                    socketio
+                                )
+                                break
                         invite_target = target_input_entity or target_entity
                         await client(InviteToChannelRequest(invite_target, [user_to_add]))
                         
@@ -974,8 +1019,6 @@ class SmartAdder:
                         
                         # EMITE EVENTO PARA ATUALIZAR FRONTEND EM TEMPO REAL
                         if task_data and socketio and hasattr(socketio, 'emit'):
-                            task_data['added_today'] += 1
-                            task_data['total_added'] += 1
                             
                             # SALVA NO ARQUIVO IMEDIATAMENTE usando o automation_manager correto
                             if 'automation_manager' in task_data:
@@ -988,8 +1031,22 @@ class SmartAdder:
                                     # Atualiza a tarefa no arquivo
                                     for group in automation_manager.config.get('groups', []):
                                         if group['id'] == task_data['task_id']:
-                                            group['added_today'] = task_data['added_today']
-                                            group['total_added'] = task_data['total_added']
+                                            current_today = int(group.get('added_today') or 0)
+                                            current_total = int(group.get('total_added') or 0)
+                                            group_daily_limit = int(group.get('daily_limit') or task_data.get('daily_limit') or daily_limit or 0)
+                                            if group_daily_limit > 0 and current_today >= group_daily_limit:
+                                                self._set_last_result('daily_limit_reached', 'Limite diario atingido ao salvar progresso')
+                                                emit_log(
+                                                    f'Limite diario ja estava em {current_today}/{group_daily_limit}; progresso nao foi incrementado acima do limite.',
+                                                    'warning',
+                                                    socketio
+                                                )
+                                                break
+                                            group['added_today'] = current_today + 1
+                                            group['total_added'] = current_total + 1
+                                            task_data['added_today'] = group['added_today']
+                                            task_data['total_added'] = group['total_added']
+                                            task_data['daily_limit'] = group_daily_limit
                                             break
                                     
                                     # Salva o arquivo
@@ -1000,6 +1057,10 @@ class SmartAdder:
                                     print(f'⚠️ Erro ao salvar arquivo: {save_error}')
                             
                             # Usa o socketio passado como parâmetro
+                            if 'automation_manager' not in task_data:
+                                task_data['added_today'] += 1
+                                task_data['total_added'] += 1
+
                             socketio.emit('task_progress', {
                                 'task_id': task_data['task_id'],
                                 'added_today': task_data['added_today'],
