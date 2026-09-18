@@ -2174,6 +2174,24 @@ async function copyTaskLogs(taskId) {
     }
 }
 
+async function clearTaskLogs(taskId) {
+    if (!confirm('Limpar o histórico deste terminal? A tarefa continuará executando normalmente.')) return;
+
+    try {
+        const response = await fetch(`/api/tasks/${taskId}/logs`, {method: 'DELETE'});
+        const data = await readJsonResponse(response);
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Não foi possível limpar os logs.');
+        }
+
+        taskLogsById[getTaskLogKey(taskId)] = [];
+        renderTaskLogBody(taskId);
+        showNotification(`${data.removed || 0} eventos removidos. O terminal continua ao vivo.`, 'success', 3500);
+    } catch (error) {
+        showNotification(error.message || 'Não foi possível limpar os logs.', 'error');
+    }
+}
+
 function renderTaskLogBody(taskId) {
     const body = document.getElementById(`task-log-body-${taskId}`);
     if (!body) return;
@@ -2897,6 +2915,9 @@ async function loadTasks() {
                                     <span class="task-log-count">${(taskLogsById[getTaskLogKey(task.id)] || []).length} eventos</span>
                                     <button type="button" onclick="copyTaskLogs(${task.id})" title="Copiar logs">
                                         <i class="fas fa-copy"></i>
+                                    </button>
+                                    <button type="button" onclick="clearTaskLogs(${task.id})" title="Limpar logs">
+                                        <i class="fas fa-eraser"></i>
                                     </button>
                                     <button type="button" onclick="toggleTaskLogs(${task.id})" title="Ocultar terminal">
                                         <i class="fas fa-chevron-up"></i>

@@ -3443,6 +3443,23 @@ def task_operations(task_id):
 
     return jsonify({'success': True, 'message': 'Tarefa removida'})
 
+@app.route('/api/tasks/<int:task_id>/logs', methods=['DELETE'])
+@login_required
+def clear_task_logs(task_id):
+    """Limpa somente o histórico do terminal sem alterar a execução da tarefa."""
+    automation_manager.load_config()
+    task = next(
+        (item for item in automation_manager.config.get('groups', []) if item.get('id') == task_id),
+        None
+    )
+    if not task:
+        return jsonify({'success': False, 'error': 'Tarefa não encontrada'}), 404
+
+    removed = len(task.get('logs', []))
+    task['logs'] = []
+    automation_manager.save_config()
+    return jsonify({'success': True, 'removed': removed})
+
 @app.route('/api/tasks/<int:task_id>/members-file', methods=['POST'])
 @login_required
 def update_task_members_file(task_id):
