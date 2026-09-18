@@ -844,7 +844,7 @@ class SmartAdder:
             # PASSO 4.5: ENTRA NO GRUPO DE ORIGEM para atualizar access_hash
             emit_log('🔄 PASSO 4.5: Entrando no grupo de origem para atualizar dados...', 'info', socketio)
             
-            source_group = self.get_source_group()
+            source_group = (task_data or {}).get('source_group_link') or self.get_source_group()
             members_with_id = [m for m in to_add if m.get('id')]
             
             if source_group and members_with_id:
@@ -901,13 +901,17 @@ class SmartAdder:
                         emit_log(f'✅ {len(source_members)} membros baixados', 'success', socketio)
                         
                         # Cria um dicionário ID -> User para busca rápida
-                        source_members_dict = {user.id: user for user in source_members}
+                        source_members_dict = {int(user.id): user for user in source_members}
                         
                         # Atualiza access_hash dos membros sem username
                         updated_count = 0
                         for member in members_with_id:
-                            if member['id'] in source_members_dict:
-                                source_user = source_members_dict[member['id']]
+                            try:
+                                member_id = int(member['id'])
+                            except (TypeError, ValueError):
+                                continue
+                            if member_id in source_members_dict:
+                                source_user = source_members_dict[member_id]
                                 if hasattr(source_user, 'access_hash'):
                                     member['access_hash'] = source_user.access_hash
                                     updated_count += 1
@@ -925,7 +929,7 @@ class SmartAdder:
                     emit_log(f'💡 Continuando sem atualizar access_hash...', 'warning', socketio)
             elif not source_group:
                 emit_log(f'⚠️ Grupo de origem não configurado', 'warning', socketio)
-                emit_log(f'💡 Configure em "Membros" > "Grupo de Origem"', 'warning', socketio)
+                emit_log(f'💡 Pause a tarefa e informe o Grupo de origem em Editar', 'warning', socketio)
             else:
                 emit_log(f'✅ Membros desta rodada não precisam atualizar ID/access_hash', 'success', socketio)
             

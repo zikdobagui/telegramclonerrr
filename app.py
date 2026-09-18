@@ -455,6 +455,13 @@ def attach_task_members_file(task, source_file, members, paths):
 
     atomic_write_json(task_file, members)
 
+    try:
+        source_payload = load_json_file(source_file, {})
+        if isinstance(source_payload, dict) and source_payload.get('source_group_link'):
+            task['source_group_link'] = str(source_payload['source_group_link']).strip()
+    except Exception:
+        pass
+
     task['members_file'] = task_filename
     task['members_source_name'] = clean_name
     task['members_total'] = len(members)
@@ -3414,6 +3421,9 @@ def task_operations(task_id):
 
         if 'group_interaction_enabled' in data:
             task['group_interaction_enabled'] = bool(data['group_interaction_enabled'])
+
+        if 'source_group_link' in data:
+            task['source_group_link'] = str(data.get('source_group_link') or '').strip()
         
         if 'selected_sessions' in data:
             sessions = session_manager.load_sessions(force_reload=True)
@@ -3538,6 +3548,8 @@ def update_task_members_file(task_id):
         task['members_file'] = task_filename
         task['members_source_name'] = clean_name
         task['members_total'] = len(members)
+        if isinstance(data, dict) and data.get('source_group_link'):
+            task['source_group_link'] = str(data['source_group_link']).strip()
         task['members_updated_at'] = datetime.now().isoformat(timespec='seconds')
         task.pop('pause_reason', None)
         task.pop('completion_note', None)
@@ -4171,6 +4183,7 @@ def start_task(task_id):
                         'automation_manager': automation_manager,  # Passa o automation_manager correto
                         'force_rotate_after_each_add': True,
                         'selected_session_count': len(task_sessions),
+                        'source_group_link': task.get('source_group_link', ''),
                         'member_results': []
                     }
                     

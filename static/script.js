@@ -3162,6 +3162,7 @@ function openTaskDetailsModal(task) {
             <div id="task-details-general" class="task-details-tab">
                 <div class="task-details-general">
                     <div><span>Arquivo</span><strong>${escapeHtml(task.members_source_name || 'members.json')}</strong></div>
+                    <div><span>Grupo de origem</span><strong>${escapeHtml(task.source_group_link || 'Não configurado')}</strong></div>
                     <div><span>Status</span><strong>${taskStatusLabel(task.status)}</strong></div>
                     <div><span>Sessões vinculadas</span><strong>${sessions.length}</strong></div>
                     <div><span>Membros por sessão</span><strong>${Math.max(1, parseInt(task.members_per_session || 1))}</strong></div>
@@ -3367,8 +3368,13 @@ async function editTask(taskId) {
                         <div style="border:1px solid rgba(255,255,255,.35);padding:12px;">
                             <strong style="display:block;color:#fff;margin-bottom:10px;">ORIGEM E DESTINO</strong>
                             <div class="form-group">
-                                <label>Link do Grupo</label>
+                                <label>Grupo destino</label>
                                 <input type="text" id="edit-group-link" value="${escapeHtml(task.group_link)}" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label>Grupo de origem dos membros</label>
+                                <input type="text" id="edit-source-group-link" value="${escapeHtml(task.source_group_link || '')}" class="form-control" placeholder="https://t.me/grupo_origem ou link de convite">
+                                <small style="display:block;margin-top:5px;color:#d1d5db;">Necessário para renovar membros antigos sem username ou telefone.</small>
                             </div>
                             <div class="form-group" style="margin-bottom:0;">
                                 <label>Trocar Arquivo de Membros</label>
@@ -3588,6 +3594,7 @@ function closeEditModal() {
 async function saveTaskEdit(taskId) {
     try {
         const groupLink = document.getElementById('edit-group-link').value;
+        const sourceGroupLink = document.getElementById('edit-source-group-link').value.trim();
         const targetMembers = parseInt(document.getElementById('edit-target-members').value);
         const dailyLimit = parseInt(document.getElementById('edit-daily-limit').value);
         const membersPerSession = parseInt(document.getElementById('edit-members-per-session').value);
@@ -3645,6 +3652,7 @@ async function saveTaskEdit(taskId) {
             },
             body: JSON.stringify({
                 group_link: groupLink,
+                source_group_link: sourceGroupLink,
                 target_members: targetMembers,
                 daily_limit: dailyLimit,
                 members_per_session: membersPerSession,
