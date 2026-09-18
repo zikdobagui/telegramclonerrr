@@ -294,7 +294,9 @@ class AutomationManager:
         """Retorna sessões reservadas por tarefas que ainda não terminaram."""
         reserved_sessions = []
         for task in self.config['groups']:
-            if task.get('status') in ['pending', 'active', 'paused']:
+            # Uma tarefa pausada não está executando e não deve prender contas.
+            # Ao ser retomada, o endpoint de início valida conflitos novamente.
+            if task.get('status') in ['pending', 'active']:
                 reserved_sessions.extend(task.get('selected_sessions', []))
         return list(set(reserved_sessions))
     

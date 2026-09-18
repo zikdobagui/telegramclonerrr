@@ -3705,6 +3705,7 @@ def start_task(task_id):
             print(f'❌ [PROCESS TASK] Config não encontrado')
             emit_to_user('log', {'message': '❌ Configure a API primeiro!', 'type': 'error'}, current_username)
             task['status'] = 'paused'
+            task['pause_reason'] = 'API do Telegram não configurada'
             automation_manager.save_config()
             if process_id:
                 finish_process(process_id, username=current_username, status='error', message='API não configurada')
@@ -3718,6 +3719,7 @@ def start_task(task_id):
             print(f'❌ [PROCESS TASK] API não configurada')
             emit_to_user('log', {'message': '❌ Configure a API primeiro!', 'type': 'error'}, current_username)
             task['status'] = 'paused'
+            task['pause_reason'] = 'API do Telegram não configurada'
             automation_manager.save_config()
             if process_id:
                 finish_process(process_id, username=current_username, status='error', message='API não configurada')
@@ -3790,6 +3792,7 @@ def start_task(task_id):
             if not task_sessions:
                 emit_to_user('log', {'message': f'❌ Tarefa #{task_id}: Nenhuma sessão disponível', 'type': 'error'}, current_username)
                 task['status'] = 'paused'
+                task['pause_reason'] = 'Nenhuma sessão selecionada está disponível'
                 automation_manager.save_config()
                 if process_id:
                     finish_process(process_id, username=current_username, status='error', message='Nenhuma sessão disponível')
@@ -3820,6 +3823,7 @@ def start_task(task_id):
             if not members_file or not os.path.exists(members_file):
                 emit_task_log('❌ Nenhum membro para adicionar. Extraia membros primeiro!', 'error')
                 task['status'] = 'paused'
+                task['pause_reason'] = 'A base interna de membros está vazia ou indisponível'
                 automation_manager.save_config()
                 if process_id:
                     finish_process(process_id, username=current_username, status='error', message='Nenhum membro para adicionar')
@@ -3846,8 +3850,9 @@ def start_task(task_id):
                         emit_task_log(f'📁 Usei automaticamente o último arquivo extraído: {os.path.basename(latest_file)}', 'success')
                         emit_task_log(f'📋 {len(members)} membros pendentes encontrados no novo arquivo', 'info')
                     else:
-                        emit_task_log('📁 Não encontrei nenhum arquivo extraído recente com membros pendentes. Troque o arquivo na edição da tarefa.', 'info')
+                        emit_task_log('📁 A base interna não possui membros pendentes. Atualize a base na edição da tarefa.', 'info')
                         task['status'] = 'paused'
+                        task['pause_reason'] = 'Base interna sem membros pendentes'
                         automation_manager.save_config()
                         if process_id:
                             finish_process(process_id, username=current_username, status='completed', message='Tarefa pausada: sem membros pendentes')
@@ -3946,8 +3951,9 @@ def start_task(task_id):
                             emit_task_log(f'📁 Troquei automaticamente para o último arquivo extraído: {os.path.basename(latest_file)}', 'success')
                             emit_task_log(f'📋 {len(pending)} membros pendentes encontrados no novo arquivo', 'info')
                         else:
-                            emit_task_log('📁 Não encontrei nenhum arquivo extraído recente com membros pendentes. Troque o arquivo na edição da tarefa.', 'info')
+                            emit_task_log('📁 A base interna não possui membros pendentes. Atualize a base na edição da tarefa.', 'info')
                             task['status'] = 'paused'
+                            task['pause_reason'] = 'Base interna sem membros pendentes'
                             automation_manager.save_config()
                             break
                     if task.get('status') == 'completed':
@@ -4027,6 +4033,7 @@ def start_task(task_id):
                                 emit_task_log(f'📋 {len(pending)} membros pendentes encontrados no novo arquivo', 'info')
                             else:
                                 task['status'] = 'paused'
+                                task['pause_reason'] = 'Base interna sem membros pendentes'
                                 automation_manager.save_config()
                                 break
                         if task.get('status') == 'completed':
@@ -4297,6 +4304,7 @@ def start_task(task_id):
         except Exception as e:
             emit_task_log(f'❌ Erro na tarefa #{task_id}: {str(e)}', 'error')
             task['status'] = 'paused'
+            task['pause_reason'] = f'Erro na execução: {str(e)[:180]}'
             automation_manager.save_config()
             if 'process_id' in locals() and process_id:
                 finish_process(process_id, username=current_username, status='error', message=f'Erro na tarefa: {str(e)}')

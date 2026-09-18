@@ -960,8 +960,12 @@ class SmartAdder:
                             emit_log(f'⚠️ InputPeerUser falhou: {str(e)[:60]}', 'warning', socketio)
                     
                     if not user_to_add:
-                        emit_log(f'❌ Não foi possível encontrar: {member_name}', 'error', socketio)
-                        emit_log(f'💡 ID sozinho não basta; precisa username ou access_hash válido visto pela sessão', 'warning', socketio)
+                        emit_log(
+                            f'Membro ignorado: {member_name} não possui username ou acesso válido para esta sessão.',
+                            'warning',
+                            socketio
+                        )
+                        emit_log('O processamento continuará automaticamente com o próximo membro.', 'info', socketio)
                         self._set_last_result('member_not_found', f'Não foi possível localizar o membro "{member_name}" com username, ID ou access_hash válido')
                         self._record_member_result(task_data, member, session_info, 'falha', self.last_result['reason'])
                         member['added'] = True

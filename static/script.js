@@ -2208,14 +2208,26 @@ socket.on('task_log', (data) => {
         addLog('task-logs', data.message, data.type);
     }
     
-    // Mostra notificação para logs importantes
+    // O terminal recebe todos os eventos. A notificação global fica reservada
+    // para mudanças de estado e falhas que realmente interrompem a tarefa.
     if (data.type === 'success' && data.message.includes('Adicionado:')) {
         // Atualiza tarefas quando adiciona membro
         loadTasks();
     } else if (data.type === 'success' && data.message.includes('COMPLETA')) {
         showNotification(data.message, 'success', 10000);
     } else if (data.type === 'error') {
-        showNotification(data.message, 'error', 8000);
+        loadTasks();
+        const normalizedMessage = String(data.message || '').toLowerCase();
+        const isFatalTaskError = [
+            'tarefa pausada',
+            'grupo destino',
+            'api não configurada',
+            'nenhuma sessão disponível',
+            'erro na tarefa'
+        ].some(marker => normalizedMessage.includes(marker));
+        if (isFatalTaskError) {
+            showNotification(data.message, 'error', 8000);
+        }
     }
 });
 
@@ -2690,7 +2702,7 @@ async function loadTasks() {
             const interactionText = task.group_interaction_enabled === false ? 'Desligada' : 'Ligada';
             const interactionColor = task.group_interaction_enabled === false ? '#fca5a5' : '#86efac';
             const membersSource = task.members_source_name || 'members.json';
-            const membersTotal = task.members_total ? `${task.members_total} membros` : (task.members_file_exists ? 'arquivo carregado' : 'arquivo padrão');
+            const membersTotal = task.members_total ? `${task.members_total} membros importados` : (task.members_file_exists ? 'base carregada' : 'base padrão');
             taskLogsById[getTaskLogKey(task.id)] = (task.logs || taskLogsById[getTaskLogKey(task.id)] || []).slice(-500);
             const isTerminalOpen = openTaskLogPanels.has(getTaskLogKey(task.id));
             const isDetailsOpen = openTaskDetailPanels.has(getTaskLogKey(task.id));
@@ -2792,7 +2804,7 @@ async function loadTasks() {
                                 <div style="font-weight: 600;">${delaySessions}</div>
                             </div>
                             <div>
-                                <div style="color: #94a3b8;">Arquivo</div>
+                                <div style="color: #94a3b8;">Base interna</div>
                                 <div style="font-weight: 600;">${membersSource}</div>
                                 <small style="color: #64748b;">${membersTotal}</small>
                             </div>
@@ -2816,7 +2828,7 @@ async function loadTasks() {
                                     <i class="fas fa-edit"></i> Editar
                                 </button>
                                 <button class="btn btn-primary" onclick="changeTaskMembersFile(${task.id})" style="padding: 10px 20px; font-size: 14px;">
-                                    <i class="fas fa-file-import"></i> Trocar arquivo
+                                    <i class="fas fa-database"></i> Atualizar base
                                 </button>
                                 <button class="btn btn-danger" onclick="removeTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
                                     <i class="fas fa-trash"></i> Remover
