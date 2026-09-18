@@ -2180,7 +2180,7 @@ function renderTaskLogBody(taskId) {
     const logs = taskLogsById[getTaskLogKey(taskId)] || [];
     body.innerHTML = logs.length
         ? logs.map(taskLogEntryHtml).join('')
-        : '<div class="log-entry info">Terminal aguardando eventos desta tarefa.</div>';
+        : taskLogEntryHtml({type: 'info', time: '--:--:--', message: 'Terminal aguardando eventos desta tarefa.'});
     const count = document.querySelector(`#task-log-panel-${taskId} .task-log-count`);
     if (count) count.textContent = `${logs.length} eventos`;
     body.scrollTop = body.scrollHeight;
@@ -2669,6 +2669,7 @@ async function addGroupTask() {
 }
 
 async function loadTasks() {
+    ensureTaskDetailsStyles();
     try {
         const response = await fetch('/api/tasks');
         const data = await response.json();
@@ -3181,12 +3182,16 @@ function ensureTaskDetailsStyles() {
         .task-log-count { color:#8295aa; font-size:11px; font-weight:650; white-space:nowrap; }
         .task-card-terminal-header button { display:grid; place-items:center; width:32px; height:32px; padding:0; border:1px solid rgba(125,211,252,.14); border-radius:6px; cursor:pointer; color:#b9d7e8; background:rgba(14,165,233,.08); }
         .task-card-terminal-header button:hover { color:#fff; background:rgba(14,165,233,.18); }
-        .task-card-terminal-body { min-height:180px; max-height:360px; margin:0; padding:8px 0 !important; border:0 !important; border-radius:0; background:#050d18 !important; font-family:'Cascadia Code','SFMono-Regular',Consolas,monospace; }
-        .task-card-terminal-body .log-entry { display:grid; grid-template-columns:70px 54px minmax(0,1fr); gap:8px; align-items:start; min-height:28px; margin:0; padding:6px 12px; border:0; border-left:3px solid transparent; border-radius:0; background:transparent; color:#b9c7d7; font-size:12px; line-height:1.45; }
+        .task-card-terminal-body { min-height:150px; max-height:300px; margin:0; padding:5px 0 !important; overflow:auto; border:0 !important; border-radius:0; background:#050d18 !important; font-family:'Cascadia Code','SFMono-Regular',Consolas,monospace; scrollbar-width:thin; scrollbar-color:#2b607f #07111f; }
+        .task-card-terminal-body::-webkit-scrollbar { width:8px; height:8px; }
+        .task-card-terminal-body::-webkit-scrollbar-track { background:#07111f; }
+        .task-card-terminal-body::-webkit-scrollbar-thumb { border:2px solid #07111f; border-radius:8px; background:#2b607f; }
+        .task-card-terminal-body .log-entry { display:grid; grid-template-columns:68px 50px minmax(0,1fr); gap:8px; align-items:start; min-height:26px; margin:0; padding:5px 12px; border:0; border-left:3px solid transparent; border-radius:0; background:transparent; color:#b9c7d7; font-size:12px; line-height:1.4; }
         .task-card-terminal-body .log-entry:hover { background:rgba(125,211,252,.045); }
         .task-card-terminal-body .log-entry time { color:#60758b; font-variant-numeric:tabular-nums; }
         .task-log-level { font-size:10px; font-weight:850; line-height:17px; }
         .task-log-message { min-width:0; overflow-wrap:anywhere; white-space:pre-wrap; }
+        .task-log-message::selection, .task-card-terminal-body time::selection { color:#06101d; background:#7dd3fc; }
         .task-card-terminal-body .log-entry.info { border-left-color:#38bdf8; }
         .task-card-terminal-body .log-entry.info .task-log-level { color:#7dd3fc; }
         .task-card-terminal-body .log-entry.success { border-left-color:#22c55e; }
