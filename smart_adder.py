@@ -847,6 +847,7 @@ class SmartAdder:
             
             source_group = (task_data or {}).get('source_group_link') or self.get_source_group()
             members_with_id = [m for m in pending if m.get('id')]
+            source_members_dict = {}
             
             if source_group and members_with_id:
                 emit_log(f'📊 {len(members_with_id)} membro(s) com ID detectado(s)', 'info', socketio)
@@ -878,10 +879,18 @@ class SmartAdder:
                         numeric_id = int(clean_source)
                         if str(numeric_id).startswith('-100'):
                             numeric_id = int(str(numeric_id)[4:])
+                        dialogs = await client.get_dialogs(limit=None)
+                        for dialog in dialogs:
+                            dialog_entity = getattr(dialog, 'entity', None)
+                            if int(getattr(dialog_entity, 'id', 0) or 0) == numeric_id:
+                                source_entity = dialog_entity
+                                break
                         try:
-                            source_entity = await client.get_entity(PeerChannel(numeric_id))
+                            if source_entity is None:
+                                source_entity = await client.get_entity(PeerChannel(numeric_id))
                         except Exception:
-                            source_entity = await client.get_entity(int(clean_source))
+                            if source_entity is None:
+                                source_entity = await client.get_entity(int(clean_source))
                     else:
                         # Grupo público
                         try:
@@ -929,6 +938,7 @@ class SmartAdder:
                             await self._leave_group(client, target_entity, socketio)
                             return 0
 
+                        matched_pending.sort(key=lambda member: bool(member.get('username')))
                         matched_object_ids = {id(member) for member in matched_pending}
                         fallback = [member for member in pending if id(member) not in matched_object_ids]
                         to_add = (matched_pending + fallback)[:max_attempts]
@@ -978,7 +988,16 @@ class SmartAdder:
                     emit_log(f'🔍 [{idx}/{len(to_add)}] Processando: {member_name}', 'info', socketio)
                     
                     # MÉTODO 1: Tenta pelo username (mais confiável)
-                    if has_username:
+                    if member.get('id'):
+                        try:
+                            source_user = source_members_dict.get(int(member['id']))
+                            if source_user is not None:
+                                user_to_add = source_user
+                                emit_log('Encontrado diretamente no grupo de origem por ID', 'success', socketio)
+                        except (TypeError, ValueError):
+                            pass
+
+                    if not user_to_add and has_username:
                         try:
                             if not client.is_connected():
                                 raise ConnectionError('Cannot send requests while disconnected')
