@@ -344,6 +344,54 @@ def load_members_from_file(file_path):
             normalized.append(item)
     return normalized
 
+def get_source_group_from_payload(payload):
+    """Aceita nomes usados por exportadores antigos para o grupo de origem."""
+    if not isinstance(payload, dict):
+        return ''
+    metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
+    for key in (
+        'source_group_link', 'source_group', 'source_link',
+        'origin_group_link', 'origin_group', 'group_link'
+    ):
+        value = payload.get(key) or metadata.get(key)
+        if str(value or '').strip():
+            return str(value).strip()
+    return ''
+
+def infer_source_group_from_exports(paths, members):
+    """Encontra a origem comparando IDs da tarefa com exportações disponíveis."""
+    import glob
+    member_ids = {
+        str(member.get('id'))
+        for member in members
+        if isinstance(member, dict) and member.get('id') is not None
+    }
+    if not member_ids:
+        return ''
+
+    best_source = ''
+    best_overlap = 0
+    for candidate in glob.glob(os.path.join(paths['data_dir'], 'members*.json')):
+        if os.path.basename(candidate).startswith('task_'):
+            continue
+        try:
+            payload = load_json_file(candidate, {})
+            source_group = get_source_group_from_payload(payload)
+            if not source_group:
+                continue
+            candidate_ids = {
+                str(member.get('id'))
+                for member in normalize_members_payload(payload)
+                if isinstance(member, dict) and member.get('id') is not None
+            }
+            overlap = len(member_ids.intersection(candidate_ids))
+            if overlap > best_overlap:
+                best_source = source_group
+                best_overlap = overlap
+        except Exception:
+            continue
+    return best_source
+
 def find_latest_pending_members_export(paths):
     """Procura o arquivo extraído mais recente que ainda tenha membros pendentes."""
     import glob
@@ -457,8 +505,9 @@ def attach_task_members_file(task, source_file, members, paths):
 
     try:
         source_payload = load_json_file(source_file, {})
-        if isinstance(source_payload, dict) and source_payload.get('source_group_link'):
-            task['source_group_link'] = str(source_payload['source_group_link']).strip()
+        source_group = get_source_group_from_payload(source_payload)
+        if source_group:
+            task['source_group_link'] = source_group
     except Exception:
         pass
 
@@ -3548,8 +3597,9 @@ def update_task_members_file(task_id):
         task['members_file'] = task_filename
         task['members_source_name'] = clean_name
         task['members_total'] = len(members)
-        if isinstance(data, dict) and data.get('source_group_link'):
-            task['source_group_link'] = str(data['source_group_link']).strip()
+        source_group = get_source_group_from_payload(data)
+        if source_group:
+            task['source_group_link'] = source_group
         task['members_updated_at'] = datetime.now().isoformat(timespec='seconds')
         task.pop('pause_reason', None)
         task.pop('completion_note', None)
@@ -3697,6 +3747,20 @@ def start_task(task_id):
     if not task:
         log_error(f'Tarefa #{task_id} não encontrada', 'START_TASK')
         return jsonify({'success': False, 'error': 'Tarefa não encontrada'}), 404
+
+    if not task.get('source_group_link'):
+        task_members_file = get_task_members_file(task)
+        task_members = load_members_from_file(task_members_file)
+        inferred_source = infer_source_group_from_exports(get_user_paths(), task_members)
+        if inferred_source:
+            task['source_group_link'] = inferred_source
+            automation_manager.save_config()
+            append_task_log(
+                task_id,
+                f'Grupo de origem detectado automaticamente: {inferred_source}',
+                'success',
+                automation_manager
+            )
 
     if normalize_task_status(task):
         automation_manager.save_config()
