@@ -3625,7 +3625,8 @@ def update_task_members_file(task_id):
         members = normalized_members
 
         clean_name = secure_filename(file.filename) or 'membros.json'
-        task_filename = f'task_{task_id}_members_{clean_name}'
+        file_revision = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        task_filename = f'task_{task_id}_members_{file_revision}_{clean_name}'
         paths = get_user_paths()
         task_file = os.path.join(paths['data_dir'], task_filename)
 
@@ -3634,6 +3635,7 @@ def update_task_members_file(task_id):
         task['members_file'] = task_filename
         task['members_source_name'] = clean_name
         task['members_total'] = len(members)
+        task['members_file_revision'] = file_revision
         source_group = get_source_group_from_payload(data)
         if source_group:
             task['source_group_link'] = source_group
@@ -4032,7 +4034,9 @@ def start_task(task_id):
                     task['status'] = 'completed'
                 else:
                     emit_task_log(f'⚠️ O arquivo atual não tem membros pendentes, mas ainda faltam {task["target_members"] - task["total_added"]} para a meta.', 'warning')
-                    latest_file, latest_members, latest_pending = find_latest_pending_members_export(user_paths)
+                    latest_file, latest_members, latest_pending = (None, [], [])
+                    if not task.get('members_file'):
+                        latest_file, latest_members, latest_pending = find_latest_pending_members_export(user_paths)
                     if latest_file:
                         members_file = attach_task_members_file(task, latest_file, latest_members, user_paths)
                         automation_manager.save_config()
@@ -4133,7 +4137,9 @@ def start_task(task_id):
                         task['status'] = 'completed'
                     else:
                         emit_task_log(f'⚠️ O arquivo atual acabou, mas ainda faltam {task["target_members"] - task["total_added"]} membros para a meta.', 'warning')
-                        latest_file, latest_members, latest_pending = find_latest_pending_members_export(user_paths)
+                        latest_file, latest_members, latest_pending = (None, [], [])
+                        if not task.get('members_file'):
+                            latest_file, latest_members, latest_pending = find_latest_pending_members_export(user_paths)
                         if latest_file:
                             members_file = attach_task_members_file(task, latest_file, latest_members, user_paths)
                             automation_manager.save_config()
@@ -4214,7 +4220,9 @@ def start_task(task_id):
                             task['status'] = 'completed'
                         else:
                             emit_task_log(f'⚠️ O arquivo atual acabou, mas ainda faltam {task["target_members"] - task["total_added"]} membros para a meta.', 'warning')
-                            latest_file, latest_members, latest_pending = find_latest_pending_members_export(user_paths)
+                            latest_file, latest_members, latest_pending = (None, [], [])
+                            if not task.get('members_file'):
+                                latest_file, latest_members, latest_pending = find_latest_pending_members_export(user_paths)
                             if latest_file:
                                 members_file = attach_task_members_file(task, latest_file, latest_members, user_paths)
                                 automation_manager.save_config()
