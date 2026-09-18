@@ -86,6 +86,27 @@ class AutomationManager:
                 return
 
             memory_tasks = self.config.setdefault('groups', [])
+            disk_tasks_by_id = {task.get('id'): task for task in disk_tasks}
+
+            # Uma thread ativa pode manter uma cópia antiga dos logs. O marcador
+            # persistido impede que um save atrasado restaure eventos já limpos.
+            for memory_task in memory_tasks:
+                disk_task = disk_tasks_by_id.get(memory_task.get('id'))
+                if not disk_task or not disk_task.get('logs_cleared_at'):
+                    continue
+
+                disk_cleared_at = self._parse_datetime(disk_task.get('logs_cleared_at'))
+                memory_cleared_at = self._parse_datetime(memory_task.get('logs_cleared_at'))
+                if not disk_cleared_at or (memory_cleared_at and memory_cleared_at >= disk_cleared_at):
+                    continue
+
+                memory_task['logs_cleared_at'] = disk_task['logs_cleared_at']
+                memory_task['logs'] = [
+                    log for log in memory_task.get('logs', [])
+                    if self._parse_datetime(log.get('time'))
+                    and self._parse_datetime(log.get('time')) > disk_cleared_at
+                ]
+
             memory_ids = {
                 task.get('id')
                 for task in memory_tasks

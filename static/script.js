@@ -2108,6 +2108,7 @@ async function interruptOperationJob(jobId) {
 }
 
 const taskLogsById = {};
+const taskLogClearMarkers = {};
 const openTaskLogPanels = new Set();
 const openTaskDetailPanels = new Set();
 
@@ -2185,6 +2186,7 @@ async function clearTaskLogs(taskId) {
         }
 
         taskLogsById[getTaskLogKey(taskId)] = [];
+        taskLogClearMarkers[getTaskLogKey(taskId)] = data.cleared_at || new Date().toISOString();
         renderTaskLogBody(taskId);
         showNotification(`${data.removed || 0} eventos removidos. O terminal continua ao vivo.`, 'success', 3500);
     } catch (error) {
@@ -2768,7 +2770,13 @@ async function loadTasks() {
             const interactionColor = task.group_interaction_enabled === false ? '#fca5a5' : '#86efac';
             const membersSource = task.members_source_name || 'members.json';
             const membersTotal = task.members_total ? `${task.members_total} membros importados` : (task.members_file_exists ? 'base carregada' : 'base padrão');
-            taskLogsById[getTaskLogKey(task.id)] = (task.logs || taskLogsById[getTaskLogKey(task.id)] || []).slice(-500);
+            const taskLogKey = getTaskLogKey(task.id);
+            const localClearMarker = taskLogClearMarkers[taskLogKey] || '';
+            const serverClearMarker = task.logs_cleared_at || '';
+            if (!localClearMarker || serverClearMarker >= localClearMarker) {
+                taskLogClearMarkers[taskLogKey] = serverClearMarker;
+                taskLogsById[taskLogKey] = (task.logs || taskLogsById[taskLogKey] || []).slice(-500);
+            }
             const isTerminalOpen = openTaskLogPanels.has(getTaskLogKey(task.id));
             const isDetailsOpen = openTaskDetailPanels.has(getTaskLogKey(task.id));
             const sessionSummary = task.session_status_summary || {

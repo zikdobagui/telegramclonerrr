@@ -39,14 +39,22 @@ thread_context = threading.local()
 
 def get_build_version():
     """Gera uma versão visível que muda automaticamente a cada commit."""
-    base_version = os.environ.get('APP_VERSION', '2.0').strip().lstrip('v') or '2.0'
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    version_file = os.path.join(project_dir, 'VERSION')
+    file_version = ''
+    try:
+        with open(version_file, 'r', encoding='utf-8') as version_handle:
+            file_version = version_handle.read().strip()
+    except Exception:
+        pass
+
+    base_version = os.environ.get('APP_VERSION', '').strip().lstrip('v') or file_version.lstrip('v')
     commit_hash = next((
         os.environ.get(name, '').strip()
         for name in ('RENDER_GIT_COMMIT', 'RAILWAY_GIT_COMMIT_SHA', 'SOURCE_VERSION', 'GITHUB_SHA')
         if os.environ.get(name, '').strip()
     ), '')
     commit_count = os.environ.get('APP_BUILD_NUMBER', '').strip()
-    project_dir = os.path.dirname(os.path.abspath(__file__))
 
     try:
         if not commit_hash:
@@ -68,7 +76,12 @@ def get_build_version():
     except Exception:
         pass
 
-    display = f'v{base_version}.{commit_count}' if commit_count else f'v{base_version}'
+    if base_version:
+        display = f'v{base_version}'
+    elif commit_count:
+        display = f'v2.0.{commit_count}'
+    else:
+        display = 'v2.0'
     return {'display': display, 'commit': commit_hash[:7] or 'build local'}
 
 BUILD_VERSION = get_build_version()
@@ -683,8 +696,9 @@ def append_task_log(task_id, message, log_type='info', manager=None):
     if not manager:
         return
     try:
-        if not hasattr(manager, 'config'):
-            manager.load_config()
+        # Recarrega antes de gravar para respeitar limpezas feitas enquanto a
+        # tarefa continua ativa em outra thread.
+        manager.load_config()
         for task in manager.config.get('groups', []):
             if task.get('id') == task_id:
                 logs = task.setdefault('logs', [])
@@ -3457,8 +3471,13 @@ def clear_task_logs(task_id):
 
     removed = len(task.get('logs', []))
     task['logs'] = []
+    task['logs_cleared_at'] = datetime.now().isoformat(timespec='microseconds')
     automation_manager.save_config()
-    return jsonify({'success': True, 'removed': removed})
+    return jsonify({
+        'success': True,
+        'removed': removed,
+        'cleared_at': task['logs_cleared_at']
+    })
 
 @app.route('/api/tasks/<int:task_id>/members-file', methods=['POST'])
 @login_required

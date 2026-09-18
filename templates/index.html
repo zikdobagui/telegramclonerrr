@@ -22,7 +22,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icon-180.png') }}">
     
     <title>Telegram Automation System</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.3.1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ app_version }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body {
@@ -9216,7 +9216,7 @@
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='script.js') }}?v=2.4.0"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v={{ app_version }}"></script>
     
     <script>
         const PANEL_THEME_KEY = 'panelTheme';
