@@ -9,6 +9,7 @@ import shutil
 import sys
 import random
 import asyncio
+import subprocess
 from functools import wraps
 from datetime import datetime
 from werkzeug.utils import secure_filename
@@ -35,6 +36,42 @@ app.config['SECRET_KEY'] = 'telegram-automation-secret-key-2024-multi-user'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 horas
 socketio = SocketIO(app, cors_allowed_origins="*")
 thread_context = threading.local()
+
+def get_build_version():
+    """Gera uma versão visível que muda automaticamente a cada commit."""
+    base_version = os.environ.get('APP_VERSION', '2.0').strip().lstrip('v') or '2.0'
+    commit_hash = next((
+        os.environ.get(name, '').strip()
+        for name in ('RENDER_GIT_COMMIT', 'RAILWAY_GIT_COMMIT_SHA', 'SOURCE_VERSION', 'GITHUB_SHA')
+        if os.environ.get(name, '').strip()
+    ), '')
+    commit_count = os.environ.get('APP_BUILD_NUMBER', '').strip()
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+
+    try:
+        if not commit_hash:
+            commit_hash = subprocess.check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=project_dir,
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=2
+            ).strip()
+        if not commit_count:
+            commit_count = subprocess.check_output(
+                ['git', 'rev-list', '--count', 'HEAD'],
+                cwd=project_dir,
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=2
+            ).strip()
+    except Exception:
+        pass
+
+    display = f'v{base_version}.{commit_count}' if commit_count else f'v{base_version}'
+    return {'display': display, 'commit': commit_hash[:7] or 'build local'}
+
+BUILD_VERSION = get_build_version()
 
 # User Manager Global
 user_manager = UserManager()
@@ -1037,7 +1074,12 @@ def check_auth():
 def index():
     if 'username' not in session:
         return render_template('login.html')
-    return render_template('index.html', username=session.get('username'))
+    return render_template(
+        'index.html',
+        username=session.get('username'),
+        app_version=BUILD_VERSION['display'],
+        app_commit=BUILD_VERSION['commit']
+    )
 
 @app.route('/new')
 def index_new():
@@ -1050,7 +1092,8 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'service': 'telegram-automation',
-        'version': '1.0.0',
+        'version': BUILD_VERSION['display'],
+        'commit': BUILD_VERSION['commit'],
         'domain': 'telegram-clone-site.discloud.app'
     }), 200
 
