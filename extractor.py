@@ -21,6 +21,7 @@ class MemberExtractor:
         self.data_dir = data_dir
         self.members_file = members_file or MEMBERS_FILE
         self.progress_callback = None
+        self.last_error = None
 
     def _normalize_group_id(self, value):
         """Converte IDs -100... para o ID interno usado pelas entidades."""
@@ -59,6 +60,7 @@ class MemberExtractor:
     
     async def _extract_async(self, session_info, group_link, filters=None):
         """Extração assíncrona"""
+        self.last_error = None
         filters = filters or {}
         # CORRIGIDO: Usa o caminho completo da sessão se fornecido
         if 'session_path' in session_info:
@@ -196,19 +198,32 @@ class MemberExtractor:
                         self.progress_callback('info', '🔐 Detectado link de convite privado')
                     
                     try:
-                        from telethon.tl.functions.messages import ImportChatInviteRequest
+                        from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
                         invite_hash = original_link.split('/')[-1].replace('+', '')
                         
                         if self.progress_callback:
-                            self.progress_callback('info', f'� Entrando com hash: {invite_hash}')
+                            self.progress_callback('info', 'Verificando convite privado...')
                         
-                        result = await client(ImportChatInviteRequest(invite_hash))
-                        await asyncio.sleep(2)
+                        invite_info = await client(CheckChatInviteRequest(invite_hash))
+                        group = getattr(invite_info, 'chat', None)
+                        result = None
+                        if group is None:
+                            try:
+                                result = await client(ImportChatInviteRequest(invite_hash))
+                                await asyncio.sleep(2)
+                            except Exception as join_error:
+                                from telethon.errors import UserAlreadyParticipantError
+                                if not isinstance(join_error, UserAlreadyParticipantError):
+                                    raise
+                                invite_info = await client(CheckChatInviteRequest(invite_hash))
+                                group = getattr(invite_info, 'chat', None)
                         
                         if hasattr(result, 'chats') and result.chats:
                             group = result.chats[0]
                             if self.progress_callback:
                                 self.progress_callback('success', f'✅ Entrou no grupo: {group.title}')
+                        elif group is not None and self.progress_callback:
+                            self.progress_callback('success', f'✅ Sessão já participa do grupo: {group.title}')
                     except Exception as e:
                         last_error = str(e)
                         if self.progress_callback:
@@ -508,6 +523,7 @@ class MemberExtractor:
             return members_data
             
         except Exception as e:
+            self.last_error = str(e)
             if self.progress_callback:
                 self.progress_callback('error', f'❌ Erro: {str(e)}')
             return []

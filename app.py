@@ -2949,6 +2949,21 @@ def handle_extract_members_list(data):
                 extractor.set_progress_callback(progress_callback)
                 members = extractor.extract_members(session_info, group_link, extraction_filters)
 
+                if extractor.last_error:
+                    emit_extract_log(
+                        f'Grupo {idx}/{len(group_links)} falhou e nenhum arquivo vazio sera criado.',
+                        'error'
+                    )
+                    update_process(
+                        process_id,
+                        username=current_username,
+                        current=idx,
+                        total=len(group_links),
+                        message=f'Falha no grupo {idx}/{len(group_links)}',
+                        detail=group_link
+                    )
+                    continue
+
                 export_file = os.path.join(paths['data_dir'], 'members_export.json')
                 group_name = f'Grupo {idx}'
                 if os.path.exists(export_file):
@@ -2990,6 +3005,9 @@ def handle_extract_members_list(data):
                     message=f'Grupo {idx}/{len(group_links)} concluído com {len(members)} membro(s)',
                     detail=group_name
                 )
+
+            if not created_files:
+                raise RuntimeError('Nenhum grupo da lista foi extraido com sucesso')
 
             index_filename = f'members_export_lista_index_{timestamp}.json'
             index_path = os.path.join(paths['data_dir'], index_filename)
