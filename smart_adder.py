@@ -875,16 +875,25 @@ class SmartAdder:
                             else:
                                 raise
                     elif clean_source.lstrip('-').isdigit():
-                        from telethon.tl.types import PeerChannel
+                        from telethon.tl.types import InputPeerChannel, PeerChannel
                         numeric_id = int(clean_source)
                         if str(numeric_id).startswith('-100'):
                             numeric_id = int(str(numeric_id)[4:])
+                        source_access_hash = (task_data or {}).get('source_group_access_hash')
+                        if source_access_hash:
+                            try:
+                                source_entity = await client.get_entity(
+                                    InputPeerChannel(numeric_id, int(source_access_hash))
+                                )
+                            except Exception:
+                                source_entity = None
                         dialogs = await client.get_dialogs(limit=None)
-                        for dialog in dialogs:
-                            dialog_entity = getattr(dialog, 'entity', None)
-                            if int(getattr(dialog_entity, 'id', 0) or 0) == numeric_id:
-                                source_entity = dialog_entity
-                                break
+                        if source_entity is None:
+                            for dialog in dialogs:
+                                dialog_entity = getattr(dialog, 'entity', None)
+                                if int(getattr(dialog_entity, 'id', 0) or 0) == numeric_id:
+                                    source_entity = dialog_entity
+                                    break
                         try:
                             if source_entity is None:
                                 source_entity = await client.get_entity(PeerChannel(numeric_id))

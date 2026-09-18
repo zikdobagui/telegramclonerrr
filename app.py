@@ -3639,6 +3639,13 @@ def update_task_members_file(task_id):
         source_group = get_source_group_from_payload(data)
         if source_group:
             task['source_group_link'] = source_group
+        first_member = members[0] if members else {}
+        task['source_group_id'] = data.get('source_group_id') if isinstance(data, dict) else None
+        task['source_group_id'] = task['source_group_id'] or first_member.get('source_group_id')
+        task['source_group_access_hash'] = data.get('source_group_access_hash') if isinstance(data, dict) else None
+        task['source_group_access_hash'] = task['source_group_access_hash'] or first_member.get('source_group_access_hash')
+        task['extracted_by_user_id'] = data.get('extracted_by_user_id') if isinstance(data, dict) else None
+        task['extracted_by_user_id'] = task['extracted_by_user_id'] or first_member.get('extracted_by_user_id')
         task['members_updated_at'] = datetime.now().isoformat(timespec='seconds')
         task.pop('pause_reason', None)
         task.pop('completion_note', None)
@@ -4293,6 +4300,9 @@ def start_task(task_id):
                         'force_rotate_after_each_add': True,
                         'selected_session_count': len(task_sessions),
                         'source_group_link': task.get('source_group_link', ''),
+                        'source_group_id': task.get('source_group_id'),
+                        'source_group_access_hash': task.get('source_group_access_hash'),
+                        'extracted_by_user_id': task.get('extracted_by_user_id'),
                         'member_results': []
                     }
                     

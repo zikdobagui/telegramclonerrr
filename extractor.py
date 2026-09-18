@@ -483,6 +483,9 @@ class MemberExtractor:
                     'first_name': user.first_name,
                     'last_name': user.last_name,
                     'phone': user.phone,
+                    'source_group_id': getattr(group, 'id', None),
+                    'source_group_access_hash': getattr(group, 'access_hash', None),
+                    'extracted_by_user_id': getattr(me, 'id', None),
                     'added': False
                 })
             
@@ -591,6 +594,9 @@ class MemberExtractor:
         export_data = {
             'group_name': group_name,
             'source_group_link': group_link,  # Salva o link do grupo de origem
+            'source_group_id': members[0].get('source_group_id') if members else None,
+            'source_group_access_hash': members[0].get('source_group_access_hash') if members else None,
+            'extracted_by_user_id': members[0].get('extracted_by_user_id') if members else None,
             'extracted_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'total_members': len(members),
             'members': members
@@ -663,6 +669,9 @@ class MemberExtractor:
             export_data = {
                 'group_name': group_name,
                 'source_group_link': group_link,
+                'source_group_id': batch[0].get('source_group_id') if batch else None,
+                'source_group_access_hash': batch[0].get('source_group_access_hash') if batch else None,
+                'extracted_by_user_id': batch[0].get('extracted_by_user_id') if batch else None,
                 'extracted_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'batch_number': i,
                 'total_batches': batch_count,
