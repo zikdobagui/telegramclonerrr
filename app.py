@@ -124,7 +124,16 @@ def start_process(process_type, title, total=0, username=None, detail=''):
         'message': 'Iniciando...'
     }
     with processes_lock:
-        processes_by_user.setdefault(username, {})[process_id] = process
+        user_processes = processes_by_user.setdefault(username, {})
+        if process_type == 'task':
+            duplicate_ids = [
+                existing_id
+                for existing_id, existing in user_processes.items()
+                if existing.get('type') == process_type and existing.get('title') == title
+            ]
+            for existing_id in duplicate_ids:
+                user_processes.pop(existing_id, None)
+        user_processes[process_id] = process
     emit_to_user('process_update', _serialize_process(process), username)
     return process_id
 
@@ -164,9 +173,21 @@ def list_processes(username=None):
     username = get_current_username(username) or '_anonymous'
     with processes_lock:
         processes = list(processes_by_user.setdefault(username, {}).values())
+    latest_tasks = {}
+    unique_processes = []
+    for process in processes:
+        if process.get('type') != 'task':
+            unique_processes.append(process)
+            continue
+        key = process.get('title') or process.get('id')
+        previous = latest_tasks.get(key)
+        if not previous or (process.get('updated_at') or '') > (previous.get('updated_at') or ''):
+            latest_tasks[key] = process
+    unique_processes.extend(latest_tasks.values())
+
     status_order = {'running': 0, 'completed': 1, 'error': 2}
     return sorted(
-        [_serialize_process(process) for process in processes],
+        [_serialize_process(process) for process in unique_processes],
         key=lambda item: (status_order.get(item.get('status'), 9), item.get('updated_at') or ''),
         reverse=False
     )[-20:]

@@ -1865,6 +1865,21 @@ function renderProcesses(processes) {
     const container = document.getElementById('process-list');
     if (!container) return;
 
+    const latestTasks = new Map();
+    const uniqueProcesses = [];
+    processes.forEach(process => {
+        if (process.type !== 'task') {
+            uniqueProcesses.push(process);
+            return;
+        }
+        const key = process.title || process.id;
+        const previous = latestTasks.get(key);
+        if (!previous || String(process.updated_at || '') > String(previous.updated_at || '')) {
+            latestTasks.set(key, process);
+        }
+    });
+    processes = uniqueProcesses.concat(Array.from(latestTasks.values()));
+
     if (!processes.length) {
         container.innerHTML = '<p style="color:#a1a1aa;margin:0;">Nenhum processo em andamento.</p>';
         return;
