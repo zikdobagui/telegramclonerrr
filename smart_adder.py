@@ -148,6 +148,17 @@ class SmartAdder:
     def get_last_result(self):
         return self.last_result or {'status': 'unknown', 'reason': 'Sem detalhe registrado'}
 
+    def _register_resolution_failure(self, member, session_info, task_data):
+        """Mantém o lead pendente até todas as sessões selecionadas tentarem resolvê-lo."""
+        failed_sessions = member.setdefault('resolution_failed_sessions', [])
+        session_key = session_info.get('session_name') or session_info.get('phone') or str(len(failed_sessions) + 1)
+        if session_key not in failed_sessions:
+            failed_sessions.append(session_key)
+        selected_count = max(1, int((task_data or {}).get('selected_session_count') or 1))
+        exhausted = len(failed_sessions) >= selected_count
+        member['added'] = exhausted
+        return exhausted, len(failed_sessions), selected_count
+
     async def _resolve_public_group_entity(self, client, clean_link):
         """Resolve usernames públicos tentando os formatos aceitos pelo Telethon."""
         from telethon.errors import UsernameInvalidError, UsernameNotOccupiedError
@@ -917,6 +928,7 @@ class SmartAdder:
                     
                     # Busca o usuário
                     user_to_add = None
+                    temporary_contact = False
                     member_name = member.get('first_name', 'Usuário')
                     has_username = bool(member.get('username'))
                     
@@ -934,7 +946,46 @@ class SmartAdder:
                                 raise
                             emit_log(f'⚠️ Username não encontrado: {str(e)[:60]}', 'warning', socketio)
                     
-                    # MÉTODO 2: Tenta pelo ID (se não achou por username)
+                    # MÉTODO 2: Resolve pelo telefone para gerar um access_hash
+                    # válido para a sessão atual. O contato importado é temporário.
+                    if not user_to_add and member.get('phone'):
+                        phone = re.sub(r'[^0-9+]', '', str(member.get('phone') or '').strip())
+                        if phone and not phone.startswith('+'):
+                            phone = f'+{phone}'
+                        try:
+                            if not client.is_connected():
+                                raise ConnectionError('Cannot send requests while disconnected')
+
+                            from telethon.tl.functions.contacts import ResolvePhoneRequest
+                            resolved_phone = await client(ResolvePhoneRequest(phone))
+                            if getattr(resolved_phone, 'users', None):
+                                user_to_add = resolved_phone.users[0]
+                                emit_log(f'✅ Encontrado pelo telefone na sessão atual', 'success', socketio)
+                        except Exception as phone_error:
+                            if self._is_disconnected_error(phone_error) or isinstance(phone_error, FloodWaitError):
+                                raise
+
+                            try:
+                                from telethon.tl.functions.contacts import ImportContactsRequest
+                                from telethon.tl.types import InputPhoneContact
+                                imported = await client(ImportContactsRequest([
+                                    InputPhoneContact(
+                                        client_id=random.randint(1, 2**31 - 1),
+                                        phone=phone,
+                                        first_name=str(member.get('first_name') or 'Lead')[:64],
+                                        last_name=str(member.get('last_name') or '')[:64]
+                                    )
+                                ]))
+                                if getattr(imported, 'users', None):
+                                    user_to_add = imported.users[0]
+                                    temporary_contact = True
+                                    emit_log('✅ Identidade atualizada por contato temporário', 'success', socketio)
+                            except Exception as import_error:
+                                if self._is_disconnected_error(import_error) or isinstance(import_error, FloodWaitError):
+                                    raise
+                                emit_log(f'⚠️ Telefone não pôde ser resolvido: {str(import_error)[:60]}', 'warning', socketio)
+
+                    # MÉTODO 3: Tenta pelo cache de ID da sessão
                     if not user_to_add and member.get('id'):
                         try:
                             if not client.is_connected():
@@ -946,7 +997,7 @@ class SmartAdder:
                                 raise
                             emit_log(f'⚠️ Não encontrado por ID: {str(e)[:60]}', 'warning', socketio)
                     
-                    # MÉTODO 3: Usa InputPeerUser como último recurso (se tiver access_hash)
+                    # MÉTODO 4: Usa ID + access_hash como último recurso
                     if not user_to_add and member.get('id') and member.get('access_hash'):
                         try:
                             if not client.is_connected():
@@ -966,10 +1017,18 @@ class SmartAdder:
                             socketio
                         )
                         emit_log('O processamento continuará automaticamente com o próximo membro.', 'info', socketio)
-                        self._set_last_result('member_not_found', f'Não foi possível localizar o membro "{member_name}" com username, ID ou access_hash válido')
+                        self._set_last_result('member_not_found', f'Não foi possível localizar o membro "{member_name}" com username, telefone, ID ou access_hash válido')
                         self._record_member_result(task_data, member, session_info, 'falha', self.last_result['reason'])
-                        member['added'] = True
+                        exhausted, failed_count, selected_count = self._register_resolution_failure(
+                            member, session_info, task_data
+                        )
+                        if exhausted:
+                            emit_log('Todas as sessões selecionadas tentaram este membro; registro arquivado como não resolvido.', 'warning', socketio)
+                        else:
+                            emit_log(f'O membro será tentado por outra sessão ({failed_count}/{selected_count}).', 'info', socketio)
                         continue
+
+                    member.pop('resolution_failed_sessions', None)
                     
                     # Delay antes de adicionar
                     await asyncio.sleep(3)
@@ -1088,15 +1147,33 @@ class SmartAdder:
                         
                     except Exception as add_error:
                         add_error_msg = str(add_error)
-                        if "Invalid object ID for a user" in add_error_msg:
-                            emit_log(f'⚠️ ID/access_hash inválido para convite, pulando membro...', 'warning', socketio)
-                            self._set_last_result('invalid_user_id', 'ID/access_hash inválido para convite. O registro foi removido do arquivo e a próxima tentativa continua.')
+                        if (
+                            "Invalid object ID for a user" in add_error_msg
+                            or type(add_error).__name__ in ('PeerIdInvalidError', 'UserIdInvalidError')
+                            or 'could not find the input entity' in add_error_msg.lower()
+                        ):
+                            emit_log(f'⚠️ ID/access_hash inválido nesta sessão; tentando pelas demais...', 'warning', socketio)
+                            self._set_last_result('invalid_user_id', 'ID/access_hash inválido para esta sessão')
                             self._record_member_result(task_data, member, session_info, 'falha', self.last_result['reason'])
-                            member['added'] = True
+                            exhausted, failed_count, selected_count = self._register_resolution_failure(
+                                member, session_info, task_data
+                            )
+                            if exhausted:
+                                emit_log('Todas as sessões rejeitaram a identidade deste membro; registro arquivado.', 'warning', socketio)
+                            else:
+                                emit_log(f'O membro continuará pendente para outra sessão ({failed_count}/{selected_count}).', 'info', socketio)
                             continue
 
                         # Se der erro ao adicionar, relança a exceção para o tratamento externo
                         raise add_error
+                    finally:
+                        if temporary_contact and user_to_add and client.is_connected():
+                            try:
+                                from telethon.tl.functions.contacts import DeleteContactsRequest
+                                await client(DeleteContactsRequest([user_to_add]))
+                                emit_log('🧹 Contato temporário removido da sessão', 'info', socketio)
+                            except Exception as cleanup_error:
+                                emit_log(f'⚠️ Não foi possível remover o contato temporário: {str(cleanup_error)[:60]}', 'warning', socketio)
                     
                     # INTERAÇÃO DURANTE DELAY - Manda mensagem aleatória a cada 3-5 adições (mais natural)
                     if group_interaction_enabled and added_count % random.randint(3, 5) == 0:

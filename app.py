@@ -4091,6 +4091,7 @@ def start_task(task_id):
                         'daily_limit': task['daily_limit'],
                         'automation_manager': automation_manager,  # Passa o automation_manager correto
                         'force_rotate_after_each_add': True,
+                        'selected_session_count': len(task_sessions),
                         'member_results': []
                     }
                     
