@@ -851,6 +851,22 @@ def pause_task_after_fatal_group_error(task_id, manager, last_result):
 
     return None, pause_reason
 
+def pause_task_after_source_mismatch(task_id, manager, last_result):
+    """Pausa a tarefa quando a base importada nao pertence ao grupo de origem."""
+    reason = str((last_result or {}).get('reason') or 'Grupo de origem incompativel com a base')
+    pause_reason = f'Origem incompativel: {reason[:220]}'
+
+    manager.load_config()
+    for current_task in manager.config.get('groups', []):
+        if current_task.get('id') == task_id:
+            current_task['status'] = 'paused'
+            current_task['pause_requested_at'] = datetime.now().isoformat(timespec='seconds')
+            current_task['pause_reason'] = pause_reason
+            manager.save_config()
+            return current_task, pause_reason
+
+    return None, pause_reason
+
 def emit_task_log(message, log_type='info', task_id=None):
     """Emite log apenas para aba Tarefas"""
     task_id = task_id or getattr(thread_context, 'task_id', None)
@@ -4327,6 +4343,17 @@ def start_task(task_id):
                             task = paused_task
                         emit_task_log(
                             f'🛑 Grupo destino caiu/ficou inacessível. Tarefa pausada imediatamente. {pause_reason}',
+                            'error'
+                        )
+                        fatal_stop_task = True
+                        break
+
+                    if str((last_result or {}).get('status') or '').lower() == 'source_group_mismatch':
+                        paused_task, pause_reason = pause_task_after_source_mismatch(task_id, automation_manager, last_result)
+                        if paused_task:
+                            task = paused_task
+                        emit_task_log(
+                            f'Grupo de origem nao corresponde a base importada. Tarefa pausada. {pause_reason}',
                             'error'
                         )
                         fatal_stop_task = True

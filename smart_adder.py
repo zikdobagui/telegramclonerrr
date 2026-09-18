@@ -639,6 +639,7 @@ class SmartAdder:
             await client.connect()
             
             if not await client.is_user_authorized():
+                self._set_last_result('unauthorized_session', 'Sessao nao autorizada; valide a sessao antes de executar a tarefa')
                 emit_log('❌ Sessão não autorizada', 'error', socketio)
                 return 0
             
@@ -845,7 +846,7 @@ class SmartAdder:
             emit_log('🔄 PASSO 4.5: Entrando no grupo de origem para atualizar dados...', 'info', socketio)
             
             source_group = (task_data or {}).get('source_group_link') or self.get_source_group()
-            members_with_id = [m for m in to_add if m.get('id')]
+            members_with_id = [m for m in pending if m.get('id')]
             
             if source_group and members_with_id:
                 emit_log(f'📊 {len(members_with_id)} membro(s) com ID detectado(s)', 'info', socketio)
@@ -905,6 +906,7 @@ class SmartAdder:
                         
                         # Atualiza access_hash dos membros sem username
                         updated_count = 0
+                        matched_pending = []
                         for member in members_with_id:
                             try:
                                 member_id = int(member['id'])
@@ -915,6 +917,27 @@ class SmartAdder:
                                 if hasattr(source_user, 'access_hash'):
                                     member['access_hash'] = source_user.access_hash
                                     updated_count += 1
+                                matched_pending.append(member)
+
+                        if not matched_pending:
+                            reason = (
+                                f'Nenhum dos {len(members_with_id)} IDs pendentes pertence ao grupo de origem '
+                                f'"{getattr(source_entity, "title", source_group)}". Informe o grupo usado para extrair esta base.'
+                            )
+                            self._set_last_result('source_group_mismatch', reason)
+                            emit_log(reason, 'error', socketio)
+                            await self._leave_group(client, target_entity, socketio)
+                            return 0
+
+                        matched_object_ids = {id(member) for member in matched_pending}
+                        fallback = [member for member in pending if id(member) not in matched_object_ids]
+                        to_add = (matched_pending + fallback)[:max_attempts]
+                        self.save_members(members)
+                        emit_log(
+                            f'{min(len(matched_pending), max_attempts)} membro(s) encontrado(s) na origem foram priorizados',
+                            'success',
+                            socketio
+                        )
                         
                         emit_log(f'✅ Access_hash atualizado: {updated_count}/{len(members_with_id)}', 'success', socketio)
                         
