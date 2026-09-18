@@ -224,6 +224,13 @@ class MemberExtractor:
                                 self.progress_callback('success', f'✅ Entrou no grupo: {group.title}')
                         elif group is not None and self.progress_callback:
                             self.progress_callback('success', f'✅ Sessão já participa do grupo: {group.title}')
+                        if group is None:
+                            last_error = (
+                                'O convite nao retornou uma entidade de grupo '
+                                f'(consulta: {type(invite_info).__name__}; '
+                                f'entrada: {type(result).__name__}). '
+                                'Confirme que o convite continua valido e que a sessao tem acesso ao grupo.'
+                            )
                     except Exception as e:
                         last_error = str(e)
                         if self.progress_callback:
@@ -300,6 +307,8 @@ class MemberExtractor:
                                 self.progress_callback('warning', f'⚠️ Busca em conversas falhou: {last_error}')
             
             if not group:
+                if not last_error:
+                    last_error = 'A API do Telegram nao retornou uma entidade para este link.'
                 error_msg = f"❌ Não foi possível acessar o grupo.\n\n"
                 error_msg += f"📋 DICAS:\n"
                 error_msg += f"• Verifique se o link/username está correto\n"
