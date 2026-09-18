@@ -485,11 +485,27 @@ class SmartAdder:
     async def _leave_group(self, client, entity, socketio):
         """Sai do grupo"""
         try:
-            from telethon.tl.functions.channels import LeaveChannelRequest
-            await client(LeaveChannelRequest(entity))
-            emit_log(f'✅ Saiu do grupo: {entity.title}', 'success', socketio)
+            from telethon.tl.types import Chat, InputPeerChat
+            if isinstance(entity, (Chat, InputPeerChat)):
+                from telethon.tl.functions.messages import DeleteChatUserRequest
+                me = await client.get_input_entity('me')
+                chat_id = getattr(entity, 'chat_id', None) or getattr(entity, 'id', entity)
+                await client(DeleteChatUserRequest(chat_id=chat_id, user_id=me, revoke_history=False))
+            else:
+                from telethon.tl.functions.channels import LeaveChannelRequest
+                await client(LeaveChannelRequest(entity))
+            emit_log(f'✅ Saiu do grupo: {getattr(entity, "title", "grupo destino")}', 'success', socketio)
         except Exception as e:
             emit_log(f'⚠️ Erro ao sair do grupo: {str(e)[:50]}', 'warning', socketio)
+
+    async def _invite_member(self, client, target_entity, user_to_add):
+        """Usa a requisição correta para grupo básico ou supergrupo/canal."""
+        from telethon.tl.types import Chat, InputPeerChat
+        if isinstance(target_entity, (Chat, InputPeerChat)):
+            from telethon.tl.functions.messages import AddChatUserRequest
+            chat_id = getattr(target_entity, 'chat_id', None) or getattr(target_entity, 'id', target_entity)
+            return await client(AddChatUserRequest(chat_id=chat_id, user_id=user_to_add, fwd_limit=0))
+        return await client(InviteToChannelRequest(target_entity, [user_to_add]))
     
     def add_members_smart(
         self,
@@ -1067,7 +1083,7 @@ class SmartAdder:
                                 )
                                 break
                         invite_target = target_input_entity or target_entity
-                        await client(InviteToChannelRequest(invite_target, [user_to_add]))
+                        await self._invite_member(client, invite_target, user_to_add)
                         
                         # INCREMENTA IMEDIATAMENTE após sucesso
                         added_count += 1

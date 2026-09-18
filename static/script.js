@@ -2130,7 +2130,48 @@ function taskLogEntryHtml(entry) {
     const time = entry.time && entry.time.includes('T')
         ? new Date(entry.time).toLocaleTimeString()
         : (entry.time || new Date().toLocaleTimeString());
-    return `<div class="log-entry ${entry.type || 'info'}">[${escapeHtml(time)}] ${escapeHtml(entry.message || '')}</div>`;
+    const type = entry.type || 'info';
+    const labels = {info: 'INFO', success: 'OK', warning: 'AVISO', error: 'ERRO'};
+    return `
+        <div class="log-entry ${type}">
+            <time>${escapeHtml(time)}</time>
+            <span class="task-log-level">${labels[type] || 'INFO'}</span>
+            <span class="task-log-message">${escapeHtml(entry.message || '')}</span>
+        </div>
+    `;
+}
+
+async function copyTaskLogs(taskId) {
+    const logs = taskLogsById[getTaskLogKey(taskId)] || [];
+    if (!logs.length) {
+        showNotification('Ainda não há logs para copiar.', 'warning');
+        return;
+    }
+
+    const content = logs.map(entry => {
+        const time = entry.time && entry.time.includes('T')
+            ? new Date(entry.time).toLocaleTimeString('pt-BR')
+            : (entry.time || '');
+        return `[${time}] [${String(entry.type || 'info').toUpperCase()}] ${entry.message || ''}`;
+    }).join('\n');
+
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(content);
+        } else {
+            const area = document.createElement('textarea');
+            area.value = content;
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            document.execCommand('copy');
+            area.remove();
+        }
+        showNotification(`${logs.length} linhas de log copiadas.`, 'success', 3000);
+    } catch (error) {
+        showNotification('Não foi possível copiar os logs.', 'error');
+    }
 }
 
 function renderTaskLogBody(taskId) {
@@ -2140,6 +2181,8 @@ function renderTaskLogBody(taskId) {
     body.innerHTML = logs.length
         ? logs.map(taskLogEntryHtml).join('')
         : '<div class="log-entry info">Terminal aguardando eventos desta tarefa.</div>';
+    const count = document.querySelector(`#task-log-panel-${taskId} .task-log-count`);
+    if (count) count.textContent = `${logs.length} eventos`;
     body.scrollTop = body.scrollHeight;
 }
 
@@ -2151,6 +2194,9 @@ function appendTaskLogEntry(taskId, data) {
         type: data.type,
         time: data.time || new Date().toLocaleTimeString()
     }));
+    const logs = taskLogsById[getTaskLogKey(taskId)] || [];
+    const count = document.querySelector(`#task-log-panel-${taskId} .task-log-count`);
+    if (count) count.textContent = `${logs.length} eventos`;
     body.scrollTop = body.scrollHeight;
 }
 
@@ -2846,9 +2892,15 @@ async function loadTasks() {
                         <div id="task-log-panel-${task.id}" class="task-card-terminal" style="display:${isTerminalOpen ? 'block' : 'none'};">
                             <div class="task-card-terminal-header">
                                 <span><i class="fas fa-terminal"></i> Terminal da tarefa #${task.id}</span>
-                                <button type="button" onclick="toggleTaskLogs(${task.id})" title="Ocultar terminal">
-                                    <i class="fas fa-chevron-up"></i>
-                                </button>
+                                <div class="task-terminal-actions">
+                                    <span class="task-log-count">${(taskLogsById[getTaskLogKey(task.id)] || []).length} eventos</span>
+                                    <button type="button" onclick="copyTaskLogs(${task.id})" title="Copiar logs">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <button type="button" onclick="toggleTaskLogs(${task.id})" title="Ocultar terminal">
+                                        <i class="fas fa-chevron-up"></i>
+                                    </button>
+                                </div>
                             </div>
                             <div id="task-log-body-${task.id}" class="logs task-card-terminal-body"></div>
                         </div>
@@ -3121,10 +3173,33 @@ function ensureTaskDetailsStyles() {
     const style = document.createElement('style');
     style.id = 'task-details-styles';
     style.textContent = `
-        .task-card-terminal { margin-top: 14px; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; overflow: hidden; background: rgba(2, 6, 23, 0.58); }
-        .task-card-terminal-header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; color:#cbd5e1; background:rgba(15, 23, 42, 0.9); font-weight:700; }
-        .task-card-terminal-header button { width:34px; height:30px; border:0; border-radius:6px; cursor:pointer; color:#cbd5e1; background:rgba(59,130,246,0.18); }
-        .task-card-terminal-body { min-height:160px; max-height:320px; border-radius:0; margin:0; }
+        .task-card-terminal { margin-top:14px; overflow:hidden; border:1px solid rgba(125,211,252,.18); border-radius:8px; background:#07111f; box-shadow:inset 0 1px 0 rgba(255,255,255,.025); }
+        .task-card-terminal-header { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:48px; padding:8px 10px 8px 14px; color:#e5edf7; background:#0b1727; border-bottom:1px solid rgba(125,211,252,.14); font-weight:750; }
+        .task-card-terminal-header > span { display:flex; align-items:center; gap:8px; min-width:0; }
+        .task-card-terminal-header > span i { color:#7dd3fc; }
+        .task-terminal-actions { display:flex; align-items:center; gap:6px; }
+        .task-log-count { color:#8295aa; font-size:11px; font-weight:650; white-space:nowrap; }
+        .task-card-terminal-header button { display:grid; place-items:center; width:32px; height:32px; padding:0; border:1px solid rgba(125,211,252,.14); border-radius:6px; cursor:pointer; color:#b9d7e8; background:rgba(14,165,233,.08); }
+        .task-card-terminal-header button:hover { color:#fff; background:rgba(14,165,233,.18); }
+        .task-card-terminal-body { min-height:180px; max-height:360px; margin:0; padding:8px 0 !important; border:0 !important; border-radius:0; background:#050d18 !important; font-family:'Cascadia Code','SFMono-Regular',Consolas,monospace; }
+        .task-card-terminal-body .log-entry { display:grid; grid-template-columns:70px 54px minmax(0,1fr); gap:8px; align-items:start; min-height:28px; margin:0; padding:6px 12px; border:0; border-left:3px solid transparent; border-radius:0; background:transparent; color:#b9c7d7; font-size:12px; line-height:1.45; }
+        .task-card-terminal-body .log-entry:hover { background:rgba(125,211,252,.045); }
+        .task-card-terminal-body .log-entry time { color:#60758b; font-variant-numeric:tabular-nums; }
+        .task-log-level { font-size:10px; font-weight:850; line-height:17px; }
+        .task-log-message { min-width:0; overflow-wrap:anywhere; white-space:pre-wrap; }
+        .task-card-terminal-body .log-entry.info { border-left-color:#38bdf8; }
+        .task-card-terminal-body .log-entry.info .task-log-level { color:#7dd3fc; }
+        .task-card-terminal-body .log-entry.success { border-left-color:#22c55e; }
+        .task-card-terminal-body .log-entry.success .task-log-level { color:#86efac; }
+        .task-card-terminal-body .log-entry.warning { border-left-color:#f59e0b; }
+        .task-card-terminal-body .log-entry.warning .task-log-level { color:#fcd34d; }
+        .task-card-terminal-body .log-entry.error { border-left-color:#f43f5e; }
+        .task-card-terminal-body .log-entry.error .task-log-level { color:#fda4af; }
+        @media (max-width:640px) {
+            .task-log-count { display:none; }
+            .task-card-terminal-body .log-entry { grid-template-columns:58px minmax(0,1fr); }
+            .task-log-level { display:none; }
+        }
         .task-details-modal { position:fixed; inset:0; z-index:20000; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(2, 6, 23, 0.78); }
         .task-details-dialog { width:min(1120px, 96vw); max-height:90vh; overflow:hidden; display:flex; flex-direction:column; background:#0f172a; border:1px solid rgba(148,163,184,0.25); border-radius:8px; box-shadow:0 24px 70px rgba(0,0,0,0.45); }
         .task-details-header { display:flex; justify-content:space-between; gap:16px; padding:18px 20px; border-bottom:1px solid rgba(148,163,184,0.18); }
