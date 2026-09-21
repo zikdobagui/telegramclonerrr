@@ -2703,11 +2703,16 @@ async function addGroupTask() {
     }
 }
 
+let tasksLoadVersion = 0;
+
 async function loadTasks() {
+    const version = ++tasksLoadVersion;
     ensureTaskDetailsStyles();
     try {
-        const response = await fetch('/api/tasks');
+        const response = await fetch('/api/tasks', {cache: 'no-store'});
         const data = await response.json();
+        if (version !== tasksLoadVersion) return;
+        if (!response.ok || !data.success) throw new Error(data.error || 'Falha ao carregar tarefas');
         
         const tasksList = document.getElementById('tasks-list');
         

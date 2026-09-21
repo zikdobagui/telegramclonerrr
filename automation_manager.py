@@ -1,8 +1,19 @@
 import json
 import os
 from datetime import datetime, timedelta
+from functools import wraps
 from config import DATA_DIR
-from data_store import atomic_write_json, load_json_file
+from data_store import atomic_write_json, load_json_file, _get_write_lock
+
+
+def locked_config(method):
+    """Serializa leitura, mesclagem e gravação entre instâncias do mesmo usuário."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with _get_write_lock(self.config_file):
+            return method(self, *args, **kwargs)
+    return wrapped
+
 
 class AutomationManager:
     def __init__(self, data_dir=None):
@@ -11,6 +22,7 @@ class AutomationManager:
         self.config_file = os.path.join(self.data_dir, 'automation_config.json')
         self.load_config()
     
+    @locked_config
     def load_config(self):
         """Carrega configurações de automação"""
         if os.path.exists(self.config_file):
@@ -29,6 +41,7 @@ class AutomationManager:
             }
             self.save_config()
     
+    @locked_config
     def save_config(self, preserve_disk_tasks=True):
         """Salva configurações"""
         if preserve_disk_tasks:
@@ -171,6 +184,7 @@ class AutomationManager:
         ]
         self.config['deleted_task_ids'] = sorted(deleted_task_ids)
 
+    @locked_config
     def delete_task(self, task_id):
         """Remove uma tarefa e registra o ID para evitar reaparecimento por saves atrasados."""
         task_id = int(task_id)
@@ -190,6 +204,7 @@ class AutomationManager:
         self.save_config(preserve_disk_tasks=False)
         return len(self.config.get('groups', [])) < before
     
+    @locked_config
     def add_group_task(
         self,
         group_link,
@@ -207,6 +222,7 @@ class AutomationManager:
         group_interaction_enabled=True
     ):
         """Adiciona grupo à fila de tarefas - SUPORTA MÚLTIPLOS GRUPOS"""
+        self.load_config()
         task = {
             'id': self.get_next_task_id(),
             'group_link': group_link,

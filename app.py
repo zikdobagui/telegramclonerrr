@@ -302,15 +302,16 @@ def get_automation_manager_instance(username=None):
     if not username:
         raise RuntimeError('Usuário não autenticado')
 
-    if username in managers_by_user['automation']:
-        return managers_by_user['automation'][username]
+    # Cada request mantém sua própria configuração; um GET concorrente não
+    # pode substituir a lista que um POST está preparando para salvar.
+    if has_request_context() and getattr(g, 'automation_username', None) == username:
+        return g.automation_manager
 
     paths = get_user_paths(username)
     manager = AutomationManager(paths['data_dir'])
-    managers_by_user['automation'][username] = manager
-
     if has_request_context():
         g.automation_manager = manager
+        g.automation_username = username
 
     return manager
 
