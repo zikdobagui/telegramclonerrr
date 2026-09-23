@@ -12,3 +12,4 @@ aiohttp
 python-dotenv
 psutil
 aiogram
+tzdata

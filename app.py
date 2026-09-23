@@ -24,6 +24,7 @@ from config import CONFIG_FILE, SESSIONS_DIR, DATA_DIR, MEMBERS_FILE
 from logger import log_info, log_error, log_warning, log_debug, log_section, log_separator
 from data_store import atomic_write_json, load_json_file
 from operations_store import OperationsStore
+from group_campaigns import register_campaign_routes
 
 for stream in (sys.stdout, sys.stderr):
     try:
@@ -919,6 +920,8 @@ def get_user_lock_state(username=None):
 def check_session_lock(operation, task_id=None, username=None):
     """Verifica se pode executar a operação"""
     session_locks = get_user_lock_state(username)
+    if session_locks.get('group_campaign'):
+        return False, 'Pause a tarefa de grupos antes de iniciar outra operação com sessões.'
     if operation == 'task':
         if session_locks['warming'] or session_locks.get('group_factory'):
             return False, "Não é possível processar tarefas enquanto aquecimento ou criação de grupos está ativa."
@@ -6297,6 +6300,12 @@ def verify_session_password():
     except Exception as e:
         log_error(f"Erro ao verificar senha: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+register_campaign_routes(
+    app, login_required, get_user_paths, get_session_manager_instance,
+    get_next_api, check_session_lock, set_session_lock, get_user_lock_state
+)
 
 
 if __name__ == '__main__':

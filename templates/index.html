@@ -7434,7 +7434,7 @@
                     </a>
                     <a href="#" class="menu-item" data-tab="comingSoon">
                         <i class="fas fa-plus-circle" aria-hidden="true"></i>
-                        <span>Em breve</span>
+                        <span>Tarefas de grupos</span>
                     </a>
                 </div>
                 
@@ -9115,17 +9115,7 @@
 </div>
 
 
-<!-- Tab: Em breve -->
-<div class="tab-content" id="comingSoon">
-    <div class="content-header">
-        <h2><i class="fas fa-plus-circle" aria-hidden="true"></i> Em breve</h2>
-        <p>Um novo espaço no seu painel</p>
-    </div>
-    <div class="card">
-        <h3>Novidades em breve</h3>
-        <p>As próximas funcionalidades estarão disponíveis nesta aba.</p>
-    </div>
-</div>
+{% include 'group_campaigns.html' %}
 
 <!-- Tab: Ajuda -->
 <div class="tab-content" id="help">
@@ -9233,6 +9223,7 @@
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='script.js') }}?v={{ app_version }}"></script>
+    <script src="{{ url_for('static', filename='group_campaigns.js') }}?v={{ app_version }}"></script>
     
     <script>
         const PANEL_THEME_KEY = 'panelTheme';
