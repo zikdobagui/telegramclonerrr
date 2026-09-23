@@ -94,6 +94,40 @@ class CampaignStore:
         with self.db() as conn:
             conn.execute('UPDATE campaigns SET status=?,error=? WHERE id=?', (status, error[:1000], cid))
 
+    def prepare_start(self, cid):
+        """Recover the fixed invite parsing error without retrying deliveries."""
+        with self.db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            campaign = conn.execute('SELECT * FROM campaigns WHERE id=?', (cid,)).fetchone()
+            if not campaign:
+                raise ValueError('Tarefa não encontrada')
+            settings = json.loads(campaign['settings'])
+            groups = conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1', (cid,)).fetchall()
+            recovered = 0
+            for group in groups:
+                if group['status'] != 'error' or group['error'] != "'ChatInviteJoinResultOk' object has no attribute 'chats'":
+                    continue
+                if group['channel_id'] and group['access_hash'] and group['creator'] and group['invite']:
+                    # These groups already exist. Resume the previous phase.
+                    until = group['warm_until']
+                    if settings['warming'] and not until:
+                        until = time.time() + settings['warm_days'] * 86400
+                    status = 'warming' if settings['warming'] and until > time.time() else 'ready'
+                    conn.execute("UPDATE groups SET status=?,error='',warm_until=? WHERE id=?", (status, until, group['id']))
+                elif group['reference'] and not group['channel_id']:
+                    # Re-resolve the existing invite; never create a new group.
+                    conn.execute("UPDATE groups SET status='pending',error='' WHERE id=?", (group['id'],))
+                else:
+                    continue
+                recovered += 1
+            runnable = conn.execute("SELECT count(*) FROM groups WHERE campaign_id=? AND current=1 AND status IN ('pending','warming','ready')", (cid,)).fetchone()[0]
+            if not runnable:
+                raise ValueError('Nenhum grupo disponível para iniciar. Abra os detalhes dos grupos e resolva os erros ou vincule um grupo substituto.')
+            conn.execute("UPDATE campaigns SET status='running',error='' WHERE id=?", (cid,))
+            if recovered:
+                conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)',
+                             (cid, f'{recovered} grupo(s) recuperado(s) do erro de convite. Histórico de leads e cotas preservados.', time.time()))
+
     def create(self, payload, session_names):
         name = str(payload.get('name') or '').strip()[:100]
         if not name or not session_names:
@@ -574,8 +608,8 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                     raise ValueError(f'Sessão indisponível: {name}')
             paths = get_paths(username)
             gateway = TelegramCampaignGateway(paths, {name: saved[name] for name in names}, api)
+            store.prepare_start(cid)
             set_lock('group_campaign', True, username=username)
-            store.state(cid, 'running')
 
             def run():
                 try:

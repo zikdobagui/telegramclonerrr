@@ -57,6 +57,43 @@ class CampaignStoreTests(unittest.TestCase):
     def leads(self, count=10):
         return self.store.import_leads('leads.json', json.dumps({'members': [{'id': 100 + n, 'username': f'lead_{n}', 'access_hash': 9000000000000000000 + n} for n in range(count)]}).encode())
 
+    def test_resume_recovers_invite_error_without_resetting_leads_or_quota(self):
+        cid, groups = self.task()
+        self.leads(2)
+        delivery = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(delivery['id'], 'unknown')
+        for group in groups:
+            self.store.group_update(group['id'], status='error', channel_id=str(1000 + group['id']),
+                                    access_hash='123', creator='one.session', invite='https://t.me/+existing',
+                                    error="'ChatInviteJoinResultOk' object has no attribute 'chats'")
+        self.store.state(cid, 'paused', 'Todos os grupos precisam de revisão ou substituição.')
+        self.store.prepare_start(cid)
+        self.assertEqual(self.store.get(cid)['status'], 'running')
+        self.assertTrue(all(group['status'] == 'ready' and not group['error'] for group in self.store.groups(cid)))
+        self.assertEqual([group['id'] for group in self.store.groups(cid)], [group['id'] for group in groups])
+        self.assertIsNone(self.store.claim(cid, groups[0]['id']))
+        self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
+
+    def test_resume_preserves_warmup_and_rejects_unrelated_errors(self):
+        import time
+        cid, groups = self.task(warming=True, messages='Olá')
+        until = time.time() + 3600
+        self.store.group_update(groups[0]['id'], status='error', channel_id='123', access_hash='456',
+                                creator='one.session', invite='https://t.me/+existing', warm_until=until,
+                                error="'ChatInviteJoinResultOk' object has no attribute 'chats'")
+        self.store.group_update(groups[1]['id'], status='error', error='CHANNEL_PRIVATE')
+        self.store.state(cid, 'paused')
+        self.store.prepare_start(cid)
+        current = self.store.groups(cid)
+        self.assertEqual(current[0]['status'], 'warming')
+        self.assertEqual(current[0]['warm_until'], until)
+        self.assertEqual(current[1]['status'], 'error')
+        self.store.group_update(groups[0]['id'], status='error', error='CHANNEL_PRIVATE')
+        self.store.state(cid, 'paused')
+        with self.assertRaisesRegex(ValueError, 'Nenhum grupo disponível'):
+            self.store.prepare_start(cid)
+        self.assertEqual(self.store.get(cid)['status'], 'paused')
+
     def test_import_is_additive_and_deduplicates_aliases(self):
         self.assertEqual(self.leads(3)['added'], 3)
         self.assertEqual(self.leads(5)['added'], 2)
