@@ -1,58 +1,60 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='group_campaigns.css') }}?v={{ app_version }}">
 <div class="tab-content" id="comingSoon">
-    <header class="gc-hero">
-        <div><span class="gc-eyebrow">ORGANIZE SUA OPERAÇÃO</span><h2>Tarefas de grupos</h2><p>Dos primeiros leads ao próximo grupo. Tudo em um só lugar.</p></div>
-        <button class="btn btn-primary" id="campaign-new" type="button"><i class="fas fa-plus" aria-hidden="true"></i> Nova tarefa</button>
-    </header>
-    <div class="gc-overview" aria-label="Resumo da operação">
+    <div class="content-header">
+        <h2><i class="fas fa-layer-group" aria-hidden="true"></i> Tarefas de grupos</h2>
+        <p>Criação de grupos, aquecimento e distribuição de leads.</p>
+    </div>
+    <div class="card task-compact-card">
+        <div class="task-toolbar">
+            <button class="btn btn-success" id="campaign-new" type="button"><i class="fas fa-plus" aria-hidden="true"></i> Nova tarefa</button>
+            <button class="btn btn-primary" type="button" data-reveal="campaign-bank"><i class="fas fa-upload" aria-hidden="true"></i> Importar leads</button>
+            <span>Configure a tarefa e acompanhe os grupos abaixo.</span>
+        </div>
+    </div>
+    <div class="task-queue-summary" aria-label="Resumo da operação">
         <div><span>Banco de leads</span><strong id="campaign-lead-total">—</strong><small>Você pode importar mais a qualquer momento</small></div>
         <div><span>Tarefas criadas</span><strong id="campaign-task-total">—</strong><small id="campaign-running-total">Carregando tarefas</small></div>
         <div><span>Leads adicionados</span><strong id="campaign-added-total">—</strong><small>Total confirmado nas tarefas</small></div>
     </div>
-    <nav class="gc-guide" aria-label="Como começar">
-        <button type="button" data-reveal="campaign-bank"><b>1</b><span><strong>Importe os leads</strong><small>Monte sua base de contatos</small></span></button>
-        <button type="button" data-reveal="campaign-builder"><b>2</b><span><strong>Configure a tarefa</strong><small>Grupos, sessões e limites</small></span></button>
-        <button type="button" data-reveal="campaign-monitor"><b>3</b><span><strong>Inicie e acompanhe</strong><small>Controle tudo pelos cartões</small></span></button>
-    </nav>
-    <details class="gc-panel" id="campaign-bank">
+    <details class="card gc-panel" id="campaign-bank">
         <summary><span class="gc-section-icon"><i class="fas fa-address-book" aria-hidden="true"></i></span><span><strong>Adicionar leads ao banco</strong><small>Importe um novo arquivo sem apagar os contatos anteriores</small></span><span class="gc-expand">Abrir <i class="fas fa-chevron-down" aria-hidden="true"></i></span></summary>
         <div class="gc-panel-body">
             <form id="campaign-leads-form" class="gc-upload">
                 <div class="form-group"><label for="campaign-leads-file">Escolha seu arquivo de contatos</label><input id="campaign-leads-file" type="file" accept=".json,.csv,.txt" required><small>JSON de membros, CSV com id/username/phone ou TXT com um @username por linha. Até 25 MB.</small></div>
                 <button class="btn btn-primary" type="submit">Importar leads</button>
             </form>
-            <p class="gc-note">Contatos duplicados são identificados automaticamente. Cada tarefa mantém seu próprio histórico de uso.</p>
+            <p class="info gc-note">Contatos duplicados são identificados automaticamente. Cada tarefa mantém seu próprio histórico de uso.</p>
             <p id="campaign-import-result" role="status"></p>
         </div>
     </details>
-    <details class="gc-panel" id="campaign-builder" open>
+    <details class="card gc-panel" id="campaign-builder" open>
         <summary><span class="gc-section-icon"><i class="fas fa-sliders-h" aria-hidden="true"></i></span><span><strong>Criar uma tarefa</strong><small>Preencha as etapas abaixo e confira o resumo antes de salvar</small></span><span class="gc-expand">Configurar <i class="fas fa-chevron-down" aria-hidden="true"></i></span></summary>
         <form id="campaign-create-form" class="gc-panel-body">
-            <section class="gc-step"><div class="gc-step-heading"><span>01</span><div><h3>Quais grupos você quer criar?</h3><p>Dê um nome à tarefa e escolha quantos grupos ela terá.</p></div></div>
-                <div class="gc-grid"><div class="form-group"><label for="campaign-name">Nome da tarefa</label><input id="campaign-name" required maxlength="100" placeholder="Ex.: Comunidade VIP"><small>Os grupos terão esse nome seguido de 01, 02, 03…</small></div><div class="form-group"><label for="campaign-count">Quantidade de grupos</label><input id="campaign-count" type="number" min="1" max="30" value="10" required><small>De 1 a 30 grupos por tarefa.</small></div></div>
+            <section class="gc-step"><div class="gc-step-heading"><span class="factory-step">01</span><div><h3>Quais grupos você quer criar?</h3><p>Dê um nome à tarefa e escolha quantos grupos ela terá.</p></div></div>
+                <div class="form-row"><div class="form-group"><label for="campaign-name">Nome da tarefa</label><input id="campaign-name" required maxlength="100" placeholder="Ex.: Comunidade VIP"><small>Os grupos terão esse nome seguido de 01, 02, 03…</small></div><div class="form-group"><label for="campaign-count">Quantidade de grupos</label><input id="campaign-count" type="number" min="1" max="30" value="10" required><small>De 1 a 30 grupos por tarefa.</small></div></div>
             </section>
-            <section class="gc-step"><div class="gc-step-heading"><span>02</span><div><h3>Escolha as sessões</h3><p>Marque as contas que vão trabalhar nesta tarefa.</p></div></div>
+            <section class="gc-step"><div class="gc-step-heading"><span class="factory-step">02</span><div><h3>Escolha as sessões</h3><p>Marque as contas que vão trabalhar nesta tarefa.</p></div></div>
                 <select id="campaign-sessions" multiple hidden aria-label="Sessões selecionadas"></select>
                 <div id="campaign-session-options" class="gc-sessions" role="group" aria-label="Sessões disponíveis"><p>Carregando sessões…</p></div><small id="campaign-session-count">0 selecionadas</small>
             </section>
-            <section class="gc-step"><div class="gc-step-heading"><span>03</span><div><h3>Defina o ritmo de adição</h3><p>Controle quantos leads entram por dia e onde eles podem ser usados.</p></div></div>
-                <div class="gc-grid"><div class="form-group"><label for="campaign-limit">Leads por dia</label><input id="campaign-limit" type="number" min="1" max="10000" value="25" required></div><div class="form-group"><label for="campaign-limit-scope">Esse limite vale para</label><select id="campaign-limit-scope"><option value="group">Cada grupo separadamente</option><option value="task">Todos os grupos juntos</option></select></div></div>
-                <p class="gc-explanation" id="campaign-limit-explanation"></p>
+            <section class="gc-step"><div class="gc-step-heading"><span class="factory-step">03</span><div><h3>Defina o ritmo de adição</h3><p>Controle quantos leads entram por dia e onde eles podem ser usados.</p></div></div>
+                <div class="form-row"><div class="form-group"><label for="campaign-limit">Leads por dia</label><input id="campaign-limit" type="number" min="1" max="10000" value="25" required></div><div class="form-group"><label for="campaign-limit-scope">Esse limite vale para</label><select id="campaign-limit-scope"><option value="group">Cada grupo separadamente</option><option value="task">Todos os grupos juntos</option></select></div></div>
+                <p class="info gc-explanation" id="campaign-limit-explanation"></p>
                 <div class="form-group"><label for="campaign-dedup">Como distribuir os contatos?</label><select id="campaign-dedup"><option value="task">Um grupo por lead (sem repetição)</option><option value="group">Todos os grupos, uma vez em cada</option></select></div>
                 <details class="gc-advanced"><summary>Ajustar intervalo entre ações</summary><div class="form-group"><label for="campaign-delay">Intervalo em segundos</label><input id="campaign-delay" type="number" min="10" max="3600" value="60" required></div></details>
             </section>
-            <section class="gc-step"><div class="gc-step-heading"><span>04</span><div><h3>Aquecer os grupos?</h3><p>Envie frases nos grupos antes de começar a adicionar leads.</p></div></div>
+            <section class="gc-step"><div class="gc-step-heading"><span class="factory-step">04</span><div><h3>Aquecer os grupos?</h3><p>Envie frases nos grupos antes de começar a adicionar leads.</p></div></div>
                 <div class="form-group"><label for="campaign-warming">Aquecimento</label><select id="campaign-warming"><option value="no">Não aquecer</option><option value="yes">Sim, aquecer antes de adicionar</option></select></div>
                 <div id="campaign-warm-fields" class="gc-warm" hidden>
-                    <div class="gc-grid"><div class="form-group"><label for="campaign-warm-days">Aquecer durante quantos dias?</label><input id="campaign-warm-days" type="number" min="1" max="90" value="1"></div><div class="form-group"><label for="campaign-warm-interval">Enviar uma frase a cada (minutos)</label><input id="campaign-warm-interval" type="number" min="1" max="1440" value="60"></div></div>
+                    <div class="form-row"><div class="form-group"><label for="campaign-warm-days">Aquecer durante quantos dias?</label><input id="campaign-warm-days" type="number" min="1" max="90" value="1"></div><div class="form-group"><label for="campaign-warm-interval">Enviar uma frase a cada (minutos)</label><input id="campaign-warm-interval" type="number" min="1" max="1440" value="60"></div></div>
                     <div class="form-group"><label for="campaign-phrases-file">Carregar frases de um arquivo TXT</label><input id="campaign-phrases-file" type="file" accept=".txt"></div><div class="form-group"><label for="campaign-phrases">Ou escreva suas frases aqui</label><textarea id="campaign-phrases" rows="4" placeholder="Bom dia, pessoal!&#10;Sejam bem-vindos ao grupo."></textarea><small>Uma frase por linha. Você pode editar o texto importado.</small></div>
                 </div>
             </section>
-            <footer class="gc-save"><div><strong>Confira sua tarefa</strong><p id="campaign-preview"></p><small>Salvar não inicia a execução. Depois, clique em Iniciar tarefa.</small></div><button class="btn btn-primary" type="submit">Salvar tarefa <i class="fas fa-arrow-right" aria-hidden="true"></i></button></footer>
+            <div class="gc-save"><div><strong>Confira sua tarefa</strong><p id="campaign-preview"></p><small>Salvar não inicia a execução. Depois, clique em Iniciar tarefa.</small></div><button class="btn btn-primary" type="submit">Salvar tarefa <i class="fas fa-arrow-right" aria-hidden="true"></i></button></div>
         </form>
     </details>
-    <section id="campaign-monitor" class="gc-monitor">
-        <div class="gc-monitor-heading"><div><span class="gc-eyebrow">ACOMPANHAMENTO</span><h3>Minhas tarefas</h3><p>Inicie uma tarefa ou abra um grupo para ajustar seus detalhes.</p></div><button type="button" class="btn gc-secondary" id="campaign-refresh"><i class="fas fa-sync" aria-hidden="true"></i> Atualizar</button></div>
+    <section id="campaign-monitor" class="card gc-monitor">
+        <div class="gc-monitor-heading"><div><h3>Minhas tarefas</h3><p>Inicie uma tarefa ou abra um grupo para ajustar seus detalhes.</p></div><button type="button" class="btn btn-primary" id="campaign-refresh"><i class="fas fa-sync" aria-hidden="true"></i> Atualizar</button></div>
         <p id="campaign-status" role="status"></p><div id="campaign-list"></div>
     </section>
 </div>
