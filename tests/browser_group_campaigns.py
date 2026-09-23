@@ -30,7 +30,7 @@ def run():
 
         class Sessions:
             def load_sessions(self, **kwargs):
-                return [{'session_name': 'test.session', 'first_name': 'Sessão de teste', 'active': True}]
+                return [{'session_name': 'test.session', 'first_name': 'Sessão', 'last_name': 'de teste', 'phone': '+5500000000000', 'active': True}]
 
         register_campaign_routes(app, lambda function: function,
                                  lambda username: {'data_dir': directory}, lambda username: Sessions(),
@@ -63,6 +63,8 @@ def run():
                 page.goto(f'http://127.0.0.1:{server.server_port}')
                 page.locator('[data-tab="comingSoon"]').click()
                 page.locator('#campaign-sessions option').wait_for(state='attached')
+                assert page.locator('.gc-session-identity strong').inner_text() == 'Sessão de teste'
+                assert page.locator('.gc-session-identity small').inner_text() == '+5500000000000'
                 page.locator('#campaign-name').fill('Tarefa de teste')
                 page.locator('#campaign-session-options input[value="test.session"]').check()
                 page.locator('#campaign-warming').select_option('yes')
