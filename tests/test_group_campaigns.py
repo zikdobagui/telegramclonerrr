@@ -6,10 +6,39 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
+from types import SimpleNamespace
 
 from flask import Flask
-from group_campaigns import CampaignStore, campaign_loop, register_campaign_routes
+from group_campaigns import CampaignStore, TelegramCampaignGateway, campaign_loop, register_campaign_routes
+
+
+class InviteResultTests(unittest.IsolatedAsyncioTestCase):
+    async def test_legacy_and_wrapped_join_results(self):
+        chat = SimpleNamespace(id=123)
+        legacy = SimpleNamespace(chats=[chat], updates=[])
+        wrapped = type('ChatInviteJoinResultOk', (), {'updates': legacy})()
+        gateway = TelegramCampaignGateway({}, {}, ())
+        for result in (legacy, wrapped):
+            with self.subTest(result=type(result).__name__):
+                client = AsyncMock(side_effect=[SimpleNamespace(), result])
+                self.assertIs(await gateway.resolve(client, 'https://t.me/+example'), chat)
+                self.assertEqual(client.await_count, 2)
+
+    async def test_missing_chats_rechecks_membership_without_rejoining(self):
+        from telethon.tl.types import ChatInviteAlready
+        chat = SimpleNamespace(id=123)
+        client = AsyncMock(side_effect=[SimpleNamespace(), SimpleNamespace(updates=[]), ChatInviteAlready(chat)])
+        gateway = TelegramCampaignGateway({}, {}, ())
+        self.assertIs(await gateway.resolve(client, 'https://t.me/+example'), chat)
+        self.assertEqual([type(call.args[0]).__name__ for call in client.await_args_list],
+                         ['CheckChatInviteRequest', 'ImportChatInviteRequest', 'CheckChatInviteRequest'])
+
+    async def test_pending_verification_is_not_treated_as_joined(self):
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(side_effect=[SimpleNamespace(), SimpleNamespace(), SimpleNamespace()])
+        with self.assertRaisesRegex(ValueError, 'ainda não confirmada'):
+            await gateway.resolve(client, 'https://t.me/+example')
 
 
 class CampaignStoreTests(unittest.TestCase):

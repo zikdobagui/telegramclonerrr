@@ -307,7 +307,17 @@ class TelegramCampaignGateway:
             invite = await client(CheckChatInviteRequest(match[1]))
             if isinstance(invite, ChatInviteAlready):
                 return invite.chat
-            return (await client(ImportChatInviteRequest(match[1]))).chats[0]
+            result = await client(ImportChatInviteRequest(match[1]))
+            updates = getattr(result, 'updates', result)
+            chats = getattr(result, 'chats', None) or getattr(updates, 'chats', None)
+            if chats:
+                return chats[0]
+            # A short update may omit entities. Confirm membership through the
+            # original invite instead of repeating the join request.
+            confirmed = await client(CheckChatInviteRequest(match[1]))
+            if isinstance(confirmed, ChatInviteAlready):
+                return confirmed.chat
+            raise ValueError('Entrada no grupo ainda não confirmada. Verifique se o convite exige aprovação ou verificação no Telegram.')
         entity = await client.get_entity(reference)
         await client(JoinChannelRequest(entity))
         return entity
