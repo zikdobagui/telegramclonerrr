@@ -17,6 +17,17 @@ def day_key():
     return datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()
 
 
+def transient_request(error):
+    return bool(re.fullmatch(r'Request was unsuccessful \d+ time\(s\)', str(error))) or isinstance(error, (TimeoutError, ConnectionError)) or type(error).__name__ in {'ServerError', 'RpcCallFailError', 'TimedOutError'}
+
+
+def admin_username(value):
+    username = str(value or '').strip().removeprefix('@')
+    if username and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{3,31}', username):
+        raise ValueError('Informe um @username válido para o administrador')
+    return username
+
+
 def integer(value, label, low=1, high=10000):
     try:
         result = int(value)
@@ -105,7 +116,9 @@ class CampaignStore:
             groups = conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1', (cid,)).fetchall()
             recovered = 0
             for group in groups:
-                if group['status'] != 'error' or group['error'] != "'ChatInviteJoinResultOk' object has no attribute 'chats'":
+                if group['status'] != 'error' or not (group['error'] == "'ChatInviteJoinResultOk' object has no attribute 'chats'" or transient_request(group['error'])):
+                    continue
+                if transient_request(group['error']) and not (group['channel_id'] and group['invite']):
                     continue
                 if group['channel_id'] and group['access_hash'] and group['creator'] and group['invite']:
                     # These groups already exist. Resume the previous phase.
@@ -126,7 +139,7 @@ class CampaignStore:
             conn.execute("UPDATE campaigns SET status='running',error='' WHERE id=?", (cid,))
             if recovered:
                 conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)',
-                             (cid, f'{recovered} grupo(s) recuperado(s) do erro de convite. Histórico de leads e cotas preservados.', time.time()))
+                             (cid, f'{recovered} grupo(s) recuperado(s). Histórico de leads e cotas preservados.', time.time()))
 
     def create(self, payload, session_names):
         name = str(payload.get('name') or '').strip()[:100]
@@ -139,6 +152,7 @@ class CampaignStore:
         if warming and not messages:
             raise ValueError('Adicione frases para habilitar o aquecimento')
         settings = {
+            'admin_username': admin_username(payload.get('admin_username')),
             'sessions': list(dict.fromkeys(session_names)), 'warming': warming, 'messages': messages[:1000],
             'warm_days': integer(payload.get('warm_days', 1), 'Dias de aquecimento', high=90),
             'warm_interval': integer(payload.get('warm_interval', 60), 'Intervalo de mensagens (minutos)', high=1440),
@@ -325,7 +339,7 @@ class TelegramCampaignGateway:
             info = self.sessions[name]
             client = TelegramClient(os.path.join(self.paths['sessions_dir'], name),
                                     info.get('api_id') or self.api[0], info.get('api_hash') or self.api[1],
-                                    flood_sleep_threshold=0, request_retries=0)
+                                    flood_sleep_threshold=0, request_retries=0, raise_last_call_error=True)
             self.clients[name] = client
             await client.connect()
             if not await client.is_user_authorized():
@@ -391,6 +405,17 @@ class TelegramCampaignGateway:
         client, peer = await self.peer(group, name)
         await client.send_message(peer, phrase)
 
+    async def promote_admin(self, group, username):
+        from telethon.tl.functions.channels import EditAdminRequest
+        from telethon.tl.types import ChatAdminRights
+        client, peer = await self.peer(group, group['creator'])
+        user = await client.get_input_entity('@' + username)
+        if not getattr(user, 'user_id', None):
+            raise ValueError('O administrador deve ser um usuário do Telegram')
+        await client(EditAdminRequest(channel=peer, user_id=user, admin_rights=ChatAdminRights(
+            change_info=True, delete_messages=True, ban_users=True,
+            invite_users=True, pin_messages=True, manage_call=True), rank='Administrador'))
+
     async def invite(self, group, name, payload, reserve_identity):
         from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantRequest
         from telethon.tl.types import InputUser
@@ -451,6 +476,12 @@ async def campaign_loop(store, cid, gateway):
                         created = await gateway.create(group, owner, lambda **values: store.group_update(gid, **values))
                         store.group_update(gid, **created, status='warming' if settings['warming'] else 'ready',
                                            warm_until=time.time() + settings['warm_days'] * 86400 if settings['warming'] else 0)
+                        if settings.get('admin_username') and not group['reference']:
+                            try:
+                                await gateway.promote_admin({**group, **created}, settings['admin_username'])
+                                store.event(cid, f"Grupo {group['slot']}: @{settings['admin_username']} definido como administrador.")
+                            except Exception as error:
+                                store.event(cid, f"Grupo {group['slot']}: não foi possível promover @{settings['admin_username']}: {error}. Verifique o administrador no Telegram.")
                         store.event(cid, f"Grupo {group['slot']}: criado/vinculado com sucesso.")
                         worked = True
                     elif group['status'] == 'warming':
@@ -483,6 +514,11 @@ async def campaign_loop(store, cid, gateway):
                         worked = True
                 except Exception as error:
                     kind = type(error).__name__
+                    if transient_request(error) and group['status'] in {'ready', 'warming'}:
+                        message = 'Falha temporária de comunicação com o Telegram. Clique em Iniciar tarefa para retomar; leads sem confirmação permanecem reservados.'
+                        store.state(cid, 'paused', message)
+                        store.event(cid, f"Grupo {group['slot']}: {message} Detalhe: {kind}: {error}")
+                        break
                     if kind in {'FloodWaitError', 'PeerFloodError', 'UserRestrictedError', 'AuthKeyUnregisteredError', 'SessionRevokedError'}:
                         if group['status'] == 'pending':
                             store.group_update(gid, status='error', error=str(error)[:1000])

@@ -81,7 +81,7 @@
                     ${task.settings.limit_scope === 'task' ? `<form data-settings="${task.id}" class="gc-upload"><div class="form-group"><label>Limite diário de todos os grupos juntos<input name="daily_limit" type="number" value="${task.settings.daily_limit}" min="1" max="10000" required ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Salvar limite</button></form>` : ''}
                     <h4>Grupos da tarefa</h4>
                     ${task.groups.map(group => `<details class="gc-group" data-detail="group-${group.id}">
-                        <summary><span><span class="gc-group-title">${esc(group.title)}</span><small>${group.added} adicionados · hoje: ${group.today}${task.settings.limit_scope === 'group' ? '/' + group.daily_limit : ''}</small></span><span class="gc-badge ${esc(group.status)}">${esc(labels[group.status] || group.status)}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
+                        <summary><span><span class="gc-group-title">${esc(group.title)}</span><small>${group.added} adicionados no total · cota usada hoje: ${group.today}${task.settings.limit_scope === 'group' ? '/' + group.daily_limit : ''}</small></span><span class="gc-badge ${esc(group.status)}">${esc(labels[group.status] || group.status)}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
                         <div class="gc-group-content">
                         ${group.invite && /^https:\/\/t\.me\//.test(group.invite) ? `<p><a href="${esc(group.invite)}" target="_blank" rel="noopener noreferrer">Abrir grupo no Telegram ↗</a></p>` : ''}
                         ${group.error ? `<p class="gc-alert" role="alert">${esc(group.error)}</p>` : ''}
@@ -144,6 +144,7 @@
                 }
                 const payload = {
                     name:el('campaign-name').value, count:el('campaign-count').value, daily_limit:el('campaign-limit').value,
+                    admin_username:el('campaign-admin').value,
                     sessions:Array.from(el('campaign-sessions').selectedOptions, option => option.value),
                     warming:el('campaign-warming').value === 'yes', messages:el('campaign-phrases').value,
                     warm_days:el('campaign-warm-days').value, warm_interval:el('campaign-warm-interval').value,

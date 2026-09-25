@@ -32,6 +32,7 @@
         <form id="campaign-create-form" class="gc-panel-body">
             <section class="gc-step"><div class="gc-step-heading"><span class="factory-step">01</span><div><h3>Quais grupos você quer criar?</h3><p>Dê um nome à tarefa e escolha quantos grupos ela terá.</p></div></div>
                 <div class="form-row"><div class="form-group"><label for="campaign-name">Nome da tarefa</label><input id="campaign-name" required maxlength="100" placeholder="Ex.: Comunidade VIP"><small>Os grupos terão esse nome seguido de 01, 02, 03…</small></div><div class="form-group"><label for="campaign-count">Quantidade de grupos</label><input id="campaign-count" type="number" min="1" max="30" value="10" required><small>De 1 a 30 grupos por tarefa.</small></div></div>
+                <div class="form-group"><label for="campaign-admin">Administrador dos grupos (opcional)</label><input id="campaign-admin" placeholder="@username" maxlength="33"><small>Será promovido nos novos grupos, com permissão para gerenciar mensagens e membros, sem nomear outros administradores. Falhas serão exibidas no histórico.</small></div>
             </section>
             <section class="gc-step"><div class="gc-step-heading"><span class="factory-step">02</span><div><h3>Escolha as sessões</h3><p>Marque as contas que vão trabalhar nesta tarefa.</p></div></div>
                 <select id="campaign-sessions" multiple hidden aria-label="Sessões selecionadas"></select>

@@ -14,6 +14,20 @@ from group_campaigns import CampaignStore, TelegramCampaignGateway, campaign_loo
 
 
 class InviteResultTests(unittest.IsolatedAsyncioTestCase):
+    async def test_admin_promotion_uses_creator_and_limited_rights(self):
+        from telethon.tl.types import InputUser
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock()
+        client.get_input_entity.return_value = InputUser(123, 456)
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        group = {'creator': 'owner.session'}
+        await gateway.promote_admin(group, 'example_user')
+        gateway.peer.assert_awaited_once_with(group, 'owner.session')
+        request = client.await_args.args[0]
+        self.assertTrue(request.admin_rights.ban_users)
+        self.assertFalse(request.admin_rights.add_admins)
+        client.get_input_entity.assert_awaited_once_with('@example_user')
+
     async def test_legacy_and_wrapped_join_results(self):
         chat = SimpleNamespace(id=123)
         legacy = SimpleNamespace(chats=[chat], updates=[])
@@ -42,6 +56,27 @@ class InviteResultTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CampaignStoreTests(unittest.TestCase):
+    def test_admin_username_is_validated_and_saved(self):
+        cid = self.store.create({'name': 'Admin', 'admin_username': ' @example_user '}, ['one'])
+        self.assertEqual(self.store.get(cid)['settings']['admin_username'], 'example_user')
+        with self.assertRaises(ValueError):
+            self.store.create({'name': 'Invalid', 'admin_username': 'https://t.me/example'}, ['one'])
+
+    def test_resume_generic_request_error_preserves_uncertain_delivery(self):
+        cid, groups = self.task()
+        self.leads(2)
+        delivery = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(delivery['id'], 'unknown')
+        for group in groups:
+            self.store.group_update(group['id'], status='error', channel_id='123', access_hash='456',
+                                    creator='one.session', invite='https://t.me/+existing',
+                                    error='Request was unsuccessful 1 time(s)')
+        self.store.state(cid, 'paused')
+        self.store.prepare_start(cid)
+        self.assertTrue(all(g['status'] == 'ready' for g in self.store.groups(cid)))
+        self.assertIsNone(self.store.claim(cid, groups[0]['id']))
+        self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
