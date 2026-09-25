@@ -144,7 +144,7 @@
                 }
                 const payload = {
                     name:el('campaign-name').value, count:el('campaign-count').value, daily_limit:el('campaign-limit').value,
-                    admin_username:el('campaign-admin').value,
+                    admin_usernames:el('campaign-admin').value,
                     sessions:Array.from(el('campaign-sessions').selectedOptions, option => option.value),
                     warming:el('campaign-warming').value === 'yes', messages:el('campaign-phrases').value,
                     warm_days:el('campaign-warm-days').value, warm_interval:el('campaign-warm-interval').value,

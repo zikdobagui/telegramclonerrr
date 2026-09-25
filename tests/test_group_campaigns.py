@@ -58,9 +58,18 @@ class InviteResultTests(unittest.IsolatedAsyncioTestCase):
 class CampaignStoreTests(unittest.TestCase):
     def test_admin_username_is_validated_and_saved(self):
         cid = self.store.create({'name': 'Admin', 'admin_username': ' @example_user '}, ['one'])
-        self.assertEqual(self.store.get(cid)['settings']['admin_username'], 'example_user')
+        self.assertEqual(self.store.get(cid)['settings']['admin_usernames'], ['example_user'])
         with self.assertRaises(ValueError):
             self.store.create({'name': 'Invalid', 'admin_username': 'https://t.me/example'}, ['one'])
+
+    def test_multiple_admins_accept_separators_and_deduplicate(self):
+        for value in ('@admin_one, @admin_two\n@ADMIN_ONE; @admin_three',
+                      ['@admin_one', 'admin_two', 'ADMIN_ONE', '@admin_three']):
+            cid = self.store.create({'name': 'Admins', 'admin_usernames': value}, ['one'])
+            self.assertEqual(self.store.get(cid)['settings']['admin_usernames'],
+                             ['admin_one', 'admin_two', 'admin_three'])
+        with self.assertRaises(ValueError):
+            self.store.create({'name': 'Invalid', 'admin_usernames': '@valid_user, invalid!'}, ['one'])
 
     def test_resume_generic_request_error_preserves_uncertain_delivery(self):
         cid, groups = self.task()
@@ -231,7 +240,8 @@ class CampaignStoreTests(unittest.TestCase):
             self.store.edit_group(other, groups[0]['id'], {'replace': True})
 
     def test_runner_creates_warms_and_distributes(self):
-        cid = self.store.create({'name': 'Teste', 'count': 1, 'warming': True, 'messages': 'Olá\nBem-vindo'}, ['one.session'])
+        cid = self.store.create({'name': 'Teste', 'count': 1, 'warming': True, 'messages': 'Olá\nBem-vindo',
+                                 'admin_usernames': '@admin_one, @admin_two'}, ['one.session'])
         self.leads(1)
         self.store.state(cid, 'running')
         store = self.store
@@ -242,6 +252,11 @@ class CampaignStoreTests(unittest.TestCase):
                 calls.append('create')
                 persist(channel_id='100', access_hash='123', creator=name)
                 return {'channel_id': '100', 'access_hash': '123', 'creator': name, 'invite': 'https://t.me/+test'}
+
+            async def promote_admin(self, group, username):
+                calls.append(username)
+                if username == 'admin_one':
+                    raise ValueError('Usuário indisponível')
 
             async def warm(self, group, name, phrase):
                 calls.append('warm')
@@ -259,7 +274,10 @@ class CampaignStoreTests(unittest.TestCase):
         # Fast-forward waits; no Telegram requests are made.
         with patch('group_campaigns.time.monotonic', side_effect=(n * 10000 for n in range(1000))):
             asyncio.run(campaign_loop(store, cid, Gateway()))
-        self.assertEqual(calls, ['create', 'warm', 'invite', 'close'])
+        self.assertEqual(calls, ['create', 'admin_one', 'admin_two', 'warm', 'invite', 'close'])
+        events = self.store.snapshot()['campaigns'][0]['events']
+        self.assertTrue(any('não foi possível promover @admin_one' in event['message'] for event in events))
+        self.assertTrue(any('@admin_two definido como administrador' in event['message'] for event in events))
         self.assertEqual(store.snapshot()['campaigns'][0]['counts'], {'added': 1})
 
     def test_unknown_invite_result_is_not_retried(self):

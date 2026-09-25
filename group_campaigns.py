@@ -28,6 +28,18 @@ def admin_username(value):
     return username
 
 
+def admin_usernames(value):
+    values = value if isinstance(value, list) else re.split(r'[\s,;]+', str(value or '').strip())
+    result = []
+    seen = set()
+    for value in values:
+        username = admin_username(value)
+        if username and username.lower() not in seen:
+            seen.add(username.lower())
+            result.append(username)
+    return result
+
+
 def integer(value, label, low=1, high=10000):
     try:
         result = int(value)
@@ -152,7 +164,7 @@ class CampaignStore:
         if warming and not messages:
             raise ValueError('Adicione frases para habilitar o aquecimento')
         settings = {
-            'admin_username': admin_username(payload.get('admin_username')),
+            'admin_usernames': admin_usernames(payload.get('admin_usernames', payload.get('admin_username'))),
             'sessions': list(dict.fromkeys(session_names)), 'warming': warming, 'messages': messages[:1000],
             'warm_days': integer(payload.get('warm_days', 1), 'Dias de aquecimento', high=90),
             'warm_interval': integer(payload.get('warm_interval', 60), 'Intervalo de mensagens (minutos)', high=1440),
@@ -476,12 +488,13 @@ async def campaign_loop(store, cid, gateway):
                         created = await gateway.create(group, owner, lambda **values: store.group_update(gid, **values))
                         store.group_update(gid, **created, status='warming' if settings['warming'] else 'ready',
                                            warm_until=time.time() + settings['warm_days'] * 86400 if settings['warming'] else 0)
-                        if settings.get('admin_username') and not group['reference']:
+                        admins = admin_usernames(settings.get('admin_usernames', settings.get('admin_username')))
+                        for username in admins if not group['reference'] else []:
                             try:
-                                await gateway.promote_admin({**group, **created}, settings['admin_username'])
-                                store.event(cid, f"Grupo {group['slot']}: @{settings['admin_username']} definido como administrador.")
+                                await gateway.promote_admin({**group, **created}, username)
+                                store.event(cid, f"Grupo {group['slot']}: @{username} definido como administrador.")
                             except Exception as error:
-                                store.event(cid, f"Grupo {group['slot']}: não foi possível promover @{settings['admin_username']}: {error}. Verifique o administrador no Telegram.")
+                                store.event(cid, f"Grupo {group['slot']}: não foi possível promover @{username}: {error}. Verifique o administrador no Telegram.")
                         store.event(cid, f"Grupo {group['slot']}: criado/vinculado com sucesso.")
                         worked = True
                     elif group['status'] == 'warming':
