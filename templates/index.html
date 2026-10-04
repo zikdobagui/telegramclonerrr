@@ -7654,6 +7654,24 @@
                         <button class="btn btn-success" onclick="showCreateSessionModal()">
                             <i class="fas fa-plus-circle"></i> Nova conta
                         </button>
+                        <button class="btn btn-success" onclick="document.getElementById('session-files').click()">
+                            <i class="fas fa-file"></i> Selecionar arquivos .session
+                        </button>
+                        <button class="btn btn-success" onclick="selectSessionsFolder()">
+                            <i class="fas fa-folder-tree"></i> Importar pasta
+                        </button>
+                        <button class="btn btn-primary" onclick="importSessions()">
+                            <i class="fas fa-check"></i> Importar
+                        </button>
+                        <button class="btn btn-warning" onclick="scanSessions()">
+                            <i class="fas fa-sync"></i> Escanear
+                        </button>
+                        <button class="btn" onclick="restoreBackups()">
+                            <i class="fas fa-undo"></i> Backups
+                        </button>
+                        <button class="btn" onclick="upgradeAllSessions()">
+                            <i class="fas fa-arrow-up"></i> Upgrade
+                        </button>
                         <button class="btn btn-warning" onclick="validateAllSessions()">
                             <i class="fas fa-user-check"></i> Validar todas
                         </button>
@@ -7669,26 +7687,6 @@
                             <div>
                                 <label>Importação de contas</label>
                                 <div id="selected-files" class="session-file-chip">Nenhum arquivo selecionado</div>
-                            </div>
-                            <div class="session-import-actions">
-                                <button class="btn btn-success" onclick="document.getElementById('session-files').click()">
-                                    <i class="fas fa-file"></i> Selecionar arquivos .session
-                                </button>
-                                <button class="btn btn-success" onclick="selectSessionsFolder()">
-                                    <i class="fas fa-folder-tree"></i> Importar pasta
-                                </button>
-                                <button class="btn btn-primary" onclick="importSessions()">
-                                    <i class="fas fa-check"></i> Importar
-                                </button>
-                                <button class="btn btn-warning" onclick="scanSessions()">
-                                    <i class="fas fa-sync"></i> Escanear
-                                </button>
-                                <button class="btn" onclick="restoreBackups()">
-                                    <i class="fas fa-undo"></i> Backups
-                                </button>
-                                <button class="btn" onclick="upgradeAllSessions()">
-                                    <i class="fas fa-arrow-up"></i> Upgrade
-                                </button>
                             </div>
                         </div>
                     </div>
