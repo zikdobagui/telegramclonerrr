@@ -3232,7 +3232,7 @@
         }
 
         #sessions .session-import-actions {
-            display: none !important;
+            display: flex !important;
         }
 
         #sessions #session-selection-controls {
@@ -7672,10 +7672,10 @@
                             </div>
                             <div class="session-import-actions">
                                 <button class="btn btn-success" onclick="document.getElementById('session-files').click()">
-                                    <i class="fas fa-folder-open"></i> Selecionar
+                                    <i class="fas fa-file"></i> Selecionar arquivos .session
                                 </button>
                                 <button class="btn btn-success" onclick="selectSessionsFolder()">
-                                    <i class="fas fa-folder-tree"></i> Pasta
+                                    <i class="fas fa-folder-tree"></i> Importar pasta
                                 </button>
                                 <button class="btn btn-primary" onclick="importSessions()">
                                     <i class="fas fa-check"></i> Importar
