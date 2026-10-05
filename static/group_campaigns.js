@@ -116,7 +116,7 @@
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
                     ${busy ? '<p class="info gc-note">Para editar, excluir ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
                     ${task.settings.limit_scope === 'task' ? `<form data-settings="${task.id}" class="gc-upload"><div class="form-group"><label>Limite diário de todos os grupos juntos<input name="daily_limit" type="number" value="${task.settings.daily_limit}" min="1" max="10000" required ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Salvar limite</button></form>` : ''}
-                    <h4>Grupos da tarefa</h4>
+                    <details class="gc-group-list" data-detail="groups-${task.id}"><summary>Ver grupos da tarefa <span class="gc-badge">${task.groups.length}</span></summary><div class="gc-group-grid">
                     ${task.groups.map(group => `<details class="gc-group" data-detail="group-${group.id}">
                         <summary><span><span class="gc-group-title">${esc(group.title)}</span><small>${group.added} adicionados no total · cota usada hoje: ${group.today}${task.settings.limit_scope === 'group' ? '/' + group.daily_limit : ''}</small></span><span class="gc-badge ${esc(group.status)}">${esc(labels[group.status] || group.status)}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
                         <div class="gc-group-content">
@@ -130,7 +130,7 @@
                             <div class="form-group"><label>Link de um grupo existente (opcional)<input name="reference" placeholder="https://t.me/+..." ${busy ? 'disabled' : ''}></label><small>Deixe vazio para criar um novo grupo quando iniciar a tarefa.</small></div>
                             <button class="btn btn-primary" name="action" value="replace" ${busy ? 'disabled' : ''}>Substituir grupo</button><small>O grupo anterior permanece no Telegram.</small></details>
                         </form></div>
-                    </details>`).join('')}
+                    </details>`).join('')}</div></details>
                     <details class="gc-history" data-detail="events-${task.id}"><summary>Ver histórico e informações de execução</summary><p>Sem confirmação: o lead fica reservado para evitar repetição. As cotas renovam à meia-noite de São Paulo. Após reiniciar o servidor, use Iniciar tarefa para retomar.</p>${task.events.map(event => `<p>${esc(new Date(event.created * 1000).toLocaleString('pt-BR'))} — ${esc(event.message)}</p>`).join('') || '<p>Aguardando início.</p>'}</details>
                     </div>
                 </section>`;

@@ -77,6 +77,7 @@ def run():
                 page.locator('#campaign-leads-file').set_input_files({'name': 'leads.json', 'mimeType': 'application/json', 'buffer': b'{"members":[{"id":123,"username":"lead_test"}]} '})
                 page.locator('#campaign-leads-form button').click()
                 page.wait_for_function('document.getElementById("campaign-lead-total").textContent === "1"')
+                page.locator('.gc-group-list > summary').click()
                 page.locator('details[data-detail="group-1"] > summary').click()
                 group = page.locator('form[data-group="1"]')
                 group.locator('[name="daily_limit"]').fill('12')
