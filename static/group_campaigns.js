@@ -2,6 +2,7 @@
     const el = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const labels = {paused:'Pausada', running:'Em execução', pending:'A criar / vincular', creating:'Criando', warming:'Aquecendo', ready:'Pronto para distribuir', error:'Precisa de revisão'};
+    let editingId = null;
     let version = 0;
     let snapshot = null;
     let viewInitialized = false;
@@ -50,6 +51,40 @@
         }).join('');
         renderSessions();
     }
+    function resetEditor() {
+        editingId = null;
+        el('campaign-create-form').reset();
+        el('campaign-count').disabled = false;
+        el('campaign-dedup').disabled = false;
+        el('campaign-editor-title').textContent = 'Criar uma tarefa';
+        el('campaign-save-button').textContent = 'Salvar tarefa';
+        el('campaign-cancel-edit').hidden = true;
+        el('campaign-edit-note').hidden = true;
+        el('campaign-warm-fields').hidden = true;
+        for (const option of el('campaign-sessions').options) option.selected = false;
+        renderSessions();
+    }
+    async function editTask(task) {
+        await loadSessions();
+        editingId = task.id;
+        const settings = task.settings;
+        const fields = {name:task.name, count:task.groups.length, limit:settings.daily_limit,
+            'limit-scope':settings.limit_scope, dedup:settings.dedup, delay:settings.delay,
+            admin:(settings.admin_usernames || [settings.admin_username].filter(Boolean)).join('\n'),
+            warming:settings.warming ? 'yes' : 'no', phrases:settings.messages.join('\n'),
+            'warm-days':settings.warm_days, 'warm-interval':settings.warm_interval};
+        for (const [field, value] of Object.entries(fields)) el('campaign-' + field).value = value;
+        for (const option of el('campaign-sessions').options) option.selected = settings.sessions.includes(option.value) && !option.disabled;
+        el('campaign-count').disabled = true;
+        el('campaign-dedup').disabled = Object.values(task.counts).some(count => count > 0);
+        el('campaign-editor-title').textContent = `Editar tarefa #${task.id}`;
+        el('campaign-save-button').textContent = 'Salvar alterações';
+        el('campaign-cancel-edit').hidden = false;
+        el('campaign-edit-note').hidden = false;
+        el('campaign-warm-fields').hidden = !settings.warming;
+        renderSessions();
+        reveal('campaign-builder');
+    }
     async function load() {
         const current = ++version;
         try {
@@ -72,12 +107,14 @@
                 const counts = task.counts;
                 return `<section class="card task-card-modern gc-task">
                     <div class="gc-task-head"><div><span class="gc-task-id">TAREFA #${task.id}</span><h3>${esc(task.name)}</h3></div><div class="gc-task-actions"><span class="gc-badge ${esc(task.status)}">${esc(labels[task.status] || task.status)}</span>
-                    ${task.status === 'running' ? `<button class="btn btn-warning" data-action="pause" data-id="${task.id}">Pausar tarefa</button>` : `<button class="btn btn-primary" data-action="start" data-id="${task.id}" ${busy ? 'disabled' : ''}>Iniciar tarefa</button>`}</div></div>
+                    ${task.status === 'running' ? `<button class="btn btn-warning" data-action="pause" data-id="${task.id}">Pausar tarefa</button>` : `<button class="btn btn-primary" data-action="start" data-id="${task.id}" ${busy ? 'disabled' : ''}>Iniciar tarefa</button>`}
+                    <button class="btn btn-primary" data-action="edit" data-id="${task.id}" ${busy ? 'disabled' : ''}>Editar tarefa</button>
+                    <button class="btn btn-danger" data-action="delete" data-id="${task.id}" ${busy ? 'disabled' : ''}>Excluir tarefa</button></div></div>
                     <div class="gc-task-body">
                     <div class="gc-task-meta"><span>${task.groups.length} grupos</span><span>${task.settings.sessions.length} sessões</span><span>${task.settings.warming ? 'Com aquecimento' : 'Sem aquecimento'}</span><span>${task.settings.dedup === 'task' ? 'Um grupo por lead' : 'Uma vez por grupo'}</span></div>
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
-                    ${busy ? '<p class="info gc-note">Para editar ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
+                    ${busy ? '<p class="info gc-note">Para editar, excluir ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
                     ${task.settings.limit_scope === 'task' ? `<form data-settings="${task.id}" class="gc-upload"><div class="form-group"><label>Limite diário de todos os grupos juntos<input name="daily_limit" type="number" value="${task.settings.daily_limit}" min="1" max="10000" required ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Salvar limite</button></form>` : ''}
                     <h4>Grupos da tarefa</h4>
                     ${task.groups.map(group => `<details class="gc-group" data-detail="group-${group.id}">
@@ -114,7 +151,8 @@
             const button = event.target.closest('[data-reveal]');
             if (button) reveal(button.dataset.reveal);
         });
-        el('campaign-new').addEventListener('click', () => reveal('campaign-builder'));
+        el('campaign-new').addEventListener('click', () => { resetEditor(); reveal('campaign-builder'); });
+        el('campaign-cancel-edit').addEventListener('click', () => { resetEditor(); el('campaign-builder').open = false; });
         el('campaign-create-form').addEventListener('input', preview);
         el('campaign-create-form').addEventListener('change', preview);
         el('campaign-session-options').addEventListener('change', event => {
@@ -150,7 +188,8 @@
                     warm_days:el('campaign-warm-days').value, warm_interval:el('campaign-warm-interval').value,
                     delay:el('campaign-delay').value, dedup:el('campaign-dedup').value, limit_scope:el('campaign-limit-scope').value,
                 };
-                const result = await api('', json('POST', payload));
+                const result = await api(editingId === null ? '' : `/${editingId}`, json(editingId === null ? 'POST' : 'PUT', payload));
+                resetEditor();
                 notice(`Tarefa #${result.id} salva. Clique em Iniciar para executar.`);
                 await load();
                 el('campaign-builder').open = false;
@@ -173,6 +212,24 @@
             if (!button) return;
             button.disabled = true;
             try {
+                const id = Number(button.dataset.id);
+                if (button.dataset.action === 'edit') {
+                    await editTask(snapshot.campaigns.find(task => task.id === id));
+                    button.disabled = false;
+                    return;
+                }
+                if (button.dataset.action === 'delete') {
+                    const task = snapshot.campaigns.find(task => task.id === id);
+                    if (!window.confirm(`Excluir a tarefa "${task.name}" e seu histórico? Os grupos no Telegram e o banco de leads serão mantidos.`)) {
+                        button.disabled = false;
+                        return;
+                    }
+                    await api(`/${id}`, {method:'DELETE'});
+                    if (editingId === id) { resetEditor(); el('campaign-builder').open = false; }
+                    notice('Tarefa excluída');
+                    await load();
+                    return;
+                }
                 await api(`/${button.dataset.id}/${button.dataset.action}`, {method:'POST'});
                 notice(button.dataset.action === 'pause' ? 'Pausa solicitada. Aguardando a ação atual terminar.' : 'Tarefa iniciada');
                 await load();

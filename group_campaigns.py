@@ -153,7 +153,7 @@ class CampaignStore:
                 conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)',
                              (cid, f'{recovered} grupo(s) recuperado(s). Histórico de leads e cotas preservados.', time.time()))
 
-    def create(self, payload, session_names):
+    def validated_settings(self, payload, session_names):
         name = str(payload.get('name') or '').strip()[:100]
         if not name or not session_names:
             raise ValueError('Informe o nome e selecione pelo menos uma sessão')
@@ -173,11 +173,49 @@ class CampaignStore:
             'limit_scope': 'task' if payload.get('limit_scope') == 'task' else 'group',
             'daily_limit': limit,
         }
+        return name, count, limit, settings
+
+    def create(self, payload, session_names):
+        name, count, limit, settings = self.validated_settings(payload, session_names)
         with self.db() as conn:
             cid = conn.execute('INSERT INTO campaigns(name,settings,created) VALUES(?,?,?)', (name, json.dumps(settings), time.time())).lastrowid
             for slot in range(1, count + 1):
                 conn.execute('INSERT INTO groups(campaign_id,slot,title,daily_limit) VALUES(?,?,?,?)', (cid, slot, f'{name} {slot:02}', limit))
         return cid
+
+    def edit(self, cid, payload, session_names):
+        name, count, limit, settings = self.validated_settings(payload, session_names)
+        with self.db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            task = conn.execute('SELECT * FROM campaigns WHERE id=?', (cid,)).fetchone()
+            if not task:
+                raise ValueError('Tarefa não encontrada')
+            if task['status'] == 'running':
+                raise ValueError('Pause a tarefa antes de editar')
+            previous = json.loads(task['settings'])
+            groups = conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1', (cid,)).fetchall()
+            if count != len(groups):
+                raise ValueError('A quantidade de grupos não pode ser alterada nesta tarefa')
+            if settings['dedup'] != previous['dedup'] and conn.execute('SELECT 1 FROM deliveries WHERE campaign_id=? LIMIT 1', (cid,)).fetchone():
+                raise ValueError('A distribuição não pode mudar após o início das adições')
+            conn.execute('UPDATE campaigns SET name=?,settings=? WHERE id=?', (name, json.dumps(settings), cid))
+            if limit != previous['daily_limit']:
+                conn.execute('UPDATE groups SET daily_limit=? WHERE campaign_id=? AND current=1', (limit, cid))
+            if not settings['warming']:
+                conn.execute("UPDATE groups SET status='ready',warm_until=0 WHERE campaign_id=? AND current=1 AND status='warming'", (cid,))
+            conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, 'Configurações da tarefa atualizadas.', time.time()))
+
+    def delete(self, cid):
+        with self.db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            task = conn.execute('SELECT status FROM campaigns WHERE id=?', (cid,)).fetchone()
+            if not task:
+                raise ValueError('Tarefa não encontrada')
+            if task['status'] == 'running':
+                raise ValueError('Pause a tarefa antes de excluir')
+            for table in ('deliveries', 'events', 'groups'):
+                conn.execute(f'DELETE FROM {table} WHERE campaign_id=?', (cid,))
+            conn.execute('DELETE FROM campaigns WHERE id=?', (cid,))
 
     def groups(self, cid):
         with self.db() as conn:
@@ -594,6 +632,25 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         if not isinstance(names, list) or not names or any(name not in {s['session_name'] for s in sessions if s.get('active', True) and s.get('status', 'active') == 'active'} for name in names):
             raise ValueError('Selecione sessões ativas disponíveis')
         return jsonify(success=True, id=store.create(payload, names))
+
+    @app.route('/api/group-campaigns/<int:cid>', methods=['PUT', 'DELETE'])
+    @endpoint
+    def campaign_edit_api(cid):
+        username = session['username']
+        with guard:
+            if workers.get(username) and workers[username].is_alive():
+                raise ValueError('Pause e aguarde a operação atual terminar antes de editar ou excluir tarefas')
+            store = store_for(username)
+            if request.method == 'DELETE':
+                store.delete(cid)
+            else:
+                payload = request.get_json() or {}
+                names = payload.get('sessions', [])
+                available = {s['session_name'] for s in get_sessions(username).load_sessions() if s.get('active', True) and s.get('status', 'active') == 'active'}
+                if not isinstance(names, list) or not names or any(name not in available for name in names):
+                    raise ValueError('Selecione sessões ativas disponíveis')
+                store.edit(cid, payload, names)
+        return jsonify(success=True, id=cid)
 
     @app.route('/api/group-campaigns/leads', methods=['POST'])
     @endpoint

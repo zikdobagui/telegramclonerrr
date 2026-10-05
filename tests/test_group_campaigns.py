@@ -356,6 +356,39 @@ class CampaignApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/group-campaigns').json['total_leads'], 0)
         self.assertEqual(self.client.post('/api/group-campaigns/1/pause').status_code, 400)
 
+    def test_edit_delete_and_isolation(self):
+        self.login('alice')
+        payload = {'name': 'Original', 'count': 2, 'sessions': ['one.session']}
+        cid = self.client.post('/api/group-campaigns', json=payload).json['id']
+        store = CampaignStore(str(Path(self.temp.name) / 'alice'))
+        store.import_leads('leads.txt', b'@some_lead')
+        group = store.groups(cid)[0]
+        store.group_update(group['id'], status='ready')
+        store.state(cid, 'running')
+        delivery = store.claim(cid, group['id'])
+        store.state(cid, 'paused')
+        updated = {**payload, 'name': 'Editada', 'daily_limit': 42, 'messages': 'Bom dia', 'warming': True}
+        self.assertEqual(self.client.put(f'/api/group-campaigns/{cid}', json=updated).status_code, 200)
+        task = store.snapshot()['campaigns'][0]
+        self.assertEqual(task['name'], 'Editada')
+        self.assertEqual(task['settings']['daily_limit'], 42)
+        self.assertEqual(task['groups'][0]['id'], group['id'])
+        self.assertEqual(task['counts'], {'sending': 1})
+        self.assertEqual(self.client.put(f'/api/group-campaigns/{cid}', json={**updated, 'dedup': 'group'}).status_code, 400)
+        self.assertEqual(self.client.put(f'/api/group-campaigns/{cid}', json={**updated, 'count': 3}).status_code, 400)
+        self.assertEqual(self.client.put(f'/api/group-campaigns/{cid}', json={**updated, 'sessions': ['missing']}).status_code, 400)
+        self.login('bob')
+        self.assertEqual(self.client.put(f'/api/group-campaigns/{cid}', json=updated).status_code, 400)
+        self.assertEqual(self.client.delete(f'/api/group-campaigns/{cid}').status_code, 400)
+        self.login('alice')
+        self.assertEqual(self.client.delete(f'/api/group-campaigns/{cid}').status_code, 200)
+        self.assertEqual(store.snapshot()['campaigns'], [])
+        self.assertEqual(store.snapshot()['total_leads'], 1)
+        with store.db() as conn:
+            for table in ('groups', 'deliveries', 'events'):
+                self.assertEqual(conn.execute(f'SELECT count(*) FROM {table}').fetchone()[0], 0)
+        self.assertEqual(self.client.delete(f'/api/group-campaigns/{cid}').status_code, 400)
+
     def test_start_and_pause_control_worker_without_telegram(self):
         self.login('alice')
         cid = self.client.post('/api/group-campaigns', json={'name': 'Task', 'sessions': ['one.session']}).json['id']
@@ -372,6 +405,8 @@ class CampaignApiTests(unittest.TestCase):
             self.assertTrue(started.wait(5))
             try:
                 self.assertEqual(self.client.post(f'/api/group-campaigns/{cid}/start').status_code, 400)
+                self.assertEqual(self.client.delete(f'/api/group-campaigns/{cid}').status_code, 400)
+                self.assertEqual(self.client.put(f'/api/group-campaigns/{cid}', json={}).status_code, 400)
                 self.assertEqual(self.client.put(f'/api/group-campaigns/{cid}/groups/1', json={'replace': True}).status_code, 400)
             finally:
                 self.assertTrue(self.client.post(f'/api/group-campaigns/{cid}/pause').json['success'])

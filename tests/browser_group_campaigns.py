@@ -70,7 +70,7 @@ def run():
                 page.locator('#campaign-warming').select_option('yes')
                 page.locator('#campaign-phrases-file').set_input_files({'name': 'frases.txt', 'mimeType': 'text/plain', 'buffer': 'Olá\nBem-vindo'.encode()})
                 page.wait_for_function('document.getElementById("campaign-phrases").value.includes("Bem-vindo")')
-                page.locator('#campaign-create-form button').click()
+                page.locator('#campaign-save-button').click()
                 page.locator('#campaign-list .gc-task').wait_for()
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 10
                 page.locator('#campaign-bank > summary').click()
@@ -89,7 +89,7 @@ def run():
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 10
                 page.set_viewport_size({'width': 390, 'height': 844})
                 page.locator('#campaign-new').click()
-                assert page.locator('#campaign-create-form button').is_visible()
+                assert page.locator('#campaign-save-button').is_visible()
                 page.wait_for_function('document.documentElement.scrollWidth <= window.innerWidth')
                 import os
                 if os.environ.get('CAMPAIGN_SCREENSHOT_DIR'):
@@ -99,6 +99,24 @@ def run():
                     page.screenshot(path=str(output / 'campaign-desktop.png'), full_page=True)
                     page.evaluate('document.body.dataset.theme = "dark"')
                     page.screenshot(path=str(output / 'campaign-dark.png'), full_page=True)
+                page.get_by_role('button', name='Editar tarefa', exact=True).click()
+                page.wait_for_function('document.getElementById("campaign-name").value === "Tarefa de teste"')
+                assert page.locator('#campaign-count').is_disabled()
+                page.locator('#campaign-name').fill('Tarefa editada')
+                page.locator('#campaign-limit').fill('37')
+                page.locator('#campaign-save-button').click()
+                page.wait_for_function('document.querySelector(".gc-task h3").textContent === "Tarefa editada"')
+                assert page.locator('#campaign-task-total').inner_text() == '1'
+                page.get_by_role('button', name='Editar tarefa', exact=True).click()
+                page.wait_for_function('document.getElementById("campaign-limit").value === "37"')
+                page.locator('#campaign-cancel-edit').click()
+                page.once('dialog', lambda dialog: dialog.dismiss())
+                page.get_by_role('button', name='Excluir tarefa', exact=True).click()
+                assert page.locator('.gc-task').count() == 1
+                page.once('dialog', lambda dialog: dialog.accept())
+                page.get_by_role('button', name='Excluir tarefa', exact=True).click()
+                page.wait_for_function('document.querySelectorAll(".gc-task").length === 0')
+                assert page.locator('#campaign-lead-total').inner_text() == '1'
                 assert not errors, errors
                 browser.close()
                 print('Browser smoke passed: create 10 groups, phrase upload, import leads, edit limit, replace group, mobile viewport.')

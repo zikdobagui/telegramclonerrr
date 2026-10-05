@@ -28,8 +28,9 @@
         </div>
     </details>
     <details class="card gc-panel" id="campaign-builder" open>
-        <summary><span class="gc-section-icon"><i class="fas fa-sliders-h" aria-hidden="true"></i></span><span><strong>Criar uma tarefa</strong><small>Preencha as etapas abaixo e confira o resumo antes de salvar</small></span><span class="gc-expand">Configurar <i class="fas fa-chevron-down" aria-hidden="true"></i></span></summary>
+        <summary><span class="gc-section-icon"><i class="fas fa-sliders-h" aria-hidden="true"></i></span><span><strong id="campaign-editor-title">Criar uma tarefa</strong><small>Preencha as etapas abaixo e confira o resumo antes de salvar</small></span><span class="gc-expand">Configurar <i class="fas fa-chevron-down" aria-hidden="true"></i></span></summary>
         <form id="campaign-create-form" class="gc-panel-body">
+            <p id="campaign-edit-note" class="info" hidden>A quantidade de grupos é mantida. Nome e administradores não alteram grupos já criados no Telegram. Alterar o limite diário aplica o novo valor a todos os grupos; os limites individuais são mantidos se esse valor não mudar. As opções de aquecimento valem para novos grupos; desativar encerra o aquecimento atual. A distribuição fica fixa após a primeira tentativa de adição.</p>
             <section class="gc-step"><div class="gc-step-heading"><span class="factory-step">01</span><div><h3>Quais grupos você quer criar?</h3><p>Dê um nome à tarefa e escolha quantos grupos ela terá.</p></div></div>
                 <div class="form-row"><div class="form-group"><label for="campaign-name">Nome da tarefa</label><input id="campaign-name" required maxlength="100" placeholder="Ex.: Comunidade VIP"><small>Os grupos terão esse nome seguido de 01, 02, 03…</small></div><div class="form-group"><label for="campaign-count">Quantidade de grupos</label><input id="campaign-count" type="number" min="1" max="30" value="10" required><small>De 1 a 30 grupos por tarefa.</small></div></div>
                 <div class="form-group"><label for="campaign-admin">Administradores dos grupos (opcional)</label><textarea id="campaign-admin" rows="3" placeholder="@usuario1&#10;@usuario2&#10;@usuario3"></textarea><small>Separe os @usernames por linha, vírgula ou espaço. Todos serão promovidos nos novos grupos, com permissão para gerenciar mensagens e membros, sem nomear outros administradores. O resultado de cada promoção será exibido no histórico.</small></div>
@@ -51,7 +52,7 @@
                     <div class="form-group"><label for="campaign-phrases-file">Carregar frases de um arquivo TXT</label><input id="campaign-phrases-file" type="file" accept=".txt"></div><div class="form-group"><label for="campaign-phrases">Ou escreva suas frases aqui</label><textarea id="campaign-phrases" rows="4" placeholder="Bom dia, pessoal!&#10;Sejam bem-vindos ao grupo."></textarea><small>Uma frase por linha. Você pode editar o texto importado.</small></div>
                 </div>
             </section>
-            <div class="gc-save"><div><strong>Confira sua tarefa</strong><p id="campaign-preview"></p><small>Salvar não inicia a execução. Depois, clique em Iniciar tarefa.</small></div><button class="btn btn-primary" type="submit">Salvar tarefa <i class="fas fa-arrow-right" aria-hidden="true"></i></button></div>
+            <div class="gc-save"><div><strong>Confira sua tarefa</strong><p id="campaign-preview"></p><small>Salvar não inicia a execução. Depois, clique em Iniciar tarefa.</small></div><button id="campaign-cancel-edit" class="btn" type="button" hidden>Cancelar edição</button><button id="campaign-save-button" class="btn btn-primary" type="submit">Salvar tarefa <i class="fas fa-arrow-right" aria-hidden="true"></i></button></div>
         </form>
     </details>
     <section id="campaign-monitor" class="card gc-monitor">
