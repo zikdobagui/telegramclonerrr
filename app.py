@@ -5915,6 +5915,8 @@ def get_session_locks():
             'warming': locks['warming'],
             'extraction': locks['extraction'],
             'addition': locks['addition'],
+            'group_campaign': locks.get('group_campaign', False),
+            'group_factory': locks.get('group_factory', False),
             'active_tasks': list(locks['active_tasks'])
         },
         'warming_active': warming_state.get('active', False)

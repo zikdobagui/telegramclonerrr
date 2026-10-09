@@ -1794,21 +1794,33 @@ function renderStatsTaskBreakdown(tasks) {
     `;
 }
 
+let dashboardLoadVersion = 0;
+
 async function loadDashboard() {
+    const version = ++dashboardLoadVersion;
     try {
-        const [membersResponse, sessionsResponse, tasksResponse, locksResponse, processesResponse] = await Promise.all([
-            fetch('/api/members/stats'),
+        const responses = await Promise.all([
+            fetch('/api/members/stats', {cache: 'no-store'}),
             fetch(`/api/sessions?_=${Date.now()}`, {cache: 'no-store'}),
-            fetch('/api/tasks'),
-            fetch('/api/session/locks'),
-            fetch('/api/processes')
+            fetch('/api/tasks', {cache: 'no-store'}),
+            fetch('/api/session/locks', {cache: 'no-store'}),
+            fetch('/api/processes', {cache: 'no-store'}),
+            fetch('/api/group-campaigns', {cache: 'no-store'})
         ]);
 
-        const members = await membersResponse.json();
-        const sessionsData = await sessionsResponse.json();
-        const tasksData = await tasksResponse.json();
-        const locksData = await locksResponse.json();
-        const processesData = await processesResponse.json();
+        if (responses.some(response => !response.ok)) throw new Error('Falha ao consultar indicadores');
+        const [members, sessionsData, tasksData, locksData, processesData, campaignsData] = await Promise.all(responses.map(response => response.json()));
+        if (version !== dashboardLoadVersion) return;
+        if ([members, sessionsData, tasksData, locksData, processesData, campaignsData].some(data => data.success === false)) throw new Error('Indicadores indisponíveis');
+        const campaigns = campaignsData.campaigns || [];
+        const runningCampaigns = campaigns.filter(task => task.status === 'running');
+        const campaignAdded = campaigns.reduce((sum, task) => sum + Number(task.counts.added || 0), 0);
+        const campaignList = document.getElementById('dash-group-campaigns');
+        if (campaignList) campaignList.innerHTML = runningCampaigns.map(task => {
+            const warming = task.groups.filter(group => group.status === 'warming').length;
+            return `<div class="dashboard-row"><span><strong>${escapeHtml(task.name)}</strong><br><small>${task.groups.length} grupos · ${warming} em aquecimento · ${Number(task.counts.added || 0)} adições confirmadas</small></span><button type="button" class="mini-btn" onclick="openDashboardTab('comingSoon')">Ver tarefa</button></div>`;
+        }).join('') || '<p>Nenhuma tarefa de grupos em execução.</p>';
+        setText('dash-campaign-leads', campaignsData.total_leads || 0);
 
         const sessions = sessionsData.sessions || [];
         const tasks = tasksData.tasks || [];
@@ -1819,16 +1831,16 @@ async function loadDashboard() {
         const activeSessions = sessions.filter(s => getSessionFilterKey(s) === 'active').length;
         const floodSessions = sessions.filter(s => getSessionFilterKey(s) === 'flood').length;
         const inactiveSessions = sessions.filter(s => getSessionFilterKey(s) === 'paused').length;
-        const activeTasks = tasks.filter(t => t.status === 'active').length;
-        const runningWork = activeTasks > 0 || locks.extraction || locks.addition || locks.warming;
+        const activeTasks = tasks.filter(t => t.status === 'active').length + runningCampaigns.length;
+        const runningWork = activeTasks > 0 || campaignsData.worker_active || locks.group_campaign || locks.group_factory || locks.extraction || locks.addition || locks.warming;
 
         setText('dash-total-sessions', totalSessions);
         setText('dash-active-sessions', activeSessions);
-        setText('dash-members-added', members.added || 0);
+        setText('dash-members-added', Number(members.added || 0) + campaignAdded);
         setText('dash-active-tasks', activeTasks);
-        setText('dash-members-total', members.total || 0);
+        setText('dash-members-total', members.extracted_total || 0);
         setText('dash-members-pending', members.pending || 0);
-        setText('dash-total-tasks', tasks.length);
+        setText('dash-total-tasks', tasks.length + campaigns.length);
         setText('dash-flood-sessions', floodSessions);
         setText('dash-inactive-sessions', inactiveSessions);
         setText('dash-work-status', runningWork ? 'Rodando' : 'Aguardando');
@@ -1845,9 +1857,11 @@ async function loadDashboard() {
             }
         }
     } catch (error) {
+        if (version !== dashboardLoadVersion) return;
+        setText('dash-work-status', 'Indisponível');
         console.error('Erro ao carregar dashboard:', error);
         const healthText = document.getElementById('dash-health-text');
-        if (healthText) healthText.textContent = 'Não consegui carregar os indicadores agora.';
+        if (healthText) healthText.textContent = 'Não consegui atualizar os indicadores. Os valores exibidos podem estar desatualizados.';
     }
 }
 
