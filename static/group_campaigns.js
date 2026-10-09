@@ -3,6 +3,7 @@
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const labels = {paused:'Pausada', running:'Em execução', pending:'A criar / vincular', creating:'Criando', warming:'Aquecendo', ready:'Pronto para distribuir', error:'Precisa de revisão'};
     let editingId = null;
+    let selectedImages = [];
     let version = 0;
     let snapshot = null;
     let viewInitialized = false;
@@ -53,6 +54,8 @@
     }
     function resetEditor() {
         editingId = null;
+        selectedImages = [];
+        el('campaign-images-status').textContent = '';
         el('campaign-create-form').reset();
         el('campaign-count').disabled = false;
         el('campaign-dedup').disabled = false;
@@ -68,6 +71,9 @@
         await loadSessions();
         editingId = task.id;
         const settings = task.settings;
+        selectedImages = [...(settings.images || [])];
+        el('campaign-images').value = '';
+        el('campaign-images-status').textContent = `${selectedImages.length} imagens salvas`;
         const fields = {name:task.name, count:task.groups.length, limit:settings.daily_limit,
             'limit-scope':settings.limit_scope, dedup:settings.dedup, delay:settings.delay,
             admin:(settings.admin_usernames || [settings.admin_username].filter(Boolean)).join('\n'),
@@ -161,6 +167,14 @@
             preview();
         });
         preview();
+        el('campaign-images-clear').addEventListener('click', () => {
+            selectedImages = [];
+            el('campaign-images').value = '';
+            el('campaign-images-status').textContent = 'Nenhuma imagem selecionada';
+        });
+        el('campaign-images').addEventListener('change', () => {
+            el('campaign-images-status').textContent = [...el('campaign-images').files].map(file => file.name).join(', ');
+        });
         el('campaign-warming').addEventListener('change', () => {
             el('campaign-warm-fields').hidden = el('campaign-warming').value !== 'yes';
         });
@@ -180,7 +194,17 @@
                     el('campaign-session-options').scrollIntoView({behavior:'smooth', block:'center'});
                     throw new Error('Marque pelo menos uma sessão na etapa 02.');
                 }
+                const files = [...el('campaign-images').files];
+                if (files.length) {
+                    if (files.length > 30 || files.some(file => file.size > 10 * 1024 * 1024) || files.reduce((sum, file) => sum + file.size, 0) > 30 * 1024 * 1024) throw new Error('Selecione até 30 imagens: 10 MB por arquivo e 30 MB no total.');
+                    const data = new FormData();
+                    files.forEach(file => data.append('images', file));
+                    selectedImages = (await api('/images', {method:'POST', body:data})).images;
+                    el('campaign-images').value = '';
+                    el('campaign-images-status').textContent = `${selectedImages.length} imagens carregadas`;
+                }
                 const payload = {
+                    images:selectedImages,
                     name:el('campaign-name').value, count:el('campaign-count').value, daily_limit:el('campaign-limit').value,
                     admin_usernames:el('campaign-admin').value,
                     sessions:Array.from(el('campaign-sessions').selectedOptions, option => option.value),

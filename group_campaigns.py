@@ -18,7 +18,7 @@ def day_key():
 
 
 def transient_request(error):
-    return bool(re.fullmatch(r'Request was unsuccessful \d+ time\(s\)', str(error))) or isinstance(error, (TimeoutError, ConnectionError)) or type(error).__name__ in {'ServerError', 'RpcCallFailError', 'TimedOutError'}
+    return bool(re.fullmatch(r'An error occurred while communicating with DC \d+(?: \(caused by \w+\))?', str(error))) or bool(re.fullmatch(r'Request was unsuccessful \d+ time\(s\)', str(error))) or isinstance(error, (TimeoutError, ConnectionError)) or type(error).__name__ in {'ServerError', 'RpcCallFailError', 'TimedOutError', 'InterdcCallErrorError', 'InterdcCallRichErrorError'}
 
 
 def admin_username(value):
@@ -161,11 +161,17 @@ class CampaignStore:
         limit = integer(payload.get('daily_limit', 25), 'Limite diário')
         messages = [str(line).strip()[:4000] for line in str(payload.get('messages', '')).splitlines() if line.strip()]
         warming = payload.get('warming') is True
-        if warming and not messages:
-            raise ValueError('Adicione frases para habilitar o aquecimento')
+        images = payload.get('images', [])
+        if not isinstance(images, list) or len(images) > 30:
+            raise ValueError('Selecione até 30 imagens')
+        for image in images:
+            if not isinstance(image, str) or not re.fullmatch(r'[a-f0-9]{32}\.(jpg|png|webp)', image) or not os.path.isfile(os.path.join(os.path.dirname(self.path), 'campaign_media', image)):
+                raise ValueError('Imagem indisponível. Selecione novamente o arquivo')
+        if warming and not messages and not images:
+            raise ValueError('Adicione frases ou imagens para habilitar o aquecimento')
         settings = {
             'admin_usernames': admin_usernames(payload.get('admin_usernames', payload.get('admin_username'))),
-            'sessions': list(dict.fromkeys(session_names)), 'warming': warming, 'messages': messages[:1000],
+            'sessions': list(dict.fromkeys(session_names)), 'warming': warming, 'messages': messages[:1000], 'images': images,
             'warm_days': integer(payload.get('warm_days', 1), 'Dias de aquecimento', high=90),
             'warm_interval': integer(payload.get('warm_interval', 60), 'Intervalo de mensagens (minutos)', high=1440),
             'delay': integer(payload.get('delay', 60), 'Intervalo entre ações (segundos)', low=10, high=3600),
@@ -451,9 +457,12 @@ class TelegramCampaignGateway:
                 self.peers[key] = await self.resolve(client, group['invite'] or group['reference'])
         return client, self.peers[key]
 
-    async def warm(self, group, name, phrase):
+    async def warm(self, group, name, phrase, image=None):
         client, peer = await self.peer(group, name)
-        await client.send_message(peer, phrase)
+        if image:
+            await client.send_file(peer, image)
+        else:
+            await client.send_message(peer, phrase)
 
     async def promote_admin(self, group, username):
         from telethon.tl.functions.channels import EditAdminRequest
@@ -504,6 +513,7 @@ async def campaign_loop(store, cid, gateway):
     settings = store.get(cid)['settings']
     names = settings['sessions']
     turn = 0
+    warm_failures = {}
 
     async def wait(seconds):
         end = time.monotonic() + seconds
@@ -541,8 +551,16 @@ async def campaign_loop(store, cid, gateway):
                         elif time.time() >= group['next_message']:
                             index = group['message_index']
                             store.group_update(gid, next_message=time.time() + settings['warm_interval'] * 60, message_index=index + 1)
-                            await gateway.warm(group, names[index % len(names)], settings['messages'][index % len(settings['messages'])])
-                            store.event(cid, f"Grupo {group['slot']}: frase de aquecimento enviada.")
+                            messages = settings['messages']
+                            images = settings.get('images', [])
+                            content_index = index % (len(messages) + len(images))
+                            if content_index < len(messages):
+                                await gateway.warm(group, names[index % len(names)], messages[content_index])
+                            else:
+                                image = os.path.join(os.path.dirname(store.path), 'campaign_media', images[content_index - len(messages)])
+                                await gateway.warm(group, names[index % len(names)], '', image=image)
+                            warm_failures.pop(gid, None)
+                            store.event(cid, f"Grupo {group['slot']}: conteúdo de aquecimento enviado.")
                             worked = True
                     elif group['status'] == 'ready':
                         delivery = store.claim(cid, gid)
@@ -565,6 +583,11 @@ async def campaign_loop(store, cid, gateway):
                         worked = True
                 except Exception as error:
                     kind = type(error).__name__
+                    if transient_request(error) and group['status'] == 'warming':
+                        warm_failures[gid] = warm_failures.get(gid, 0) + 1
+                        if warm_failures[gid] < 3:
+                            store.event(cid, f"Grupo {group['slot']}: comunicação temporariamente indisponível; próximo envio no intervalo configurado. Detalhe: {error}")
+                            continue
                     if transient_request(error) and group['status'] in {'ready', 'warming'}:
                         message = 'Falha temporária de comunicação com o Telegram. Clique em Iniciar tarefa para retomar; leads sem confirmação permanecem reservados.'
                         store.state(cid, 'paused', message)
@@ -645,12 +668,40 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 store.delete(cid)
             else:
                 payload = request.get_json() or {}
+                payload.setdefault('images', store.get(cid)['settings'].get('images', []))
                 names = payload.get('sessions', [])
                 available = {s['session_name'] for s in get_sessions(username).load_sessions() if s.get('active', True) and s.get('status', 'active') == 'active'}
                 if not isinstance(names, list) or not names or any(name not in available for name in names):
                     raise ValueError('Selecione sessões ativas disponíveis')
                 store.edit(cid, payload, names)
         return jsonify(success=True, id=cid)
+
+    @app.route('/api/group-campaigns/images', methods=['POST'])
+    @endpoint
+    def campaign_images_api():
+        import uuid
+        files = request.files.getlist('images')
+        if not files or len(files) > 30:
+            raise ValueError('Selecione entre 1 e 30 imagens')
+        validated = []
+        total = 0
+        for file in files:
+            data = file.read(10 * 1024 * 1024 + 1)
+            total += len(data)
+            if len(data) > 10 * 1024 * 1024 or total > 30 * 1024 * 1024:
+                raise ValueError('Limite de 10 MB por imagem e 30 MB por seleção')
+            extension = ('jpg' if data.startswith(b'\xff\xd8\xff') else
+                         'png' if data.startswith(b'\x89PNG\r\n\x1a\n') else
+                         'webp' if data.startswith(b'RIFF') and data[8:12] == b'WEBP' else None)
+            if not extension:
+                raise ValueError('Use imagens JPG, PNG ou WebP')
+            validated.append((uuid.uuid4().hex + '.' + extension, data))
+        directory = os.path.join(get_paths(session['username'])['data_dir'], 'campaign_media')
+        os.makedirs(directory, exist_ok=True)
+        for name, data in validated:
+            with open(os.path.join(directory, name), 'wb') as output:
+                output.write(data)
+        return jsonify(success=True, images=[name for name, _ in validated])
 
     @app.route('/api/group-campaigns/leads', methods=['POST'])
     @endpoint

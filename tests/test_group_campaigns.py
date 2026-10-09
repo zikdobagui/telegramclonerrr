@@ -28,6 +28,14 @@ class InviteResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(request.admin_rights.add_admins)
         client.get_input_entity.assert_awaited_once_with('@example_user')
 
+    async def test_warm_sends_selected_image(self):
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock()
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        await gateway.warm({}, 'one.session', '', image='selected.png')
+        client.send_file.assert_awaited_once_with('peer', 'selected.png')
+        client.send_message.assert_not_awaited()
+
     async def test_legacy_and_wrapped_join_results(self):
         chat = SimpleNamespace(id=123)
         legacy = SimpleNamespace(chats=[chat], updates=[])
@@ -355,6 +363,42 @@ class CampaignApiTests(unittest.TestCase):
         self.login('bob')
         self.assertEqual(self.client.get('/api/group-campaigns').json['total_leads'], 0)
         self.assertEqual(self.client.post('/api/group-campaigns/1/pause').status_code, 400)
+
+    def test_images_upload_persistence_and_isolation(self):
+        self.login('alice')
+        uploaded = self.client.post('/api/group-campaigns/images', data={'images': (io.BytesIO(b'\x89PNG\r\n\x1a\nexample'), 'photo.png')})
+        self.assertEqual(uploaded.status_code, 200)
+        images = uploaded.json['images']
+        payload = {'name': 'Photos', 'count': 1, 'sessions': ['one.session'], 'warming': True, 'images': images}
+        created = self.client.post('/api/group-campaigns', json=payload)
+        self.assertEqual(created.status_code, 200)
+        cid = created.json['id']
+        self.assertEqual(self.client.put(f'/api/group-campaigns/{cid}', json=payload).status_code, 200)
+        self.assertEqual(self.client.get('/api/group-campaigns').json['campaigns'][0]['settings']['images'], images)
+        self.login('bob')
+        self.assertEqual(self.client.post('/api/group-campaigns', json=payload).status_code, 400)
+        self.assertEqual(self.client.post('/api/group-campaigns/images', data={'images': (io.BytesIO(b'bad'), 'fake.png')}).status_code, 400)
+        payload['images'] = ['../secret.png']
+        self.assertEqual(self.client.post('/api/group-campaigns', json=payload).status_code, 400)
+
+    def test_dc_error_recovery_keeps_existing_group(self):
+        from group_campaigns import transient_request
+        from telethon.errors import InterdcCallErrorError
+        error = InterdcCallErrorError(request=None, capture=4)
+        self.assertTrue(transient_request(error))
+        self.assertTrue(transient_request(str(error)))
+        self.assertFalse(transient_request('CHAT_WRITE_FORBIDDEN'))
+        self.login('alice')
+        cid = self.client.post('/api/group-campaigns', json={'name': 'DC', 'count': 1, 'sessions': ['one.session'], 'warming': True, 'messages': 'Olá'}).json['id']
+        store = CampaignStore(str(Path(self.temp.name) / 'alice'))
+        group = store.groups(cid)[0]
+        import time
+        store.group_update(group['id'], status='error', error=str(error), channel_id='123', access_hash='456', creator='one.session', invite='https://t.me/+test', warm_until=time.time() + 86400)
+        store.prepare_start(cid)
+        recovered = store.groups(cid)[0]
+        self.assertEqual(recovered['id'], group['id'])
+        self.assertEqual(recovered['status'], 'warming')
+        self.assertEqual(recovered['error'], '')
 
     def test_edit_delete_and_isolation(self):
         self.login('alice')
