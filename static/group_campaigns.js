@@ -7,6 +7,27 @@
     let version = 0;
     let snapshot = null;
     let viewInitialized = false;
+    let ownershipSubmitting = false;
+
+    function ownershipControls(task, group, busy) {
+        if (!group.channel_id || !group.access_hash || !group.creator) return '';
+        const transfer = group.ownership;
+        const blocked = transfer && transfer.status !== 'failed';
+        const username = transfer?.username || (task.settings.admin_usernames || [])[0] || '';
+        return `<details class="gc-ownership" data-detail="owner-${group.id}">
+            <summary>Transferir posse do grupo <span class="gc-badge">Beta — em testes</span></summary>
+            <p>Este recurso está em beta. A sessão criadora (${esc(group.creator)}) passará a posse para o usuário informado. Depois da transferência, só o novo dono poderá devolver a posse. As permissões das sessões ficam sob controle dele.</p>
+            ${transfer ? `<p role="status">${transfer.status === 'confirmed' ? 'Posse transferida' : transfer.status === 'failed' ? 'Transferência não realizada' : 'Resultado ainda não confirmado'}: @${esc(transfer.username)}</p>` : ''}
+            ${blocked ? (transfer.status === 'confirmed' ? '' : `<form data-owner="${group.id}" data-task="${task.id}" data-owner-check="true"><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Consultar resultado no Telegram</button><small>A consulta não repete a transferência.</small></form>`) : `
+            <form data-owner="${group.id}" data-task="${task.id}" autocomplete="off">
+                <p>Pause a tarefa e adicione o destinatário como administrador do grupo antes de transferir. O Telegram exige verificação em duas etapas e pode impor prazos de espera para senha ou sessão recente.</p>
+                <div class="form-group"><label>Novo dono (@username)<input name="username" value="${esc(username)}" placeholder="@usuario" required maxlength="33" ${busy ? 'disabled' : ''}></label></div>
+                <div class="form-group"><label>Senha de verificação em duas etapas da conta criadora<input name="password" type="password" autocomplete="new-password" required ${busy ? 'disabled' : ''}></label><small>Use a senha do Telegram da sessão criadora. A senha não será salva.</small></div>
+                <label class="gc-owner-confirm"><input name="confirmed" type="checkbox" required ${busy ? 'disabled' : ''}>Confirmo que quero passar a posse deste grupo ao usuário acima.</label>
+                <button class="btn btn-warning" ${busy ? 'disabled' : ''}>Transferir posse — Beta</button>
+            </form>`}
+        </details>`;
+    }
     async function api(path = '', options = {}) {
         const response = await fetch('/api/group-campaigns' + path, {cache:'no-store', ...options});
         const result = await response.json();
@@ -106,7 +127,7 @@
             el('campaign-running-total').textContent = `${data.campaigns.filter(task => task.status === 'running').length} em execução`;
             el('campaign-added-total').textContent = data.campaigns.reduce((total, task) => total + (task.counts.added || 0), 0).toLocaleString('pt-BR');
             // Preserve forms while the user is editing a group.
-            if (el('campaign-list').contains(document.activeElement) && document.activeElement.matches('input')) return;
+            if (ownershipSubmitting || (el('campaign-list').contains(document.activeElement) && document.activeElement.matches('input')) || [...el('campaign-list').querySelectorAll('input[name="password"]')].some(input => input.value)) return;
             const openDetails = new Set([...el('campaign-list').querySelectorAll('details[open][data-detail]')].map(detail => detail.dataset.detail));
             el('campaign-list').innerHTML = data.campaigns.map(task => {
                 const busy = data.worker_active || task.status === 'running';
@@ -135,7 +156,7 @@
                             <div class="form-group"><label>Nome do novo grupo<input name="title" value="${esc(group.title)}" maxlength="100" ${busy ? 'disabled' : ''}></label></div>
                             <div class="form-group"><label>Link de um grupo existente (opcional)<input name="reference" placeholder="https://t.me/+..." ${busy ? 'disabled' : ''}></label><small>Deixe vazio para criar um novo grupo quando iniciar a tarefa.</small></div>
                             <button class="btn btn-primary" name="action" value="replace" ${busy ? 'disabled' : ''}>Substituir grupo</button><small>O grupo anterior permanece no Telegram.</small></details>
-                        </form></div>
+                        </form>${ownershipControls(task, group, busy)}</div>
                     </details>`).join('')}</div></details>
                     <details class="gc-history" data-detail="events-${task.id}"><summary>Ver histórico e informações de execução</summary><p>Sem confirmação: o lead fica reservado para evitar repetição. As cotas renovam à meia-noite de São Paulo. Após reiniciar o servidor, use Iniciar tarefa para retomar.</p>${task.events.map(event => `<p>${esc(new Date(event.created * 1000).toLocaleString('pt-BR'))} — ${esc(event.message)}</p>`).join('') || '<p>Aguardando início.</p>'}</details>
                     </div>
@@ -262,6 +283,32 @@
         el('campaign-list').addEventListener('submit', event => {
             event.preventDefault();
             const form = event.target;
+            if (form.dataset.owner) {
+                if (ownershipSubmitting) return;
+                const checkOnly = form.dataset.ownerCheck === 'true';
+                const payload = checkOnly ? {} : {
+                    username:form.elements.username.value,
+                    password:form.elements.password.value,
+                    confirmed:form.elements.confirmed.checked,
+                };
+                ownershipSubmitting = true;
+                submit(form, async () => {
+                    try {
+                        const result = await api(`/${form.dataset.task}/groups/${form.dataset.owner}/ownership${checkOnly ? '/check' : ''}`, json('POST', payload));
+                        notice(result.message, result.status !== 'confirmed');
+                    } finally {
+                        delete payload.password;
+                        if (!checkOnly) {
+                            form.elements.password.value = '';
+                            form.elements.confirmed.checked = false;
+                        }
+                        ownershipSubmitting = false;
+                        document.activeElement?.blur();
+                        await load();
+                    }
+                });
+                return;
+            }
             const replace = event.submitter?.value === 'replace';
             const data = Object.fromEntries(new FormData(form));
             const taskId = form.dataset.task || form.dataset.settings;

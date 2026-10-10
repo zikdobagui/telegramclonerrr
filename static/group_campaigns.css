@@ -108,6 +108,11 @@
 #comingSoon .gc-group { min-width:0; margin:0; }
 #comingSoon .gc-group > summary { padding:8px; gap:6px; }
 #comingSoon .gc-group-content { padding:10px; }
+#comingSoon .gc-ownership { margin-top:12px; padding-top:12px; border-top:1px solid #475569; }
+#comingSoon .gc-ownership summary { cursor:pointer; font-weight:600; }
+#comingSoon .gc-ownership .gc-badge { color:#fbbf24; }
+#comingSoon .gc-owner-confirm { display:flex; align-items:flex-start; gap:8px; margin:12px 0; }
+#comingSoon .gc-owner-confirm input { width:auto; flex-shrink:0; margin-top:3px; }
 #comingSoon .gc-history { margin-top:6px; padding-top:2px; }
 #comingSoon .gc-history > summary { padding:6px 0; }
 @media(max-width:1000px) {

@@ -1,4 +1,4 @@
-"""Persistent group campaigns. Telegram work is performed only after Start."""
+"""Persistent group campaigns with explicit controls for Telegram operations."""
 import asyncio
 import csv
 import io
@@ -69,6 +69,10 @@ class CampaignStore:
                     warm_until REAL NOT NULL DEFAULT 0, next_message REAL NOT NULL DEFAULT 0,
                     message_index INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '');
                 CREATE UNIQUE INDEX IF NOT EXISTS current_slot ON groups(campaign_id,slot) WHERE current=1;
+                CREATE TABLE IF NOT EXISTS ownership_transfers (
+                    group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+                    username TEXT NOT NULL, user_id TEXT NOT NULL, access_hash TEXT NOT NULL,
+                    status TEXT NOT NULL, updated REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS leads (
                     id INTEGER PRIMARY KEY, payload TEXT NOT NULL, created REAL NOT NULL,
                     canonical_id INTEGER REFERENCES leads(id));
@@ -225,7 +229,31 @@ class CampaignStore:
 
     def groups(self, cid):
         with self.db() as conn:
-            return [dict(row) for row in conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1 ORDER BY slot', (cid,))]
+            groups = [dict(row) for row in conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1 ORDER BY slot', (cid,))]
+            for group in groups:
+                row = conn.execute('SELECT username,user_id,status,updated FROM ownership_transfers WHERE group_id=?', (group['id'],)).fetchone()
+                group['ownership'] = dict(row) if row else None
+            return groups
+
+    def ownership(self, gid):
+        with self.db() as conn:
+            row = conn.execute('SELECT * FROM ownership_transfers WHERE group_id=?', (gid,)).fetchone()
+            return dict(row) if row else None
+
+    def begin_ownership(self, gid, username, user_id, access_hash):
+        with self.db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            previous = conn.execute('SELECT status FROM ownership_transfers WHERE group_id=?', (gid,)).fetchone()
+            if previous and previous['status'] != 'failed':
+                raise ValueError('Já existe uma transferência registrada. Consulte o resultado antes de continuar.')
+            conn.execute('INSERT OR REPLACE INTO ownership_transfers VALUES(?,?,?,?,?,?)',
+                         (gid, username, str(user_id), str(access_hash), 'pending', time.time()))
+
+    def finish_ownership(self, gid, status):
+        if status not in {'confirmed', 'failed', 'unknown'}:
+            raise ValueError('Status de transferência inválido')
+        with self.db() as conn:
+            conn.execute('UPDATE ownership_transfers SET status=?,updated=? WHERE group_id=?', (status, time.time(), gid))
 
     def group_update(self, gid, **values):
         allowed = {'status', 'channel_id', 'access_hash', 'creator', 'invite', 'warm_until', 'next_message', 'message_index', 'error'}
@@ -366,6 +394,7 @@ class CampaignStore:
             conn.execute("UPDATE campaigns SET status='paused',error='Servidor reiniciado. Clique em Iniciar para continuar.' WHERE status='running'")
             conn.execute("UPDATE deliveries SET status='unknown',error='Resultado não confirmado antes da interrupção' WHERE status='sending'")
             conn.execute("UPDATE groups SET status='error',error='Criação interrompida. Verifique o Telegram e substitua por link para evitar recriar.' WHERE status='creating'")
+            conn.execute("UPDATE ownership_transfers SET status='unknown' WHERE status='pending'")
 
     def snapshot(self):
         with self.db() as conn:
@@ -475,6 +504,50 @@ class TelegramCampaignGateway:
             change_info=True, delete_messages=True, ban_users=True,
             invite_users=True, pin_messages=True, manage_call=True), rank='Administrador'))
 
+    async def transfer_ownership(self, group, username, password, before_send):
+        from telethon import functions, utils
+        from telethon.password import compute_check
+        from telethon.tl.types import User, ChannelParticipantCreator, ChannelParticipantAdmin
+        client, peer = await self.peer(group, group['creator'])
+        current = await client(functions.channels.GetParticipantRequest(peer, 'me'))
+        if not isinstance(current.participant, ChannelParticipantCreator):
+            raise OwnershipValidationError('A sessão criadora não é mais dona deste grupo no Telegram.')
+        target = await client.get_entity('@' + username)
+        if not isinstance(target, User) or target.bot or target.deleted:
+            raise OwnershipValidationError('O novo dono deve ser uma conta de usuário ativa, não um bot.')
+        if target.id == current.participant.user_id:
+            raise OwnershipValidationError('Este usuário já é o dono do grupo.')
+        user = utils.get_input_user(target)
+        member = await client(functions.channels.GetParticipantRequest(peer, user))
+        if not isinstance(member.participant, ChannelParticipantAdmin):
+            raise OwnershipValidationError('Adicione o novo dono como administrador do grupo no Telegram antes de transferir.')
+        password_info = await client(functions.account.GetPasswordRequest())
+        if not password_info.has_password:
+            raise OwnershipValidationError('Ative a verificação em duas etapas da conta criadora no Telegram antes de transferir.')
+        proof = compute_check(password_info, password)
+        # New Telegram layers moved this method to messages. Keep older sessions/libraries supported.
+        if hasattr(functions.messages, 'EditChatCreatorRequest'):
+            request = functions.messages.EditChatCreatorRequest(peer=peer, user_id=user, password=proof)
+        else:
+            request = functions.channels.EditCreatorRequest(channel=peer, user_id=user, password=proof)
+        # Record the immutable recipient before the irreversible request. Never save the password/proof.
+        before_send(user.user_id, user.access_hash)
+        await client(request)
+
+    async def check_ownership(self, group, transfer):
+        from telethon.tl.functions.channels import GetParticipantRequest
+        from telethon.tl.types import InputUser, ChannelParticipantCreator
+        from telethon.errors import UserNotParticipantError
+        client, peer = await self.peer(group, group['creator'])
+        try:
+            target = await client(GetParticipantRequest(peer, InputUser(int(transfer['user_id']), int(transfer['access_hash']))))
+            if isinstance(target.participant, ChannelParticipantCreator):
+                return 'confirmed'
+        except UserNotParticipantError:
+            pass
+        current = await client(GetParticipantRequest(peer, 'me'))
+        return 'failed' if isinstance(current.participant, ChannelParticipantCreator) else 'unknown'
+
     async def invite(self, group, name, payload, reserve_identity):
         from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantRequest
         from telethon.tl.types import InputUser
@@ -507,6 +580,35 @@ class TelegramCampaignGateway:
 
 class LeadResolutionError(ValueError):
     pass
+
+
+class OwnershipValidationError(ValueError):
+    pass
+
+
+def ownership_error(error):
+    """Return user-facing errors without echoing credentials or request contents."""
+    kind = type(error).__name__
+    messages = {
+        'PasswordHashInvalidError': 'Senha de verificação em duas etapas incorreta.',
+        'PasswordMissingError': 'Ative a verificação em duas etapas da conta criadora no Telegram.',
+        'SrpIdInvalidError': 'A verificação de senha expirou. Consulte o resultado antes de tentar novamente.',
+        'ChatAdminRequiredError': 'A sessão precisa ser dona do grupo e o destinatário deve ser administrador.',
+        'UserNotParticipantError': 'Adicione o destinatário como administrador do grupo antes de transferir.',
+        'UserCreatorError': 'Confira no Telegram quem é o dono atual do grupo.',
+        'UsernameNotOccupiedError': 'O @username informado não foi encontrado no Telegram.',
+        'UsernameInvalidError': 'Informe um @username válido para o novo dono.',
+        'UserIdInvalidError': 'O Telegram não aceitou o usuário informado como novo dono.',
+        'ChannelPrivateError': 'A sessão criadora não tem acesso a este grupo.',
+        'AuthKeyUnregisteredError': 'A sessão criadora não está autorizada. Conecte a conta novamente.',
+        'SessionRevokedError': 'A sessão criadora foi revogada. Conecte a conta novamente.',
+    }
+    if kind in {'PasswordTooFreshError', 'SessionTooFreshError', 'FloodWaitError'}:
+        seconds = max(1, int(getattr(error, 'seconds', 0)))
+        return f'O Telegram exige uma espera antes desta operação. Tente novamente em {seconds} segundos.'
+    if isinstance(error, OwnershipValidationError):
+        return str(error)
+    return messages.get(kind, 'Não foi possível confirmar a transferência. Consulte o resultado antes de tentar novamente.')
 
 
 async def campaign_loop(store, cid, gateway):
@@ -620,6 +722,10 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     workers = {}
     initialized = set()
     guard = threading.RLock()
+    ownership_busy = set()
+
+    def worker_busy(username):
+        return username in ownership_busy or bool(workers.get(username) and workers[username].is_alive())
 
     def store_for(username):
         store = CampaignStore(get_paths(username)['data_dir'])
@@ -647,7 +753,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         if request.method == 'GET':
             result = store.snapshot()
             with guard:
-                result['worker_active'] = bool(workers.get(username) and workers[username].is_alive())
+                result['worker_active'] = worker_busy(username)
             return jsonify(success=True, **result)
         payload = request.get_json() or {}
         sessions = get_sessions(username).load_sessions()
@@ -661,7 +767,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     def campaign_edit_api(cid):
         username = session['username']
         with guard:
-            if workers.get(username) and workers[username].is_alive():
+            if worker_busy(username):
                 raise ValueError('Pause e aguarde a operação atual terminar antes de editar ou excluir tarefas')
             store = store_for(username)
             if request.method == 'DELETE':
@@ -717,17 +823,109 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     def campaign_group_api(cid, gid):
         username = session['username']
         with guard:
-            if workers.get(username) and workers[username].is_alive():
+            if worker_busy(username):
                 raise ValueError('Pause e aguarde a operação atual terminar antes de editar grupos')
             store_for(username).edit_group(cid, gid, request.get_json() or {})
         return jsonify(success=True)
+
+    @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/ownership', defaults={'check_only': False}, methods=['POST'])
+    @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/ownership/check', defaults={'check_only': True}, methods=['POST'])
+    @endpoint
+    def campaign_ownership_api(cid, gid, check_only):
+        username = session['username']
+        payload = request.get_json(silent=True) or {}
+        password = payload.get('password', '')
+        with guard:
+            if worker_busy(username):
+                raise ValueError('Pause e aguarde a operação atual terminar antes de transferir a posse.')
+            store = store_for(username)
+            task = store.get(cid)
+            if task['status'] == 'running':
+                raise ValueError('Pause a tarefa antes de transferir a posse.')
+            group = next((group for group in store.groups(cid) if group['id'] == gid), None)
+            if not group or not all(group.get(key) for key in ('channel_id', 'access_hash', 'creator')):
+                raise ValueError('Grupo criado/vinculado não encontrado nesta tarefa.')
+            previous = store.ownership(gid)
+            target = ''
+            if check_only:
+                if not previous:
+                    raise ValueError('Não há transferência registrada para consultar.')
+            else:
+                if previous and previous['status'] != 'failed':
+                    raise ValueError('Já existe uma transferência registrada. Consulte o resultado antes de continuar.')
+                target = admin_username(payload.get('username'))
+                if not target or not isinstance(password, str) or not password:
+                    raise ValueError('Informe o @username do novo dono e a senha de verificação em duas etapas da conta criadora.')
+                if payload.get('confirmed') is not True:
+                    raise ValueError('Confirme que deseja passar a posse deste grupo ao usuário informado.')
+            allowed, message = check_lock('group_factory', username=username)
+            if not allowed or get_locks(username).get('extraction'):
+                raise ValueError(message if not allowed else 'Aguarde a extração terminar.')
+            manager = get_sessions(username)
+            saved = {row['session_name']: row for row in manager.load_sessions(force_reload=True)}
+            creator = group['creator']
+            info = saved.get(creator)
+            if not info or not info.get('active', True) or info.get('status', 'active') != 'active' or manager.is_session_flooded(creator):
+                raise ValueError('A sessão criadora está indisponível.')
+            api = get_api()
+            if not all(api):
+                raise ValueError('Configure sua API primeiro.')
+            gateway = TelegramCampaignGateway(get_paths(username), {creator: info}, api)
+            set_lock('group_campaign', True, username=username)
+            ownership_busy.add(username)
+
+        sent = False
+
+        def before_send(user_id, access_hash):
+            nonlocal sent
+            store.begin_ownership(gid, target, user_id, access_hash)
+            sent = True
+
+        async def run():
+            try:
+                if check_only:
+                    return await asyncio.wait_for(gateway.check_ownership(group, previous), timeout=60)
+                await asyncio.wait_for(gateway.transfer_ownership(group, target, password, before_send), timeout=60)
+                return 'confirmed'
+            finally:
+                # Disconnect errors must not hide a confirmed Telegram response.
+                try:
+                    await asyncio.wait_for(gateway.close(), timeout=10)
+                except Exception:
+                    pass
+
+        try:
+            status = asyncio.run(run())
+            store.finish_ownership(gid, status)
+            recipient = previous['username'] if check_only else target
+            message = {
+                'confirmed': f'Posse transferida para @{recipient}. A tarefa permanece pausada.',
+                'failed': 'A sessão criadora ainda é dona do grupo. Você pode corrigir os dados e tentar novamente.',
+                'unknown': 'Resultado ainda não confirmado. Confira a posse no Telegram e consulte novamente.',
+            }[status]
+            store.event(cid, f"Grupo {group['slot']}: {message}")
+            return jsonify(success=True, status=status, message=message)
+        except Exception as error:
+            if sent:
+                from telethon.errors import RPCError
+                definite = isinstance(error, RPCError) and getattr(error, 'code', 500) in {400, 401, 403, 404, 420}
+                store.finish_ownership(gid, 'failed' if definite else 'unknown')
+            message = ownership_error(error)
+            store.event(cid, f"Grupo {group['slot']}: transferência de posse: {message}")
+            return jsonify(success=False, error=message), 400
+        finally:
+            password = None
+            payload.clear()
+            with guard:
+                ownership_busy.discard(username)
+                set_lock('group_campaign', False, username=username)
 
     @app.route('/api/group-campaigns/<int:cid>/settings', methods=['PUT'])
     @endpoint
     def campaign_settings_api(cid):
         username = session['username']
         with guard:
-            if workers.get(username) and workers[username].is_alive():
+            if worker_busy(username):
                 raise ValueError('Pause e aguarde a operação atual terminar antes de editar limites')
             store = store_for(username)
             settings = store.get(cid)['settings']
@@ -748,7 +946,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         if action != 'start':
             raise ValueError('Ação inválida')
         with guard:
-            if workers.get(username) and workers[username].is_alive():
+            if worker_busy(username):
                 raise ValueError('Já existe uma tarefa de grupos em execução ou encerrando')
             allowed, message = check_lock('group_factory', username=username)
             if not allowed or get_locks(username).get('extraction'):

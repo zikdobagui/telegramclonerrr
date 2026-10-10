@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 from flask import Flask, render_template, session
 from playwright.sync_api import sync_playwright
 from werkzeug.serving import make_server, WSGIRequestHandler
-from group_campaigns import register_campaign_routes
+from group_campaigns import CampaignStore, register_campaign_routes
 
 
 class QuietHandler(WSGIRequestHandler):
@@ -111,6 +111,39 @@ def run():
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-limit").value === "37"')
                 page.locator('#campaign-cancel-edit').click()
+                # Simulate a created group and a confirmed transfer; never contact Telegram.
+                store = CampaignStore(directory)
+                owner_group = store.groups(1)[0]
+                gid = owner_group['id']
+                store.group_update(gid, status='ready', channel_id='123', access_hash='456', creator='test.session')
+                page.locator('#campaign-refresh').click()
+                owner_details = page.locator(f'details[data-detail="owner-{gid}"]')
+                owner_details.wait_for(state='attached')
+                page.locator('.gc-group-list').evaluate('(node) => node.open = true')
+                page.locator(f'details[data-detail="group-{gid}"]').evaluate('(node) => node.open = true')
+                owner_details.locator('summary').click()
+                assert 'Beta' in owner_details.locator('summary').inner_text()
+                owner_form = page.locator(f'form[data-owner="{gid}"]')
+                owner_form.locator('[name="username"]').fill('@new_owner')
+                owner_form.locator('[name="password"]').fill('test-password')
+                assert owner_form.locator('[name="password"]').get_attribute('type') == 'password'
+                assert not owner_form.evaluate('(form) => form.checkValidity()')
+                owner_form.locator('[name="confirmed"]').check()
+                page.locator('#campaign-refresh').click()
+                assert owner_form.locator('[name="password"]').input_value() == 'test-password'
+
+                def transfer(route):
+                    data = route.request.post_data_json
+                    assert data == {'username': '@new_owner', 'password': 'test-password', 'confirmed': True}
+                    store.begin_ownership(gid, 'new_owner', 2, 456)
+                    store.finish_ownership(gid, 'confirmed')
+                    route.fulfill(json={'success': True, 'status': 'confirmed', 'message': 'Posse transferida para @new_owner.'})
+
+                page.route(f'**/api/group-campaigns/1/groups/{gid}/ownership', transfer)
+                owner_form.locator('button').click()
+                page.wait_for_function('(gid) => document.querySelector(`[data-detail="owner-${gid}"]`).textContent.includes("Posse transferida")', arg=gid)
+                assert page.locator(f'form[data-owner="{gid}"]').count() == 0
+                page.wait_for_function('document.documentElement.scrollWidth <= window.innerWidth')
                 page.once('dialog', lambda dialog: dialog.dismiss())
                 page.get_by_role('button', name='Excluir tarefa', exact=True).click()
                 assert page.locator('.gc-task').count() == 1
@@ -120,7 +153,7 @@ def run():
                 assert page.locator('#campaign-lead-total').inner_text() == '1'
                 assert not errors, errors
                 browser.close()
-                print('Browser smoke passed: create 10 groups, phrase upload, import leads, edit limit, replace group, mobile viewport.')
+                print('Browser smoke passed: create, phrases, import, edit, replace, ownership beta confirmation, mobile viewport.')
         finally:
             server.shutdown()
             server.server_close()
