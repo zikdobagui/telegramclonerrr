@@ -7,7 +7,18 @@
     let version = 0;
     let snapshot = null;
     let viewInitialized = false;
-    let ownershipSubmitting = false;
+    let groupActionSubmitting = false;
+
+    function deletionControls(task, group, busy) {
+        if (!group.channel_id || !group.access_hash || !group.creator) return '';
+        return `<details class="gc-ownership gc-delete-group" data-detail="delete-${group.id}">
+            <summary>Excluir grupo do painel e do Telegram</summary>
+            <p>Apaga permanentemente este grupo no Telegram para todos os participantes e o remove da lista. A ação não pode ser desfeita. O histórico de leads é preservado e nenhum grupo substituto será criado.</p>
+            <p>A tarefa deve estar pausada e a sessão criadora precisa continuar sendo dona do grupo.</p>
+            ${group.deletion_status === 'unknown' ? '<p class="gc-alert">A tentativa anterior não foi confirmada. Confira o grupo no Telegram antes de tentar novamente. Falta de acesso não significa que ele foi excluído.</p>' : ''}
+            <form data-delete-group="${group.id}" data-task="${task.id}"><button type="submit" class="btn btn-danger" ${busy ? 'disabled' : ''}>Excluir permanentemente do Telegram e do painel</button></form>
+        </details>`;
+    }
 
     function ownershipControls(task, group, busy) {
         if (!group.channel_id || !group.access_hash || !group.creator) return '';
@@ -127,20 +138,21 @@
             el('campaign-running-total').textContent = `${data.campaigns.filter(task => task.status === 'running').length} em execução`;
             el('campaign-added-total').textContent = data.campaigns.reduce((total, task) => total + (task.counts.added || 0), 0).toLocaleString('pt-BR');
             // Preserve forms while the user is editing a group.
-            if (ownershipSubmitting || (el('campaign-list').contains(document.activeElement) && document.activeElement.matches('input')) || [...el('campaign-list').querySelectorAll('input[name="password"]')].some(input => input.value)) return;
+            if (groupActionSubmitting || (el('campaign-list').contains(document.activeElement) && document.activeElement.matches('input')) || [...el('campaign-list').querySelectorAll('input[name="password"]')].some(input => input.value)) return;
             const openDetails = new Set([...el('campaign-list').querySelectorAll('details[open][data-detail]')].map(detail => detail.dataset.detail));
             el('campaign-list').innerHTML = data.campaigns.map(task => {
                 const busy = data.worker_active || task.status === 'running';
                 const counts = task.counts;
                 return `<section class="card task-card-modern gc-task">
                     <div class="gc-task-head"><div><span class="gc-task-id">TAREFA #${task.id}</span><h3>${esc(task.name)}</h3></div><div class="gc-task-actions"><span class="gc-badge ${esc(task.status)}">${esc(labels[task.status] || task.status)}</span>
-                    ${task.status === 'running' ? `<button class="btn btn-warning" data-action="pause" data-id="${task.id}">Pausar tarefa</button>` : `<button class="btn btn-primary" data-action="start" data-id="${task.id}" ${busy ? 'disabled' : ''}>Iniciar tarefa</button>`}
-                    <button class="btn btn-primary" data-action="edit" data-id="${task.id}" ${busy ? 'disabled' : ''}>Editar tarefa</button>
+                    ${task.status === 'running' ? `<button class="btn btn-warning" data-action="pause" data-id="${task.id}">Pausar tarefa</button>` : `<button class="btn btn-primary" data-action="start" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Iniciar tarefa</button>`}
+                    <button class="btn btn-primary" data-action="edit" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Editar tarefa</button>
                     <button class="btn btn-danger" data-action="delete" data-id="${task.id}" ${busy ? 'disabled' : ''}>Excluir tarefa</button></div></div>
                     <div class="gc-task-body">
                     <div class="gc-task-meta"><span>${task.groups.length} grupos</span><span>${task.settings.sessions.length} sessões</span><span>${task.settings.warming ? 'Com aquecimento' : 'Sem aquecimento'}</span><span>${task.settings.dedup === 'task' ? 'Um grupo por lead' : 'Uma vez por grupo'}</span></div>
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
+                    ${!task.groups.length ? '<p class="info">Esta tarefa não tem mais grupos. O histórico foi mantido; você pode excluir a tarefa quando quiser.</p>' : ''}
                     ${busy ? '<p class="info gc-note">Para editar, excluir ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
                     ${task.settings.limit_scope === 'task' ? `<form data-settings="${task.id}" class="gc-upload"><div class="form-group"><label>Limite diário de todos os grupos juntos<input name="daily_limit" type="number" value="${task.settings.daily_limit}" min="1" max="10000" required ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Salvar limite</button></form>` : ''}
                     <details class="gc-group-list" data-detail="groups-${task.id}"><summary>Ver grupos da tarefa <span class="gc-badge">${task.groups.length}</span></summary><div class="gc-group-grid">
@@ -156,7 +168,7 @@
                             <div class="form-group"><label>Nome do novo grupo<input name="title" value="${esc(group.title)}" maxlength="100" ${busy ? 'disabled' : ''}></label></div>
                             <div class="form-group"><label>Link de um grupo existente (opcional)<input name="reference" placeholder="https://t.me/+..." ${busy ? 'disabled' : ''}></label><small>Deixe vazio para criar um novo grupo quando iniciar a tarefa.</small></div>
                             <button class="btn btn-primary" name="action" value="replace" ${busy ? 'disabled' : ''}>Substituir grupo</button><small>O grupo anterior permanece no Telegram.</small></details>
-                        </form>${ownershipControls(task, group, busy)}</div>
+                        </form>${ownershipControls(task, group, busy)}${deletionControls(task, group, busy)}</div>
                     </details>`).join('')}</div></details>
                     <details class="gc-history" data-detail="events-${task.id}"><summary>Ver histórico e informações de execução</summary><p>Sem confirmação: o lead fica reservado para evitar repetição. As cotas renovam à meia-noite de São Paulo. Após reiniciar o servidor, use Iniciar tarefa para retomar.</p>${task.events.map(event => `<p>${esc(new Date(event.created * 1000).toLocaleString('pt-BR'))} — ${esc(event.message)}</p>`).join('') || '<p>Aguardando início.</p>'}</details>
                     </div>
@@ -283,15 +295,34 @@
         el('campaign-list').addEventListener('submit', event => {
             event.preventDefault();
             const form = event.target;
+            if (form.dataset.deleteGroup) {
+                if (groupActionSubmitting) return;
+                const task = snapshot.campaigns.find(item => item.id === Number(form.dataset.task));
+                const group = task.groups.find(item => item.id === Number(form.dataset.deleteGroup));
+                if (!window.confirm(`Excluir permanentemente o grupo "${group.title}" (ID Telegram: ${group.channel_id})?\n\nO grupo será apagado no Telegram para todos os participantes e removido do painel. Essa ação não pode ser desfeita.`)) return;
+                groupActionSubmitting = true;
+                submit(form, async () => {
+                    try {
+                        const result = await api(`/${task.id}/groups/${group.id}`, json('DELETE', {confirmed:true, title:group.title, channel_id:group.channel_id}));
+                        if (editingId === task.id) resetEditor();
+                        notice(result.message);
+                    } finally {
+                        groupActionSubmitting = false;
+                        document.activeElement?.blur();
+                        await load();
+                    }
+                });
+                return;
+            }
             if (form.dataset.owner) {
-                if (ownershipSubmitting) return;
+                if (groupActionSubmitting) return;
                 const checkOnly = form.dataset.ownerCheck === 'true';
                 const payload = checkOnly ? {} : {
                     username:form.elements.username.value,
                     password:form.elements.password.value,
                     confirmed:form.elements.confirmed.checked,
                 };
-                ownershipSubmitting = true;
+                groupActionSubmitting = true;
                 submit(form, async () => {
                     try {
                         const result = await api(`/${form.dataset.task}/groups/${form.dataset.owner}/ownership${checkOnly ? '/check' : ''}`, json('POST', payload));
@@ -302,7 +333,7 @@
                             form.elements.password.value = '';
                             form.elements.confirmed.checked = false;
                         }
-                        ownershipSubmitting = false;
+                        groupActionSubmitting = false;
                         document.activeElement?.blur();
                         await load();
                     }

@@ -73,6 +73,10 @@ class CampaignStore:
                     group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
                     username TEXT NOT NULL, user_id TEXT NOT NULL, access_hash TEXT NOT NULL,
                     status TEXT NOT NULL, updated REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS group_deletions (
+                    group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+                    status TEXT NOT NULL, previous_status TEXT NOT NULL,
+                    previous_error TEXT NOT NULL, updated REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS leads (
                     id INTEGER PRIMARY KEY, payload TEXT NOT NULL, created REAL NOT NULL,
                     canonical_id INTEGER REFERENCES leads(id));
@@ -233,7 +237,44 @@ class CampaignStore:
             for group in groups:
                 row = conn.execute('SELECT username,user_id,status,updated FROM ownership_transfers WHERE group_id=?', (group['id'],)).fetchone()
                 group['ownership'] = dict(row) if row else None
+                row = conn.execute('SELECT status FROM group_deletions WHERE group_id=?', (group['id'],)).fetchone()
+                group['deletion_status'] = row['status'] if row else None
             return groups
+
+    def begin_group_deletion(self, cid, gid):
+        with self.db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            task = conn.execute('SELECT status FROM campaigns WHERE id=?', (cid,)).fetchone()
+            group = conn.execute('SELECT * FROM groups WHERE id=? AND campaign_id=? AND current=1', (gid, cid)).fetchone()
+            if not group or not task or task['status'] == 'running':
+                raise ValueError('Pause a tarefa e selecione um grupo disponível para excluir.')
+            previous = conn.execute('SELECT * FROM group_deletions WHERE group_id=?', (gid,)).fetchone()
+            if previous and previous['status'] == 'pending':
+                raise ValueError('Já existe uma exclusão em andamento para este grupo.')
+            status = previous['previous_status'] if previous and previous['status'] == 'unknown' else group['status']
+            error = previous['previous_error'] if previous and previous['status'] == 'unknown' else group['error']
+            conn.execute('INSERT OR REPLACE INTO group_deletions VALUES(?,?,?,?,?)', (gid, 'pending', status, error, time.time()))
+            conn.execute("UPDATE groups SET status='error',error='Exclusão no Telegram em andamento.' WHERE id=?", (gid,))
+
+    def finish_group_deletion(self, cid, gid, status):
+        if status not in {'confirmed', 'failed', 'unknown'}:
+            raise ValueError('Status de exclusão inválido')
+        with self.db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            attempt = conn.execute('SELECT * FROM group_deletions WHERE group_id=?', (gid,)).fetchone()
+            group = conn.execute('SELECT * FROM groups WHERE id=? AND campaign_id=?', (gid, cid)).fetchone()
+            if not attempt or not group:
+                raise ValueError('Exclusão não encontrada')
+            conn.execute('UPDATE group_deletions SET status=?,updated=? WHERE group_id=?', (status, time.time(), gid))
+            if status == 'confirmed':
+                # Retain delivery history and lead reservations, but never recreate this slot.
+                conn.execute("UPDATE groups SET current=0,status='deleted',error='' WHERE id=?", (gid,))
+                conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)',
+                             (cid, f"Grupo {group['slot']} ({group['title']}): excluído do Telegram e removido do painel.", time.time()))
+            elif status == 'failed':
+                conn.execute('UPDATE groups SET status=?,error=? WHERE id=?', (attempt['previous_status'], attempt['previous_error'], gid))
+            else:
+                conn.execute("UPDATE groups SET status='error',error='Exclusão sem confirmação do Telegram. Confira o grupo antes de tentar excluir novamente.' WHERE id=?", (gid,))
 
     def ownership(self, gid):
         with self.db() as conn:
@@ -271,6 +312,9 @@ class CampaignStore:
                 raise ValueError('Grupo não encontrado nesta tarefa')
             if campaign['status'] == 'running':
                 raise ValueError('Pause a tarefa antes de editar ou substituir grupos')
+            deletion = conn.execute('SELECT status FROM group_deletions WHERE group_id=?', (gid,)).fetchone()
+            if deletion and deletion['status'] in {'pending', 'unknown'}:
+                raise ValueError('Resolva a exclusão pendente antes de editar ou substituir este grupo.')
             limit = integer(payload.get('daily_limit', group['daily_limit']), 'Limite diário')
             if payload.get('replace'):
                 title = str(payload.get('title') or group['title']).strip()[:100]
@@ -395,6 +439,8 @@ class CampaignStore:
             conn.execute("UPDATE deliveries SET status='unknown',error='Resultado não confirmado antes da interrupção' WHERE status='sending'")
             conn.execute("UPDATE groups SET status='error',error='Criação interrompida. Verifique o Telegram e substitua por link para evitar recriar.' WHERE status='creating'")
             conn.execute("UPDATE ownership_transfers SET status='unknown' WHERE status='pending'")
+            conn.execute("UPDATE group_deletions SET status='unknown' WHERE status='pending'")
+            conn.execute("UPDATE groups SET status='error',error='Exclusão interrompida sem confirmação. Confira o grupo no Telegram.' WHERE id IN (SELECT group_id FROM group_deletions WHERE status='unknown') AND current=1")
 
     def snapshot(self):
         with self.db() as conn:
@@ -547,6 +593,16 @@ class TelegramCampaignGateway:
             pass
         current = await client(GetParticipantRequest(peer, 'me'))
         return 'failed' if isinstance(current.participant, ChannelParticipantCreator) else 'unknown'
+
+    async def delete_group(self, group, before_send):
+        from telethon.tl.functions.channels import GetParticipantRequest, DeleteChannelRequest
+        from telethon.tl.types import ChannelParticipantCreator
+        client, peer = await self.peer(group, group['creator'])
+        current = await client(GetParticipantRequest(peer, 'me'))
+        if not isinstance(current.participant, ChannelParticipantCreator):
+            raise OwnershipValidationError('A sessão criadora não é mais dona do grupo. A exclusão precisa ser feita pelo dono atual.')
+        before_send()
+        await client(DeleteChannelRequest(peer))
 
     async def invite(self, group, name, payload, reserve_identity):
         from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantRequest
@@ -722,10 +778,10 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     workers = {}
     initialized = set()
     guard = threading.RLock()
-    ownership_busy = set()
+    group_actions_busy = set()
 
     def worker_busy(username):
-        return username in ownership_busy or bool(workers.get(username) and workers[username].is_alive())
+        return username in group_actions_busy or bool(workers.get(username) and workers[username].is_alive())
 
     def store_for(username):
         store = CampaignStore(get_paths(username)['data_dir'])
@@ -828,6 +884,79 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             store_for(username).edit_group(cid, gid, request.get_json() or {})
         return jsonify(success=True)
 
+    @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>', methods=['DELETE'])
+    @endpoint
+    def campaign_delete_group_api(cid, gid):
+        username = session['username']
+        payload = request.get_json(silent=True) or {}
+        with guard:
+            if worker_busy(username):
+                raise ValueError('Pause e aguarde a operação atual terminar antes de excluir o grupo.')
+            store = store_for(username)
+            if store.get(cid)['status'] == 'running':
+                raise ValueError('Pause a tarefa antes de excluir o grupo.')
+            group = next((item for item in store.groups(cid) if item['id'] == gid), None)
+            if not group or not all(group.get(key) for key in ('channel_id', 'access_hash', 'creator')):
+                raise ValueError('Grupo criado/vinculado não encontrado nesta tarefa.')
+            if payload.get('confirmed') is not True or payload.get('title') != group['title'] or payload.get('channel_id') != group['channel_id']:
+                raise ValueError('Confirme a exclusão permanente do grupo selecionado no painel e no Telegram.')
+            if group['ownership'] and group['ownership']['status'] in {'pending', 'unknown'}:
+                raise ValueError('Consulte o resultado da transferência de posse antes de excluir o grupo.')
+            allowed, message = check_lock('group_factory', username=username)
+            if not allowed or get_locks(username).get('extraction'):
+                raise ValueError(message if not allowed else 'Aguarde a extração terminar.')
+            manager = get_sessions(username)
+            saved = {row['session_name']: row for row in manager.load_sessions(force_reload=True)}
+            creator = group['creator']
+            info = saved.get(creator)
+            if not info or not info.get('active', True) or info.get('status', 'active') != 'active' or manager.is_session_flooded(creator):
+                raise ValueError('A sessão criadora está indisponível.')
+            api = get_api()
+            if not all(api):
+                raise ValueError('Configure sua API primeiro.')
+            gateway = TelegramCampaignGateway(get_paths(username), {creator: info}, api)
+            set_lock('group_campaign', True, username=username)
+            group_actions_busy.add(username)
+
+        sent = False
+
+        def before_send():
+            nonlocal sent
+            store.begin_group_deletion(cid, gid)
+            sent = True
+
+        async def run():
+            try:
+                await asyncio.wait_for(gateway.delete_group(group, before_send), timeout=60)
+            finally:
+                try:
+                    await asyncio.wait_for(gateway.close(), timeout=10)
+                except Exception:
+                    pass
+
+        try:
+            asyncio.run(run())
+            store.finish_group_deletion(cid, gid, 'confirmed')
+            return jsonify(success=True, message='Grupo excluído do Telegram e removido do painel. Histórico de leads preservado.')
+        except Exception as error:
+            if sent:
+                from telethon.errors import RPCError
+                definite = isinstance(error, RPCError) and getattr(error, 'code', 500) in {400, 401, 403, 404, 406, 420}
+                store.finish_group_deletion(cid, gid, 'failed' if definite else 'unknown')
+            messages = {
+                'ChatAdminRequiredError': 'Somente o dono atual pode excluir este grupo.',
+                'ChannelTooLargeError': 'O Telegram não permite excluir este grupo devido ao tamanho dele.',
+                'ChannelPrivateError': 'A sessão não tem acesso ao grupo. Isso não confirma que ele foi excluído.',
+                'ChannelInvalidError': 'O Telegram não reconheceu o grupo. A exclusão não foi confirmada.',
+            }
+            message = str(error) if isinstance(error, OwnershipValidationError) else messages.get(type(error).__name__, 'Exclusão não confirmada. O grupo foi mantido no painel; confira o Telegram antes de tentar novamente.')
+            store.event(cid, f"Grupo {group['slot']}: {message}")
+            return jsonify(success=False, error=message), 400
+        finally:
+            with guard:
+                group_actions_busy.discard(username)
+                set_lock('group_campaign', False, username=username)
+
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/ownership', defaults={'check_only': False}, methods=['POST'])
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/ownership/check', defaults={'check_only': True}, methods=['POST'])
     @endpoint
@@ -845,6 +974,8 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             group = next((group for group in store.groups(cid) if group['id'] == gid), None)
             if not group or not all(group.get(key) for key in ('channel_id', 'access_hash', 'creator')):
                 raise ValueError('Grupo criado/vinculado não encontrado nesta tarefa.')
+            if group['deletion_status'] in {'pending', 'unknown'}:
+                raise ValueError('Resolva a exclusão pendente antes de transferir a posse.')
             previous = store.ownership(gid)
             target = ''
             if check_only:
@@ -872,7 +1003,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 raise ValueError('Configure sua API primeiro.')
             gateway = TelegramCampaignGateway(get_paths(username), {creator: info}, api)
             set_lock('group_campaign', True, username=username)
-            ownership_busy.add(username)
+            group_actions_busy.add(username)
 
         sent = False
 
@@ -917,7 +1048,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             password = None
             payload.clear()
             with guard:
-                ownership_busy.discard(username)
+                group_actions_busy.discard(username)
                 set_lock('group_campaign', False, username=username)
 
     @app.route('/api/group-campaigns/<int:cid>/settings', methods=['PUT'])

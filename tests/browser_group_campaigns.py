@@ -144,6 +144,33 @@ def run():
                 page.wait_for_function('(gid) => document.querySelector(`[data-detail="owner-${gid}"]`).textContent.includes("Posse transferida")', arg=gid)
                 assert page.locator(f'form[data-owner="{gid}"]').count() == 0
                 page.wait_for_function('document.documentElement.scrollWidth <= window.innerWidth')
+                delete_group = store.groups(1)[1]
+                delete_gid = delete_group['id']
+                store.group_update(delete_gid, status='ready', channel_id='789', access_hash='987', creator='test.session')
+                page.locator('#campaign-refresh').click()
+                delete_details = page.locator(f'details[data-detail="delete-{delete_gid}"]')
+                delete_details.wait_for(state='attached')
+                page.locator(f'details[data-detail="group-{delete_gid}"]').evaluate('(node) => node.open = true')
+                delete_details.locator('summary').click()
+                delete_button = delete_details.locator('button')
+                page.once('dialog', lambda dialog: dialog.dismiss())
+                delete_button.click()
+                assert len(store.groups(1)) == 10
+
+                def delete_from_telegram(route):
+                    assert route.request.method == 'DELETE'
+                    assert route.request.post_data_json == {'confirmed': True, 'title': delete_group['title'], 'channel_id': '789'}
+                    store.begin_group_deletion(1, delete_gid)
+                    store.finish_group_deletion(1, delete_gid, 'confirmed')
+                    route.fulfill(json={'success': True, 'message': 'Grupo excluído do Telegram e removido do painel.'})
+
+                page.route(f'**/api/group-campaigns/1/groups/{delete_gid}', delete_from_telegram)
+                page.once('dialog', lambda dialog: dialog.accept())
+                delete_button.click()
+                page.wait_for_function('(gid) => !document.querySelector(`[data-detail="group-${gid}"]`)', arg=delete_gid)
+                assert len(store.groups(1)) == 9
+                assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 9
+                assert page.locator('#campaign-lead-total').inner_text() == '1'
                 page.once('dialog', lambda dialog: dialog.dismiss())
                 page.get_by_role('button', name='Excluir tarefa', exact=True).click()
                 assert page.locator('.gc-task').count() == 1
@@ -153,7 +180,7 @@ def run():
                 assert page.locator('#campaign-lead-total').inner_text() == '1'
                 assert not errors, errors
                 browser.close()
-                print('Browser smoke passed: create, phrases, import, edit, replace, ownership beta confirmation, mobile viewport.')
+                print('Browser smoke passed: create, phrases, import, edit, replace, ownership, deletion cancel/confirm, mobile viewport.')
         finally:
             server.shutdown()
             server.server_close()
