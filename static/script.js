@@ -622,37 +622,13 @@ async function loadSessions() {
         }
         
         list.innerHTML = `
-            <div style="text-align: center; padding: 60px 20px; background: rgba(15, 23, 42, 0.5); border-radius: 18px; border: 2px dashed rgba(59, 130, 246, 0.3);">
-                <div style="font-size: 64px; margin-bottom: 20px; opacity: 0.5;">📱</div>
-                <h3 style="color: #93C5FD; margin-bottom: 10px;">Nenhuma sessão cadastrada</h3>
-                <p style="color: #94a3b8; margin-bottom: 30px;">
-                    Importe suas sessões do Telegram para começar a usar o sistema
-                </p>
-                <div style="display: flex; flex-direction: column; gap: 15px; max-width: 500px; margin: 0 auto; text-align: left;">
-                    <div style="padding: 15px; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border-left: 3px solid #3B82F6;">
-                        <div style="color: #93C5FD; font-weight: 600; margin-bottom: 5px;">
-                            📁 Opção 1: Importar Arquivos
-                        </div>
-                        <div style="color: #94a3b8; font-size: 0.9em;">
-                            Clique em "Selecionar Arquivos" acima e escolha seus arquivos .session
-                        </div>
-                    </div>
-                    <div style="padding: 15px; background: rgba(245, 158, 11, 0.1); border-radius: 12px; border-left: 3px solid #F59E0B;">
-                        <div style="color: #FCD34D; font-weight: 600; margin-bottom: 5px;">
-                            🔍 Opção 2: Escanear Pasta
-                        </div>
-                        <div style="color: #94a3b8; font-size: 0.9em;">
-                            Se já copiou os arquivos .session para a pasta, clique em "Escanear Pasta"
-                        </div>
-                    </div>
-                    <div style="padding: 15px; background: rgba(16, 185, 129, 0.1); border-radius: 12px; border-left: 3px solid #10B981;">
-                        <div style="color: #6EE7B7; font-weight: 600; margin-bottom: 5px;">
-                            ➕ Opção 3: Criar Nova
-                        </div>
-                        <div style="color: #94a3b8; font-size: 0.9em;">
-                            Clique em "Criar via Telefone" no topo para criar uma nova sessão
-                        </div>
-                    </div>
+            <div class="studio-empty">
+                <span class="studio-empty-icon"><i class="fas fa-mobile-screen-button" aria-hidden="true"></i></span>
+                <h3>Conecte sua primeira conta</h3>
+                <p>Adicione uma conta do Telegram para começar a organizar suas operações.</p>
+                <div class="studio-empty-options">
+                    <div><strong>Já tem uma sessão?</strong><p>Use “Selecionar arquivos .session” ou “Importar pasta” na barra acima.</p></div>
+                    <div><strong>Quer conectar uma nova conta?</strong><p>Escolha “Nova conta” e siga as etapas de autenticação.</p></div>
                 </div>
             </div>
         `;
@@ -2731,7 +2707,7 @@ async function loadTasks() {
         const tasksList = document.getElementById('tasks-list');
         
         if (!data.tasks || data.tasks.length === 0) {
-            tasksList.innerHTML = '<p style="text-align:center;color:#999;">Nenhuma tarefa na fila</p>';
+            tasksList.innerHTML = '<div class="studio-empty"><span class="studio-empty-icon"><i class="fas fa-list-check" aria-hidden="true"></i></span><h3>Sua próxima operação começa aqui</h3><p>Clique em “Nova Tarefa” para definir o grupo, os contatos e as contas que vão participar.</p></div>';
             return;
         }
 
