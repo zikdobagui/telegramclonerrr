@@ -206,11 +206,22 @@ class CampaignStore:
         return name, count, limit, settings
 
     def create(self, payload, session_names):
+        raw_names = payload.get('group_names', '')
+        if not isinstance(raw_names, (str, list)):
+            raise ValueError('Informe uma lista de nomes, um por linha')
+        lines = raw_names.splitlines() if isinstance(raw_names, str) else raw_names
+        if any(not isinstance(line, str) for line in lines):
+            raise ValueError('Os nomes dos grupos devem ser textos')
+        names = [line.strip().lstrip('\ufeff').strip() for line in lines if line.strip().lstrip('\ufeff').strip()]
+        if len(names) > 30 or any(len(title) > 100 or '\n' in title or '\r' in title for title in names):
+            raise ValueError('Use até 30 nomes, com no máximo 100 caracteres cada, um por linha')
+        if names:
+            payload = {**payload, 'count': len(names)}
         name, count, limit, settings = self.validated_settings(payload, session_names)
         with self.db() as conn:
             cid = conn.execute('INSERT INTO campaigns(name,settings,created) VALUES(?,?,?)', (name, json.dumps(settings), time.time())).lastrowid
             for slot in range(1, count + 1):
-                conn.execute('INSERT INTO groups(campaign_id,slot,title,daily_limit) VALUES(?,?,?,?)', (cid, slot, f'{name} {slot:02}', limit))
+                conn.execute('INSERT INTO groups(campaign_id,slot,title,daily_limit) VALUES(?,?,?,?)', (cid, slot, names[slot - 1] if names else f'{name} {slot:02}', limit))
         return cid
 
     def edit(self, cid, payload, session_names):

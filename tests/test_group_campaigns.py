@@ -157,6 +157,13 @@ class CampaignStoreTests(unittest.TestCase):
             self.store.prepare_start(cid)
         self.assertEqual(self.store.get(cid)['status'], 'paused')
 
+    def test_custom_group_names_override_count_and_preserve_exact_titles(self):
+        cid = self.store.create({'name': 'Minha tarefa', 'count': 10, 'group_names': '\ufeffOfertas VIP\r\n\r\n Tecnologia & Amigos 🎉 \n'}, ['one.session'])
+        self.assertEqual([group['title'] for group in self.store.groups(cid)], ['Ofertas VIP', 'Tecnologia & Amigos 🎉'])
+        for names in [['a'] * 31, ['x' * 101], [123], ['Nome\nOutro']]:
+            with self.assertRaises(ValueError):
+                self.store.create({'name': 'Invalid', 'group_names': names}, ['one.session'])
+
     def test_delay_range_and_legacy_fixed_interval(self):
         cid, _ = self.task(delay_min=1, delay_max=29)
         settings = self.store.get(cid)['settings']

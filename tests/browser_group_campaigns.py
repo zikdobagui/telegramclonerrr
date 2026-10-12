@@ -73,9 +73,14 @@ def run():
                 page.locator('#campaign-warming').select_option('yes')
                 page.locator('#campaign-phrases-file').set_input_files({'name': 'frases.txt', 'mimeType': 'text/plain', 'buffer': 'Olá\nBem-vindo'.encode()})
                 page.wait_for_function('document.getElementById("campaign-phrases").value.includes("Bem-vindo")')
+                page.locator('#campaign-names-file').set_input_files({'name': 'grupos.txt', 'mimeType': 'text/plain', 'buffer': '\n'.join(f'Comunidade Especial {i}' for i in range(10)).encode()})
+                page.wait_for_function('document.getElementById("campaign-names").value.includes("Comunidade Especial 9")')
+                assert page.locator('#campaign-count').input_value() == '10'
+                assert page.locator('#campaign-count').is_disabled()
                 page.locator('#campaign-save-button').click()
                 page.locator('#campaign-list .gc-task').wait_for()
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 10
+                assert page.locator('.gc-group-title').first.text_content() == 'Comunidade Especial 0', repr(page.locator('.gc-group-title').first.text_content())
                 page.locator('#campaign-bank > summary').click()
                 page.locator('#campaign-leads-task').select_option('1')
                 page.locator('#campaign-leads-file').set_input_files({'name': 'leads.json', 'mimeType': 'application/json', 'buffer': b'{"members":[{"id":123,"username":"lead_test"}]} '})
