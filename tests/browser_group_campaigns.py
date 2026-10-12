@@ -46,7 +46,7 @@ def run():
             session['username'] = 'test'
             styles = '\n'.join(re.findall(r'<style[^>]*>.*?</style>', (ROOT / 'templates/index.html').read_text(encoding='utf-8'), re.S))
             return ('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/static/style.css">'
-                    + styles + '</head><body data-theme="light"><a href="#" class="menu-item" data-tab="comingSoon">Tarefas de grupos</a><main class="main-content">'
+                    + styles + '<link rel="stylesheet" href="/static/studio.css"></head><body data-design="studio" data-theme="dark"><a href="#" class="menu-item" data-tab="comingSoon">Tarefas de grupos</a><main class="main-content">'
                     + render_template('group_campaigns.html') + '</main><script>function showNotification(){};'
                     'document.getElementById("comingSoon").classList.add("active");</script>'
                     '<script src="/static/group_campaigns.js"></script></body></html>')

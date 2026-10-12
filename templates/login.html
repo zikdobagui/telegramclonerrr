@@ -761,8 +761,9 @@
             }
         }
     </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='studio.css') }}?v={{ app_version|default('2') }}">
 </head>
-<body>
+<body data-design="studio">
     <div class="page">
         <div class="neon-field" aria-hidden="true">
             <div class="orbit"></div>
@@ -783,10 +784,10 @@
 
         <main class="shell hero">
             <section class="hero-copy">
-                <div class="eyebrow"><i class="fas fa-sparkles"></i> Plataforma inteligente de automacao</div>
-                <h1>ULTRA<br><span class="title-accent">TELEGRAM CLONER</span></h1>
+                <div class="eyebrow"><i class="fas fa-sparkles"></i> SUA CENTRAL DE OPERAÇÕES</div>
+                <h1>Sua operação.<br><span class="title-accent">Sob controle.</span></h1>
                 <p>
-                    Potencialize suas operações do Telegram em um painel futurista, seguro e completo.
+                    Contas, grupos e tarefas em um só lugar. Organize sua rotina no Telegram e acompanhe cada resultado.
                 </p>
                 <div class="hero-actions">
                     <a class="hero-button primary" href="#acesso"><i class="fas fa-right-to-bracket"></i> Entrar no sistema</a>
@@ -794,7 +795,7 @@
                 </div>
                 <div class="metrics">
                     <div class="metric">
-                        <strong>5 abas</strong>
+                        <strong>Organização</strong>
                         <span>Extracao, tarefas, sessoes, configuracoes e relatorios.</span>
                     </div>
                     <div class="metric">
