@@ -67,6 +67,9 @@ def run():
                 assert page.locator('.gc-session-identity small').inner_text() == '+5500000000000'
                 page.locator('#campaign-name').fill('Tarefa de teste')
                 page.locator('#campaign-session-options input[value="test.session"]').check()
+                page.locator('.gc-advanced > summary').click()
+                page.locator('#campaign-delay-min').fill('1')
+                page.locator('#campaign-delay-max').fill('29')
                 page.locator('#campaign-warming').select_option('yes')
                 page.locator('#campaign-phrases-file').set_input_files({'name': 'frases.txt', 'mimeType': 'text/plain', 'buffer': 'Olá\nBem-vindo'.encode()})
                 page.wait_for_function('document.getElementById("campaign-phrases").value.includes("Bem-vindo")')
@@ -74,6 +77,7 @@ def run():
                 page.locator('#campaign-list .gc-task').wait_for()
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 10
                 page.locator('#campaign-bank > summary').click()
+                page.locator('#campaign-leads-task').select_option('1')
                 page.locator('#campaign-leads-file').set_input_files({'name': 'leads.json', 'mimeType': 'application/json', 'buffer': b'{"members":[{"id":123,"username":"lead_test"}]} '})
                 page.locator('#campaign-leads-form button').click()
                 page.wait_for_function('document.getElementById("campaign-lead-total").textContent === "1"')
@@ -103,6 +107,8 @@ def run():
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-name").value === "Tarefa de teste"')
                 assert page.locator('#campaign-count').is_disabled()
+                assert page.locator('#campaign-delay-min').input_value() == '1'
+                assert page.locator('#campaign-delay-max').input_value() == '29'
                 page.locator('#campaign-name').fill('Tarefa editada')
                 page.locator('#campaign-limit').fill('37')
                 page.locator('#campaign-save-button').click()
@@ -123,6 +129,17 @@ def run():
                 page.locator(f'details[data-detail="group-{gid}"]').evaluate('(node) => node.open = true')
                 owner_details.locator('summary').click()
                 assert 'Beta' in owner_details.locator('summary').inner_text()
+                def member_count(route):
+                    import time
+                    updated = time.time()
+                    with store.db() as conn:
+                        conn.execute('INSERT OR REPLACE INTO group_member_counts(group_id,count,updated) VALUES(?,?,?)', (gid, 237, updated))
+                    route.fulfill(json={'success': True, 'members': {'count': 237, 'updated': updated, 'error': ''}})
+
+                page.route(f'**/api/group-campaigns/1/groups/{gid}/members', member_count)
+                page.locator(f'button[data-action="members"][data-group-id="{gid}"]').click()
+                page.wait_for_function('(gid) => document.querySelector(`[data-detail="group-${gid}"] summary`).textContent.includes("237 membros")', arg=gid)
+                assert 'Consultado em' in page.locator(f'details[data-detail="group-{gid}"] .gc-members').inner_text()
                 owner_form = page.locator(f'form[data-owner="{gid}"]')
                 owner_form.locator('[name="username"]').fill('@new_owner')
                 owner_form.locator('[name="password"]').fill('test-password')
@@ -177,7 +194,7 @@ def run():
                 page.once('dialog', lambda dialog: dialog.accept())
                 page.get_by_role('button', name='Excluir tarefa', exact=True).click()
                 page.wait_for_function('document.querySelectorAll(".gc-task").length === 0')
-                assert page.locator('#campaign-lead-total').inner_text() == '1'
+                assert page.locator('#campaign-lead-total').inner_text() == '0'
                 assert not errors, errors
                 browser.close()
                 print('Browser smoke passed: create, phrases, import, edit, replace, ownership, deletion cancel/confirm, mobile viewport.')

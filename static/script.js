@@ -1820,7 +1820,7 @@ async function loadDashboard() {
             const warming = task.groups.filter(group => group.status === 'warming').length;
             return `<div class="dashboard-row"><span><strong>${escapeHtml(task.name)}</strong><br><small>${task.groups.length} grupos · ${warming} em aquecimento · ${Number(task.counts.added || 0)} adições confirmadas</small></span><button type="button" class="mini-btn" onclick="openDashboardTab('comingSoon')">Ver tarefa</button></div>`;
         }).join('') || '<p>Nenhuma tarefa de grupos em execução.</p>';
-        setText('dash-campaign-leads', campaignsData.total_leads || 0);
+        setText('dash-campaign-leads', campaignsData.assigned_leads || 0);
 
         const sessions = sessionsData.sessions || [];
         const tasks = tasksData.tasks || [];

@@ -12,18 +12,19 @@
         </div>
     </div>
     <div class="task-queue-summary" aria-label="Resumo da operação">
-        <div><span>Banco de leads</span><strong id="campaign-lead-total">—</strong><small>Você pode importar mais a qualquer momento</small></div>
+        <div><span>Contatos nas tarefas</span><strong id="campaign-lead-total">—</strong><small>Listas de contatos separadas por tarefa</small></div>
         <div><span>Tarefas criadas</span><strong id="campaign-task-total">—</strong><small id="campaign-running-total">Carregando tarefas</small></div>
         <div><span>Leads adicionados</span><strong id="campaign-added-total">—</strong><small>Total confirmado nas tarefas</small></div>
     </div>
     <details class="card gc-panel" id="campaign-bank">
-        <summary><span class="gc-section-icon"><i class="fas fa-address-book" aria-hidden="true"></i></span><span><strong>Adicionar leads ao banco</strong><small>Importe um novo arquivo sem apagar os contatos anteriores</small></span><span class="gc-expand">Abrir <i class="fas fa-chevron-down" aria-hidden="true"></i></span></summary>
+        <summary><span class="gc-section-icon"><i class="fas fa-address-book" aria-hidden="true"></i></span><span><strong>Arquivo de contatos por tarefa</strong><small>Selecione a tarefa que usará este arquivo</small></span><span class="gc-expand">Abrir <i class="fas fa-chevron-down" aria-hidden="true"></i></span></summary>
         <div class="gc-panel-body">
             <form id="campaign-leads-form" class="gc-upload">
+                <div class="form-group"><label for="campaign-leads-task">Tarefa de destino</label><select id="campaign-leads-task" required><option value="">Selecione uma tarefa</option></select></div>
                 <div class="form-group"><label for="campaign-leads-file">Escolha seu arquivo de contatos</label><input id="campaign-leads-file" type="file" accept=".json,.csv,.txt" required><small>JSON de membros, CSV com id/username/phone ou TXT com um @username por linha. Até 25 MB.</small></div>
                 <button class="btn btn-primary" type="submit">Importar leads</button>
             </form>
-            <p class="info gc-note">Contatos duplicados são identificados automaticamente. Cada tarefa mantém seu próprio histórico de uso.</p>
+            <p class="info gc-note">Cada tarefa usa somente seu próprio arquivo. Importar outro arquivo substitui a lista dessa tarefa; o histórico de contatos já processados é preservado. Salve a tarefa antes de importar.</p>
             <p id="campaign-import-result" role="status"></p>
         </div>
     </details>
@@ -43,7 +44,7 @@
                 <div class="form-row"><div class="form-group"><label for="campaign-limit">Leads por dia</label><input id="campaign-limit" type="number" min="1" max="10000" value="25" required></div><div class="form-group"><label for="campaign-limit-scope">Esse limite vale para</label><select id="campaign-limit-scope"><option value="group">Cada grupo separadamente</option><option value="task">Todos os grupos juntos</option></select></div></div>
                 <p class="info gc-explanation" id="campaign-limit-explanation"></p>
                 <div class="form-group"><label for="campaign-dedup">Como distribuir os contatos?</label><select id="campaign-dedup"><option value="task">Um grupo por lead (sem repetição)</option><option value="group">Todos os grupos, uma vez em cada</option></select></div>
-                <details class="gc-advanced"><summary>Ajustar intervalo entre ações</summary><div class="form-group"><label for="campaign-delay">Intervalo em segundos</label><input id="campaign-delay" type="number" min="10" max="3600" value="60" required></div></details>
+                <details class="gc-advanced"><summary>Ajustar intervalo entre ações</summary><div class="form-row"><div class="form-group"><label for="campaign-delay-min">Mínimo (segundos)</label><input id="campaign-delay-min" type="number" min="1" max="3600" value="60" required></div><div class="form-group"><label for="campaign-delay-max">Máximo (segundos)</label><input id="campaign-delay-max" type="number" min="1" max="3600" value="60" required></div></div><small>O tempo entre ações é sorteado dentro dessa faixa. Exemplo: de 1 a 29 segundos. Valores iguais mantêm um intervalo fixo.</small></details>
             </section>
             <section class="gc-step"><div class="gc-step-heading"><span class="factory-step">04</span><div><h3>Aquecer os grupos?</h3><p>Envie frases e imagens nos grupos antes de começar a adicionar leads.</p></div></div>
                 <div class="form-group"><label for="campaign-warming">Aquecimento</label><select id="campaign-warming"><option value="no">Não aquecer</option><option value="yes">Sim, aquecer antes de adicionar</option></select></div>

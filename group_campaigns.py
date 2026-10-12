@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import random
 import sqlite3
 import threading
 import time
@@ -77,9 +78,20 @@ class CampaignStore:
                     group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
                     status TEXT NOT NULL, previous_status TEXT NOT NULL,
                     previous_error TEXT NOT NULL, updated REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS group_member_counts (
+                    group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+                    count INTEGER, updated REAL NOT NULL DEFAULT 0,
+                    next_check REAL NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '');
                 CREATE TABLE IF NOT EXISTS leads (
                     id INTEGER PRIMARY KEY, payload TEXT NOT NULL, created REAL NOT NULL,
                     canonical_id INTEGER REFERENCES leads(id));
+                CREATE TABLE IF NOT EXISTS campaign_leads (
+                    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                    lead_id INTEGER NOT NULL REFERENCES leads(id),
+                    PRIMARY KEY(campaign_id,lead_id));
+                CREATE TABLE IF NOT EXISTS campaign_sources (
+                    campaign_id INTEGER PRIMARY KEY REFERENCES campaigns(id) ON DELETE CASCADE,
+                    filename TEXT NOT NULL, imported REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS aliases (
                     alias TEXT PRIMARY KEY, lead_id INTEGER NOT NULL REFERENCES leads(id));
                 CREATE INDEX IF NOT EXISTS lead_identity ON leads(canonical_id);
@@ -177,12 +189,16 @@ class CampaignStore:
                 raise ValueError('Imagem indisponível. Selecione novamente o arquivo')
         if warming and not messages and not images:
             raise ValueError('Adicione frases ou imagens para habilitar o aquecimento')
+        delay_min = integer(payload.get('delay_min', payload.get('delay', 60)), 'Intervalo mínimo (segundos)', low=1, high=3600)
+        delay_max = integer(payload.get('delay_max', payload.get('delay', delay_min)), 'Intervalo máximo (segundos)', low=1, high=3600)
+        if delay_max < delay_min:
+            raise ValueError('O intervalo máximo deve ser maior ou igual ao mínimo')
         settings = {
             'admin_usernames': admin_usernames(payload.get('admin_usernames', payload.get('admin_username'))),
             'sessions': list(dict.fromkeys(session_names)), 'warming': warming, 'messages': messages[:1000], 'images': images,
             'warm_days': integer(payload.get('warm_days', 1), 'Dias de aquecimento', high=90),
             'warm_interval': integer(payload.get('warm_interval', 60), 'Intervalo de mensagens (minutos)', high=1440),
-            'delay': integer(payload.get('delay', 60), 'Intervalo entre ações (segundos)', low=10, high=3600),
+            'delay': delay_min, 'delay_min': delay_min, 'delay_max': delay_max,
             'dedup': 'group' if payload.get('dedup') == 'group' else 'task',
             'limit_scope': 'task' if payload.get('limit_scope') == 'task' else 'group',
             'daily_limit': limit,
@@ -239,7 +255,27 @@ class CampaignStore:
                 group['ownership'] = dict(row) if row else None
                 row = conn.execute('SELECT status FROM group_deletions WHERE group_id=?', (group['id'],)).fetchone()
                 group['deletion_status'] = row['status'] if row else None
+                row = conn.execute('SELECT count,updated,error FROM group_member_counts WHERE group_id=?', (group['id'],)).fetchone()
+                group['members'] = dict(row) if row else {'count': None, 'updated': 0, 'error': ''}
             return groups
+
+    async def refresh_member_count(self, group, gateway):
+        # Reserve the refresh in SQLite so button clicks and the worker do not duplicate requests.
+        with self.db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            row = conn.execute('SELECT next_check FROM group_member_counts WHERE group_id=?', (group['id'],)).fetchone()
+            if row and row['next_check'] > time.time():
+                return
+            conn.execute('INSERT INTO group_member_counts(group_id,next_check) VALUES(?,?) ON CONFLICT(group_id) DO UPDATE SET next_check=excluded.next_check', (group['id'], time.time() + 60))
+        try:
+            count = await asyncio.wait_for(gateway.member_count(group), timeout=20)
+            with self.db() as conn:
+                conn.execute("UPDATE group_member_counts SET count=?,updated=?,error='' WHERE group_id=?", (count, time.time(), group['id']))
+        except Exception as error:
+            seconds = max(60, int(getattr(error, 'seconds', 0) or 0))
+            message = f'Telegram pediu uma espera de {seconds} segundos.' if type(error).__name__ == 'FloodWaitError' else 'Não foi possível consultar agora. A última contagem foi mantida.'
+            with self.db() as conn:
+                conn.execute('UPDATE group_member_counts SET error=?,next_check=? WHERE group_id=?', (message, time.time() + seconds, group['id']))
 
     def begin_group_deletion(self, cid, gid):
         with self.db() as conn:
@@ -327,7 +363,7 @@ class CampaignStore:
                 conn.execute('UPDATE groups SET daily_limit=? WHERE id=?', (limit, gid))
         self.event(cid, 'Grupo substituído; histórico de leads e cota diária preservados.' if payload.get('replace') else 'Limite diário atualizado.')
 
-    def import_leads(self, filename, raw):
+    def import_leads(self, filename, raw, cid=None):
         if len(raw) > 25 * 1024 * 1024:
             raise ValueError('O arquivo deve ter até 25 MB')
         text = raw.decode('utf-8-sig')
@@ -343,8 +379,11 @@ class CampaignStore:
         else:
             raise ValueError('Use JSON, CSV ou TXT (um @username por linha)')
         stats = {'added': 0, 'duplicates': 0, 'invalid': 0}
+        selected = set()
         with self.db() as conn:
             conn.execute('BEGIN IMMEDIATE')
+            if cid is not None and not conn.execute('SELECT 1 FROM campaigns WHERE id=?', (cid,)).fetchone():
+                raise ValueError('Tarefa não encontrada')
             for row in rows:
                 if not isinstance(row, dict):
                     stats['invalid'] += 1
@@ -381,13 +420,21 @@ class CampaignStore:
                     current = json.loads(conn.execute('SELECT payload FROM leads WHERE id=?', (lead_id,)).fetchone()[0])
                     current.update({key: value for key, value in dict(row, username=username, phone=phone).items() if value not in (None, '')})
                     conn.execute('UPDATE leads SET payload=? WHERE id=?', (json.dumps(current), lead_id))
-                    stats['duplicates'] += 1
+                    stats['duplicates' if cid is None or lead_id in selected else 'added'] += 1
+                    selected.add(lead_id)
                     continue
                 payload = dict(row, username=username, phone=phone)
                 lead_id = conn.execute('INSERT INTO leads(payload,created) VALUES(?,?)', (json.dumps(payload), time.time())).lastrowid
                 for alias in aliases:
                     conn.execute('INSERT INTO aliases VALUES(?,?)', (alias, lead_id))
                 stats['added'] += 1
+                selected.add(lead_id)
+            if cid is not None:
+                if not selected:
+                    raise ValueError('O arquivo não contém contatos válidos. A lista anterior foi mantida.')
+                conn.execute('DELETE FROM campaign_leads WHERE campaign_id=?', (cid,))
+                conn.executemany('INSERT INTO campaign_leads VALUES(?,?)', [(cid, lead_id) for lead_id in selected])
+                conn.execute('INSERT OR REPLACE INTO campaign_sources VALUES(?,?,?)', (cid, os.path.basename(filename.replace('\\', '/'))[:255], time.time()))
         return stats
 
     def claim(self, cid, gid):
@@ -411,10 +458,13 @@ class CampaignStore:
             used = conn.execute("SELECT count(*) FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('sending','added','unknown')" + slot_sql, params).fetchone()[0]
             if used >= limit:
                 return None
-            lead = conn.execute('''SELECT * FROM leads l WHERE canonical_id IS NULL AND NOT EXISTS (
+            lead = conn.execute('''SELECT * FROM leads l WHERE canonical_id IS NULL AND EXISTS (
+                SELECT 1 FROM campaign_leads cl JOIN leads selected ON selected.id=cl.lead_id
+                WHERE cl.campaign_id=? AND (selected.id=l.id OR selected.canonical_id=l.id)
+            ) AND NOT EXISTS (
                 SELECT 1 FROM deliveries WHERE campaign_id=? AND scope=? AND lead_id IN (
                     SELECT id FROM leads WHERE id=l.id OR canonical_id=l.id
-                )) ORDER BY id LIMIT 1''', (cid, scope)).fetchone()
+                )) ORDER BY id LIMIT 1''', (cid, cid, scope)).fetchone()
             if not lead:
                 return None
             did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status) VALUES(?,?,?,?,?,?,'sending')", (cid, gid, group['slot'], lead['id'], scope, day)).lastrowid
@@ -446,8 +496,12 @@ class CampaignStore:
         with self.db() as conn:
             ids = [row[0] for row in conn.execute('SELECT id FROM campaigns ORDER BY id DESC')]
             result = {'total_leads': conn.execute('SELECT count(*) FROM leads WHERE canonical_id IS NULL').fetchone()[0], 'campaigns': []}
+            result['assigned_leads'] = conn.execute('SELECT count(*) FROM (SELECT cl.campaign_id,COALESCE(l.canonical_id,l.id) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id GROUP BY cl.campaign_id,COALESCE(l.canonical_id,l.id))').fetchone()[0]
             for cid in ids:
                 task = self.get(cid)
+                source = conn.execute('SELECT filename,imported FROM campaign_sources WHERE campaign_id=?', (cid,)).fetchone()
+                task['lead_source'] = dict(source) if source else None
+                task['lead_count'] = conn.execute('SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?', (cid,)).fetchone()[0]
                 task['groups'] = self.groups(cid)
                 task['events'] = [dict(row) for row in conn.execute('SELECT message,created FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 20', (cid,))]
                 task['counts'] = dict(conn.execute('SELECT status,count(*) FROM deliveries WHERE campaign_id=? GROUP BY status', (cid,)))
@@ -463,8 +517,22 @@ class TelegramCampaignGateway:
         self.paths, self.sessions, self.api = paths, sessions, api
         self.clients = {}
         self.peers = {}
+        self.client_locks = {}
 
     async def client(self, name):
+        async with self.client_locks.setdefault(name, asyncio.Lock()):
+            try:
+                return await self._connect_client(name)
+            except Exception:
+                client = self.clients.pop(name, None)
+                if client:
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+                raise
+
+    async def _connect_client(self, name):
         if name not in self.clients:
             from telethon import TelegramClient
             info = self.sessions[name]
@@ -538,6 +606,15 @@ class TelegramCampaignGateway:
             await client.send_file(peer, image)
         else:
             await client.send_message(peer, phrase)
+
+    async def member_count(self, group):
+        from telethon.tl.functions.channels import GetFullChannelRequest
+        client, peer = await self.peer(group, group['creator'])
+        result = await client(GetFullChannelRequest(peer))
+        count = getattr(result.full_chat, 'participants_count', None)
+        if not isinstance(count, int) or count < 0:
+            raise ValueError('O Telegram não informou a quantidade de membros.')
+        return count
 
     async def promote_admin(self, group, username):
         from telethon.tl.functions.channels import EditAdminRequest
@@ -685,6 +762,8 @@ async def campaign_loop(store, cid, gateway):
                 if store.get(cid)['status'] != 'running':
                     break
                 gid = group['id']
+                if group['channel_id'] and hasattr(gateway, 'member_count'):
+                    await store.refresh_member_count(group, gateway)
                 if group['status'] == 'error':
                     continue
                 try:
@@ -702,6 +781,8 @@ async def campaign_loop(store, cid, gateway):
                             except Exception as error:
                                 store.event(cid, f"Grupo {group['slot']}: não foi possível promover @{username}: {error}. Verifique o administrador no Telegram.")
                         store.event(cid, f"Grupo {group['slot']}: criado/vinculado com sucesso.")
+                        if hasattr(gateway, 'member_count'):
+                            await store.refresh_member_count({**group, **created}, gateway)
                         worked = True
                     elif group['status'] == 'warming':
                         if time.time() >= group['warm_until']:
@@ -759,7 +840,7 @@ async def campaign_loop(store, cid, gateway):
                     store.event(cid, f"Grupo {group['slot']}: {error}. Pause e substitua o grupo ou revise a sessão.")
                     worked = True
                 if worked:
-                    await wait(settings['delay'])
+                    await wait(random.randint(settings.get('delay_min', settings.get('delay', 60)), settings.get('delay_max', settings.get('delay', 60))))
                     worked = False
             groups = store.groups(cid)
             if groups and all(group['status'] == 'error' for group in groups):
@@ -779,6 +860,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     initialized = set()
     guard = threading.RLock()
     group_actions_busy = set()
+    runtimes = {}
 
     def worker_busy(username):
         return username in group_actions_busy or bool(workers.get(username) and workers[username].is_alive())
@@ -871,7 +953,8 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         file = request.files.get('file')
         if not file or not file.filename:
             raise ValueError('Selecione um arquivo de leads')
-        stats = store_for(session['username']).import_leads(file.filename, file.stream.read(25 * 1024 * 1024 + 1))
+        cid = integer(request.form.get('campaign_id'), 'Selecione a tarefa', high=2147483647)
+        stats = store_for(session['username']).import_leads(file.filename, file.stream.read(25 * 1024 * 1024 + 1), cid=cid)
         return jsonify(success=True, **stats)
 
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>', methods=['PUT'])
@@ -956,6 +1039,72 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             with guard:
                 group_actions_busy.discard(username)
                 set_lock('group_campaign', False, username=username)
+
+    @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/members', methods=['POST'])
+    @endpoint
+    def campaign_members_api(cid, gid):
+        username = session['username']
+        standalone = False
+        with guard:
+            store = store_for(username)
+            store.get(cid)
+            group = next((item for item in store.groups(cid) if item['id'] == gid), None)
+            if not group or not all(group.get(key) for key in ('channel_id', 'access_hash', 'creator')):
+                raise ValueError('O grupo ainda não foi criado ou vinculado.')
+            if group['deletion_status'] in {'pending', 'unknown'}:
+                raise ValueError('Resolva a exclusão pendente antes de consultar membros.')
+            runtime = runtimes.get(username)
+            if username in group_actions_busy:
+                raise ValueError('Aguarde a operação atual terminar e atualize novamente.')
+            if runtime:
+                runtime_cid, gateway, loop = runtime
+                if runtime_cid != cid or group['creator'] not in gateway.sessions:
+                    raise ValueError('A sessão deste grupo está indisponível enquanto outra tarefa executa.')
+                future = asyncio.run_coroutine_threadsafe(store.refresh_member_count(group, gateway), loop)
+            else:
+                if worker_busy(username):
+                    raise ValueError('Aguarde a tarefa iniciar ou encerrar e atualize novamente.')
+                allowed, message = check_lock('group_factory', username=username)
+                if not allowed or get_locks(username).get('extraction'):
+                    raise ValueError(message if not allowed else 'Aguarde a extração terminar.')
+                manager = get_sessions(username)
+                saved = {item['session_name']: item for item in manager.load_sessions(force_reload=True)}
+                info = saved.get(group['creator'])
+                if not info or not info.get('active', True) or info.get('status', 'active') != 'active' or manager.is_session_flooded(group['creator']):
+                    raise ValueError('A sessão criadora está indisponível.')
+                api = get_api()
+                if not all(api):
+                    raise ValueError('Configure sua API primeiro.')
+                gateway = TelegramCampaignGateway(get_paths(username), {group['creator']: info}, api)
+                set_lock('group_campaign', True, username=username)
+                group_actions_busy.add(username)
+                standalone = True
+
+        async def read():
+            try:
+                await store.refresh_member_count(group, gateway)
+            finally:
+                try:
+                    await asyncio.wait_for(gateway.close(), timeout=5)
+                except Exception:
+                    pass
+
+        try:
+            if standalone:
+                asyncio.run(read())
+            else:
+                future.result(timeout=25)
+            current = next(item for item in store.groups(cid) if item['id'] == gid)
+            return jsonify(success=True, members=current['members'])
+        except Exception:
+            if not standalone:
+                future.cancel()
+            return jsonify(success=False, error='Não foi possível atualizar a contagem agora. Tente novamente.'), 400
+        finally:
+            if standalone:
+                with guard:
+                    group_actions_busy.discard(username)
+                    set_lock('group_campaign', False, username=username)
 
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/ownership', defaults={'check_only': False}, methods=['POST'])
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/ownership/check', defaults={'check_only': True}, methods=['POST'])
@@ -1098,8 +1247,16 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             set_lock('group_campaign', True, username=username)
 
             def run():
+                async def with_runtime():
+                    with guard:
+                        runtimes[username] = (cid, gateway, asyncio.get_running_loop())
+                    try:
+                        await campaign_loop(store, cid, gateway)
+                    finally:
+                        with guard:
+                            runtimes.pop(username, None)
                 try:
-                    asyncio.run(campaign_loop(store, cid, gateway))
+                    asyncio.run(with_runtime())
                 except Exception as error:
                     store.state(cid, 'paused', str(error))
                 finally:

@@ -9,6 +9,44 @@
     let viewInitialized = false;
     let groupActionSubmitting = false;
 
+    function groupShareLink(group) {
+        if (!group.channel_id) return '';
+        const link = group.invite || group.reference || '';
+        if (/^https:\/\/t\.me\/[\w+/-]+$/.test(link)) return link;
+        if (/^t\.me\/[\w+/-]+$/.test(link)) return 'https://' + link;
+        if (/^@[\w]+$/.test(link)) return 'https://t.me/' + link.slice(1);
+        return '';
+    }
+
+    async function copyGroupList(task) {
+        const groups = task.groups.filter(group => groupShareLink(group));
+        if (!groups.length) throw new Error('Esta tarefa ainda não tem grupos com links disponíveis.');
+        const text = groups.map(group => `${group.title}\n${groupShareLink(group)}`).join('\n\n');
+        let copied = false;
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+                copied = true;
+            }
+        } catch (_) { /* Try the fallback for browsers without clipboard permission. */ }
+        if (!copied) {
+            const input = document.createElement('textarea');
+            input.value = text;
+            input.style.position = 'fixed';
+            input.style.opacity = '0';
+            document.body.appendChild(input);
+            input.select();
+            try { copied = document.execCommand('copy'); } catch (_) { /* Manual copy below. */ }
+            finally { input.remove(); }
+        }
+        if (!copied) {
+            window.prompt('Copie a lista de nomes e links abaixo:', text);
+            return;
+        }
+        const missing = task.groups.length - groups.length;
+        notice(`${groups.length} grupo(s) copiado(s) com nome e link.${missing ? ` ${missing} grupo(s) sem link disponível ficaram de fora.` : ''}`);
+    }
+
     function deletionControls(task, group, busy) {
         if (!group.channel_id || !group.access_hash || !group.creator) return '';
         return `<details class="gc-ownership gc-delete-group" data-detail="delete-${group.id}">
@@ -107,7 +145,7 @@
         el('campaign-images').value = '';
         el('campaign-images-status').textContent = `${selectedImages.length} imagens salvas`;
         const fields = {name:task.name, count:task.groups.length, limit:settings.daily_limit,
-            'limit-scope':settings.limit_scope, dedup:settings.dedup, delay:settings.delay,
+            'limit-scope':settings.limit_scope, dedup:settings.dedup, 'delay-min':settings.delay_min ?? settings.delay ?? 60, 'delay-max':settings.delay_max ?? settings.delay ?? 60,
             admin:(settings.admin_usernames || [settings.admin_username].filter(Boolean)).join('\n'),
             warming:settings.warming ? 'yes' : 'no', phrases:settings.messages.join('\n'),
             'warm-days':settings.warm_days, 'warm-interval':settings.warm_interval};
@@ -129,11 +167,16 @@
             const data = await api();
             if (current !== version) return;
             snapshot = data;
+            const leadTask = el('campaign-leads-task');
+            const chosenTask = leadTask.value;
+            leadTask.innerHTML = '<option value="">Selecione uma tarefa</option>' + data.campaigns.map(task => `<option value="${task.id}">#${task.id} · ${esc(task.name)}</option>`).join('');
+            leadTask.value = chosenTask;
+
             if (!viewInitialized) {
                 el('campaign-builder').open = data.campaigns.length === 0;
                 viewInitialized = true;
             }
-            el('campaign-lead-total').textContent = data.total_leads.toLocaleString('pt-BR');
+            el('campaign-lead-total').textContent = (data.assigned_leads || 0).toLocaleString('pt-BR');
             el('campaign-task-total').textContent = data.campaigns.length;
             el('campaign-running-total').textContent = `${data.campaigns.filter(task => task.status === 'running').length} em execução`;
             el('campaign-added-total').textContent = data.campaigns.reduce((total, task) => total + (task.counts.added || 0), 0).toLocaleString('pt-BR');
@@ -147,18 +190,22 @@
                     <div class="gc-task-head"><div><span class="gc-task-id">TAREFA #${task.id}</span><h3>${esc(task.name)}</h3></div><div class="gc-task-actions"><span class="gc-badge ${esc(task.status)}">${esc(labels[task.status] || task.status)}</span>
                     ${task.status === 'running' ? `<button class="btn btn-warning" data-action="pause" data-id="${task.id}">Pausar tarefa</button>` : `<button class="btn btn-primary" data-action="start" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Iniciar tarefa</button>`}
                     <button class="btn btn-primary" data-action="edit" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Editar tarefa</button>
+                    <button type="button" class="btn btn-primary" data-action="copy-links" data-id="${task.id}" ${task.groups.some(group => groupShareLink(group)) ? '' : 'disabled'} title="Copiar nomes e links dos grupos desta tarefa">Copiar nomes e links</button>
                     <button class="btn btn-danger" data-action="delete" data-id="${task.id}" ${busy ? 'disabled' : ''}>Excluir tarefa</button></div></div>
                     <div class="gc-task-body">
                     <div class="gc-task-meta"><span>${task.groups.length} grupos</span><span>${task.settings.sessions.length} sessões</span><span>${task.settings.warming ? 'Com aquecimento' : 'Sem aquecimento'}</span><span>${task.settings.dedup === 'task' ? 'Um grupo por lead' : 'Uma vez por grupo'}</span></div>
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
+                    <p class="info">${task.lead_source ? `Arquivo desta tarefa: <strong>${esc(task.lead_source.filename)}</strong> · ${task.lead_count} contatos` : 'Esta tarefa está sem arquivo próprio. Importe os contatos para habilitar as adições; a lista compartilhada antiga não será usada.'}</p>
+                    <button type="button" class="btn btn-primary" data-action="import-leads" data-id="${task.id}">Importar arquivo desta tarefa</button>
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
                     ${!task.groups.length ? '<p class="info">Esta tarefa não tem mais grupos. O histórico foi mantido; você pode excluir a tarefa quando quiser.</p>' : ''}
                     ${busy ? '<p class="info gc-note">Para editar, excluir ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
                     ${task.settings.limit_scope === 'task' ? `<form data-settings="${task.id}" class="gc-upload"><div class="form-group"><label>Limite diário de todos os grupos juntos<input name="daily_limit" type="number" value="${task.settings.daily_limit}" min="1" max="10000" required ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Salvar limite</button></form>` : ''}
                     <details class="gc-group-list" data-detail="groups-${task.id}"><summary>Ver grupos da tarefa <span class="gc-badge">${task.groups.length}</span></summary><div class="gc-group-grid">
                     ${task.groups.map(group => `<details class="gc-group" data-detail="group-${group.id}">
-                        <summary><span><span class="gc-group-title">${esc(group.title)}</span><small>${group.added} adicionados no total · cota usada hoje: ${group.today}${task.settings.limit_scope === 'group' ? '/' + group.daily_limit : ''}</small></span><span class="gc-badge ${esc(group.status)}">${esc(labels[group.status] || group.status)}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
+                        <summary><span><span class="gc-group-title">${esc(group.title)}</span><small>${group.members?.count != null ? `${Number(group.members.count).toLocaleString('pt-BR')} membros no grupo · ` : ''}${group.added} adicionados pela tarefa · cota usada hoje: ${group.today}${task.settings.limit_scope === 'group' ? '/' + group.daily_limit : ''}</small></span><span class="gc-badge ${esc(group.status)}">${esc(labels[group.status] || group.status)}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
                         <div class="gc-group-content">
+                        ${group.channel_id ? `<div class="gc-members"><p><strong>Membros no Telegram: ${group.members?.count != null ? Number(group.members.count).toLocaleString('pt-BR') : 'Ainda não consultado'}</strong></p>${group.members?.updated ? `<small>Consultado em ${esc(new Date(group.members.updated * 1000).toLocaleString('pt-BR'))}. Atualização automática durante a execução, com intervalo mínimo de 1 minuto.</small>` : ''}${group.members?.error ? `<p class="gc-alert">${esc(group.members.error)}</p>` : ''}<button type="button" class="btn btn-primary" data-action="members" data-id="${task.id}" data-group-id="${group.id}">Atualizar membros</button></div>` : ''}
                         ${group.invite && /^https:\/\/t\.me\//.test(group.invite) ? `<p><a href="${esc(group.invite)}" target="_blank" rel="noopener noreferrer">Abrir grupo no Telegram ↗</a></p>` : ''}
                         ${group.error ? `<p class="gc-alert" role="alert">${esc(group.error)}</p>` : ''}
                         ${group.status === 'warming' ? `<p>Aquecimento até ${esc(new Date(group.warm_until * 1000).toLocaleString('pt-BR'))}</p>` : ''}
@@ -227,6 +274,7 @@
                     el('campaign-session-options').scrollIntoView({behavior:'smooth', block:'center'});
                     throw new Error('Marque pelo menos uma sessão na etapa 02.');
                 }
+                if (Number(el('campaign-delay-max').value) < Number(el('campaign-delay-min').value)) throw new Error('O intervalo máximo deve ser maior ou igual ao mínimo.');
                 const files = [...el('campaign-images').files];
                 if (files.length) {
                     if (files.length > 30 || files.some(file => file.size > 10 * 1024 * 1024) || files.reduce((sum, file) => sum + file.size, 0) > 30 * 1024 * 1024) throw new Error('Selecione até 30 imagens: 10 MB por arquivo e 30 MB no total.');
@@ -243,7 +291,7 @@
                     sessions:Array.from(el('campaign-sessions').selectedOptions, option => option.value),
                     warming:el('campaign-warming').value === 'yes', messages:el('campaign-phrases').value,
                     warm_days:el('campaign-warm-days').value, warm_interval:el('campaign-warm-interval').value,
-                    delay:el('campaign-delay').value, dedup:el('campaign-dedup').value, limit_scope:el('campaign-limit-scope').value,
+                    delay_min:el('campaign-delay-min').value, delay_max:el('campaign-delay-max').value, dedup:el('campaign-dedup').value, limit_scope:el('campaign-limit-scope').value,
                 };
                 const result = await api(editingId === null ? '' : `/${editingId}`, json(editingId === null ? 'POST' : 'PUT', payload));
                 resetEditor();
@@ -258,6 +306,7 @@
             submit(event.currentTarget, async () => {
                 const data = new FormData();
                 data.append('file', el('campaign-leads-file').files[0]);
+                data.append('campaign_id', el('campaign-leads-task').value);
                 const result = await api('/leads', {method:'POST', body:data});
                 el('campaign-import-result').textContent = `${result.added} novos · ${result.duplicates} duplicados · ${result.invalid} inválidos`;
                 notice('Importação concluída');
@@ -270,6 +319,30 @@
             button.disabled = true;
             try {
                 const id = Number(button.dataset.id);
+                if (button.dataset.action === 'import-leads') {
+                    el('campaign-leads-task').value = String(id);
+                    reveal('campaign-bank');
+                    button.disabled = false;
+                    return;
+                }
+                if (button.dataset.action === 'members') {
+                    button.textContent = 'Consultando Telegram…';
+                    try {
+                        const result = await api(`/${id}/groups/${button.dataset.groupId}/members`, {method:'POST'});
+                        notice(result.members.error || (result.members.count != null ? `${Number(result.members.count).toLocaleString('pt-BR')} membros na última consulta ao Telegram.` : 'Consulta em andamento. Atualize novamente em instantes.'), Boolean(result.members.error));
+                        document.activeElement?.blur();
+                        await load();
+                    } finally {
+                        button.disabled = false;
+                        button.textContent = 'Atualizar membros';
+                    }
+                    return;
+                }
+                if (button.dataset.action === 'copy-links') {
+                    await copyGroupList(snapshot.campaigns.find(task => task.id === id));
+                    button.disabled = false;
+                    return;
+                }
                 if (button.dataset.action === 'edit') {
                     await editTask(snapshot.campaigns.find(task => task.id === id));
                     button.disabled = false;

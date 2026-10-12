@@ -77,7 +77,7 @@ class DeleteGroupApiTests(unittest.TestCase):
         return self.client.delete(self.url, json={**self.payload, **changes})
 
     def test_confirmed_deletion_removes_group_but_keeps_leads_and_history(self):
-        self.store.import_leads('leads.txt', b'@some_user')
+        self.store.import_leads('leads.txt', b'@some_user', cid=self.cid)
         self.store.state(self.cid, 'running')
         delivery = self.store.claim(self.cid, self.gid)
         self.store.finish(delivery['id'], 'added')

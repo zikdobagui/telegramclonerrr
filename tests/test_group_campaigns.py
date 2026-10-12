@@ -28,6 +28,17 @@ class InviteResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(request.admin_rights.add_admins)
         client.get_input_entity.assert_awaited_once_with('@example_user')
 
+    async def test_member_count_uses_full_channel_and_does_not_guess_missing_count(self):
+        from telethon.tl.functions.channels import GetFullChannelRequest
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(return_value=SimpleNamespace(full_chat=SimpleNamespace(participants_count=0)))
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        self.assertEqual(await gateway.member_count({'creator': 'owner'}), 0)
+        self.assertIsInstance(client.await_args.args[0], GetFullChannelRequest)
+        client.return_value = SimpleNamespace(full_chat=SimpleNamespace(participants_count=None))
+        with self.assertRaises(ValueError):
+            await gateway.member_count({'creator': 'owner'})
+
     async def test_warm_sends_selected_image(self):
         gateway = TelegramCampaignGateway({}, {}, ())
         client = AsyncMock()
@@ -107,7 +118,7 @@ class CampaignStoreTests(unittest.TestCase):
         return cid, self.store.groups(cid)
 
     def leads(self, count=10):
-        return self.store.import_leads('leads.json', json.dumps({'members': [{'id': 100 + n, 'username': f'lead_{n}', 'access_hash': 9000000000000000000 + n} for n in range(count)]}).encode())
+        return self.store.import_leads('leads.json', json.dumps({'members': [{'id': 100 + n, 'username': f'lead_{n}', 'access_hash': 9000000000000000000 + n} for n in range(count)]}).encode(), cid=next(iter(self.store.snapshot()['campaigns']), {}).get('id'))
 
     def test_resume_recovers_invite_error_without_resetting_leads_or_quota(self):
         cid, groups = self.task()
@@ -146,6 +157,50 @@ class CampaignStoreTests(unittest.TestCase):
             self.store.prepare_start(cid)
         self.assertEqual(self.store.get(cid)['status'], 'paused')
 
+    def test_delay_range_and_legacy_fixed_interval(self):
+        cid, _ = self.task(delay_min=1, delay_max=29)
+        settings = self.store.get(cid)['settings']
+        self.assertEqual((settings['delay_min'], settings['delay_max']), (1, 29))
+        legacy, _ = self.task(delay=45)
+        settings = self.store.get(legacy)['settings']
+        self.assertEqual((settings['delay_min'], settings['delay_max']), (45, 45))
+        for minimum, maximum in [(0, 29), (30, 29), (1, 3601)]:
+            with self.assertRaises(ValueError):
+                self.task(delay_min=minimum, delay_max=maximum)
+
+    def test_each_campaign_only_consumes_its_own_file(self):
+        first, first_groups = self.task()
+        second, second_groups = self.task()
+        self.store.import_leads('first.txt', b'@first_person', cid=first)
+        self.store.import_leads('second.txt', b'@second_person', cid=second)
+        self.assertEqual(self.store.claim(first, first_groups[0]['id'])['payload']['username'], 'first_person')
+        self.assertEqual(self.store.claim(second, second_groups[0]['id'])['payload']['username'], 'second_person')
+        tasks = {task['id']: task for task in self.store.snapshot()['campaigns']}
+        self.assertEqual(tasks[first]['lead_source']['filename'], 'first.txt')
+        self.assertEqual(tasks[second]['lead_count'], 1)
+
+    def test_old_shared_bank_is_not_assigned_to_any_task(self):
+        self.store.import_leads('old.txt', b'@old_person')
+        cid, groups = self.task()
+        self.assertIsNone(self.store.claim(cid, groups[0]['id']))
+        self.assertIsNone(self.store.snapshot()['campaigns'][0]['lead_source'])
+
+    def test_replacing_file_preserves_delivery_history_and_other_task_list(self):
+        first, groups = self.task()
+        second, other_groups = self.task()
+        self.store.import_leads('one.txt', b'@already_used\n@old_unused', cid=first)
+        delivery = self.store.claim(first, groups[0]['id'])
+        self.store.finish(delivery['id'], 'added')
+        self.store.import_leads('two.txt', b'@other_person', cid=second)
+        self.store.import_leads('replacement.txt', b'@already_used\n@new_person', cid=first)
+        self.assertEqual(self.store.claim(first, groups[1]['id'])['payload']['username'], 'new_person')
+        self.assertEqual(self.store.claim(second, other_groups[0]['id'])['payload']['username'], 'other_person')
+        with self.assertRaises(ValueError):
+            self.store.import_leads('empty.txt', b'', cid=first)
+        task = next(t for t in self.store.snapshot()['campaigns'] if t['id'] == first)
+        self.assertEqual(task['lead_source']['filename'], 'replacement.txt')
+        self.assertEqual(task['counts']['added'], 1)
+
     def test_import_is_additive_and_deduplicates_aliases(self):
         self.assertEqual(self.leads(3)['added'], 3)
         self.assertEqual(self.leads(5)['added'], 2)
@@ -166,11 +221,11 @@ class CampaignStoreTests(unittest.TestCase):
 
     def test_enriched_import_merges_identities_without_reusing_delivered_lead(self):
         cid, groups = self.task()
-        self.store.import_leads('leads.json', b'[{"id":123}]')
-        self.store.import_leads('leads.txt', b'@same_lead')
+        self.store.import_leads('leads.json', b'[{"id":123}]', cid=cid)
+        self.store.import_leads('leads.txt', b'@same_lead', cid=cid)
         reserved = self.store.claim(cid, groups[0]['id'])
         self.store.finish(reserved['id'], 'added')
-        self.store.import_leads('leads.json', b'[{"id":123,"username":"same_lead"}]')
+        self.store.import_leads('leads.json', b'[{"id":123,"username":"same_lead"}]', cid=cid)
         self.assertEqual(self.store.snapshot()['total_leads'], 1)
         self.assertIsNone(self.store.claim(cid, groups[1]['id']))
 
@@ -249,7 +304,7 @@ class CampaignStoreTests(unittest.TestCase):
 
     def test_runner_creates_warms_and_distributes(self):
         cid = self.store.create({'name': 'Teste', 'count': 1, 'warming': True, 'messages': 'Olá\nBem-vindo',
-                                 'admin_usernames': '@admin_one, @admin_two'}, ['one.session'])
+                                 'admin_usernames': '@admin_one, @admin_two', 'delay_min': 1, 'delay_max': 29}, ['one.session'])
         self.leads(1)
         self.store.state(cid, 'running')
         store = self.store
@@ -280,8 +335,10 @@ class CampaignStoreTests(unittest.TestCase):
                 calls.append('close')
 
         # Fast-forward waits; no Telegram requests are made.
-        with patch('group_campaigns.time.monotonic', side_effect=(n * 10000 for n in range(1000))):
+        with patch('group_campaigns.time.monotonic', side_effect=(n * 10000 for n in range(1000))), patch('group_campaigns.random.randint', return_value=7) as choose_delay:
             asyncio.run(campaign_loop(store, cid, Gateway()))
+        self.assertGreaterEqual(choose_delay.call_count, 2)
+        choose_delay.assert_called_with(1, 29)
         self.assertEqual(calls, ['create', 'admin_one', 'admin_two', 'warm', 'invite', 'close'])
         events = self.store.snapshot()['campaigns'][0]['events']
         self.assertTrue(any('não foi possível promover @admin_one' in event['message'] for event in events))
@@ -356,7 +413,7 @@ class CampaignApiTests(unittest.TestCase):
         self.assertEqual(bad.status_code, 400)
         created = self.client.post('/api/group-campaigns', json={'name': 'Task', 'count': 10, 'sessions': ['one.session']})
         self.assertTrue(created.json['success'])
-        imported = self.client.post('/api/group-campaigns/leads', data={'file': (io.BytesIO(b'@some_lead'), 'leads.txt')})
+        imported = self.client.post('/api/group-campaigns/leads', data={'campaign_id': created.json['id'], 'file': (io.BytesIO(b'@some_lead'), 'leads.txt')})
         self.assertEqual(imported.json['added'], 1)
         snapshot = self.client.get('/api/group-campaigns').json
         self.assertEqual(len(snapshot['campaigns'][0]['groups']), 10)
@@ -400,12 +457,65 @@ class CampaignApiTests(unittest.TestCase):
         self.assertEqual(recovered['status'], 'warming')
         self.assertEqual(recovered['error'], '')
 
+    def test_member_count_refresh_is_real_throttled_and_preserves_last_success(self):
+        self.login('alice')
+        cid = self.client.post('/api/group-campaigns', json={'name': 'Counts', 'count': 1, 'sessions': ['one.session']}).json['id']
+        store = CampaignStore(str(Path(self.temp.name) / 'alice'))
+        gid = store.groups(cid)[0]['id']
+        store.group_update(gid, status='ready', channel_id='123', access_hash='456', creator='one.session')
+        url = f'/api/group-campaigns/{cid}/groups/{gid}/members'
+        gateway = SimpleNamespace(member_count=AsyncMock(return_value=237), close=AsyncMock())
+        with patch('group_campaigns.TelegramCampaignGateway', return_value=gateway):
+            response = self.client.post(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json['members']['count'], 237)
+            self.assertGreater(response.json['members']['updated'], 0)
+            self.assertEqual(self.client.post(url).json['members']['count'], 237)
+            gateway.member_count.assert_awaited_once()
+            with store.db() as conn:
+                conn.execute('UPDATE group_member_counts SET next_check=0')
+            gateway.member_count.side_effect = TimeoutError('unavailable')
+            result = self.client.post(url).json['members']
+            self.assertEqual(result['count'], 237)
+            self.assertTrue(result['error'])
+            self.assertEqual(store.groups(cid)[0]['status'], 'ready')
+            self.login('bob')
+            self.assertEqual(self.client.post(url).status_code, 400)
+
+    def test_member_count_during_running_task_uses_existing_gateway(self):
+        self.login('alice')
+        cid = self.client.post('/api/group-campaigns', json={'name': 'Counts', 'count': 1, 'sessions': ['one.session']}).json['id']
+        store = CampaignStore(str(Path(self.temp.name) / 'alice'))
+        gid = store.groups(cid)[0]['id']
+        store.group_update(gid, status='ready', channel_id='123', access_hash='456', creator='one.session')
+        gateway = SimpleNamespace(sessions={'one.session': {}}, member_count=AsyncMock(return_value=42), close=AsyncMock())
+        started, stopped = threading.Event(), threading.Event()
+
+        async def fake_loop(store, task_id, gateway):
+            started.set()
+            while store.get(task_id)['status'] == 'running':
+                await asyncio.sleep(0.01)
+            stopped.set()
+
+        with patch('group_campaigns.campaign_loop', fake_loop), patch('group_campaigns.TelegramCampaignGateway', return_value=gateway) as factory:
+            self.assertEqual(self.client.post(f'/api/group-campaigns/{cid}/start').status_code, 200)
+            self.assertTrue(started.wait(5))
+            try:
+                response = self.client.post(f'/api/group-campaigns/{cid}/groups/{gid}/members')
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json['members']['count'], 42)
+                factory.assert_called_once()
+                gateway.close.assert_not_awaited()
+            finally:
+                self.client.post(f'/api/group-campaigns/{cid}/pause')
+                self.assertTrue(stopped.wait(5))
+
     def test_edit_delete_and_isolation(self):
         self.login('alice')
         payload = {'name': 'Original', 'count': 2, 'sessions': ['one.session']}
         cid = self.client.post('/api/group-campaigns', json=payload).json['id']
         store = CampaignStore(str(Path(self.temp.name) / 'alice'))
-        store.import_leads('leads.txt', b'@some_lead')
+        store.import_leads('leads.txt', b'@some_lead', cid=cid)
         group = store.groups(cid)[0]
         store.group_update(group['id'], status='ready')
         store.state(cid, 'running')
