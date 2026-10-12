@@ -1772,6 +1772,47 @@ function renderStatsTaskBreakdown(tasks) {
 
 let dashboardLoadVersion = 0;
 
+function renderDashboardCharts(sessions, tasks, campaigns, members, campaignAdded, assignedLeads) {
+    const colors = ['#e95863', '#61a9df', '#dfa75e', '#888b9c', '#a58bd4'];
+    const number = value => Math.max(0, Number(value) || 0);
+    const format = value => number(value).toLocaleString('pt-BR');
+    const bars = (id, entries) => {
+        const container = document.getElementById(id);
+        if (!container) return;
+        const max = Math.max(1, ...entries.map(entry => entry.value));
+        container.innerHTML = `<div class="dash-bars">${entries.map((entry, i) => `<div class="dash-bar-item"><div class="dash-bar-label"><span>${escapeHtml(entry.label)}</span><strong>${format(entry.value)}</strong></div><div class="dash-bar-track"><div style="width:${entry.value / max * 100}%;background:${colors[i % colors.length]}"></div></div></div>`).join('')}</div>${entries.every(entry => !entry.value) ? '<p class="dash-chart-empty">Nenhum registro para exibir.</p>' : ''}`;
+    };
+    const sessionEntries = [
+        {label: 'Ativas', value: sessions.filter(s => getSessionFilterKey(s) === 'active').length},
+        {label: 'Em flood', value: sessions.filter(s => getSessionFilterKey(s) === 'flood').length},
+        {label: 'Inativas', value: sessions.filter(s => getSessionFilterKey(s) === 'paused').length}
+    ];
+    const other = sessions.length - sessionEntries.reduce((sum, entry) => sum + entry.value, 0);
+    if (other) sessionEntries.push({label: 'Outras', value: other});
+    const container = document.getElementById('dash-chart-sessions');
+    if (container) {
+        let offset = 0;
+        const segments = sessionEntries.map((entry, i) => {
+            const start = offset;
+            offset += sessions.length ? entry.value / sessions.length * 100 : 0;
+            return `${colors[i]} ${start}% ${offset}%`;
+        });
+        container.innerHTML = `<div class="dash-donut-layout"><div class="dash-donut" role="img" aria-label="${escapeHtml(sessionEntries.map(entry => `${entry.label}: ${entry.value}`).join(', '))}" style="background:${sessions.length ? `conic-gradient(${segments.join(',')})` : 'var(--studio-line)'}"><div><strong>${format(sessions.length)}</strong><span>sessões</span></div></div><div class="dash-chart-legend">${sessionEntries.map((entry, i) => `<div><span><i style="background:${colors[i]}"></i>${entry.label}</span><strong>${format(entry.value)}</strong></div>`).join('')}</div></div>${!sessions.length ? '<p class="dash-chart-empty">Nenhuma sessão cadastrada.</p>' : ''}`;
+    }
+    const statuses = new Map();
+    const labels = {active: 'Em execução', running: 'Em execução', paused: 'Pausadas', pending: 'Pendentes', completed: 'Concluídas', finished: 'Concluídas', stopped: 'Paradas', error: 'Com erro', failed: 'Com erro', draft: 'Rascunhos'};
+    [...tasks, ...campaigns].forEach(task => {
+        const label = labels[task.status] || task.status || 'Sem status';
+        statuses.set(label, (statuses.get(label) || 0) + 1);
+    });
+    bars('dash-chart-tasks', statuses.size ? Array.from(statuses, ([label, value]) => ({label, value})) : [{label: 'Em execução', value: 0}, {label: 'Pausadas', value: 0}, {label: 'Concluídas', value: 0}]);
+    bars('dash-chart-members', [
+        {label: 'Membros extraídos', value: number(members.extracted_total)},
+        {label: 'Adições confirmadas', value: number(members.added) + number(campaignAdded)},
+        {label: 'Leads nas tarefas de grupos', value: number(assignedLeads)}
+    ]);
+}
+
 async function loadDashboard() {
     const version = ++dashboardLoadVersion;
     try {
@@ -1800,6 +1841,8 @@ async function loadDashboard() {
 
         const sessions = sessionsData.sessions || [];
         const tasks = tasksData.tasks || [];
+        renderDashboardCharts(sessions, tasks, campaigns, members, campaignAdded, campaignsData.assigned_leads);
+        setText('dash-chart-status', `Gráficos atualizados às ${new Date().toLocaleTimeString('pt-BR')}.`);
         const locks = locksData.locks || {};
         renderProcesses(processesData.processes || []);
 
@@ -1835,6 +1878,7 @@ async function loadDashboard() {
     } catch (error) {
         if (version !== dashboardLoadVersion) return;
         setText('dash-work-status', 'Indisponível');
+        setText('dash-chart-status', 'Não foi possível atualizar os gráficos. A última leitura foi mantida.');
         console.error('Erro ao carregar dashboard:', error);
         const healthText = document.getElementById('dash-health-text');
         if (healthText) healthText.textContent = 'Não consegui atualizar os indicadores. Os valores exibidos podem estar desatualizados.';
