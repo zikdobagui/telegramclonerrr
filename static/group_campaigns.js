@@ -122,13 +122,19 @@
         preview();
     }
     async function loadSessions() {
-        const [response, tasksResponse] = await Promise.all([
-            fetch('/api/sessions', {cache:'no-store'}),
-            fetch('/api/tasks/blocked-sessions', {cache:'no-store'}),
-        ]);
+        // The session picker must remain usable even if the optional task-lock
+        // endpoint is temporarily unavailable.
+        const response = await fetch('/api/sessions', {cache:'no-store'});
         if (!response.ok) throw new Error('Não foi possível carregar sessões');
         const data = await response.json();
-        const taskData = tasksResponse.ok ? await tasksResponse.json() : {};
+        let taskData = {};
+        try {
+            const tasksResponse = await fetch('/api/tasks/blocked-sessions', {cache:'no-store'});
+            if (tasksResponse.ok) taskData = await tasksResponse.json();
+        } catch (_) {
+            // Continue with the active sessions; this list is refreshed when
+            // the task-lock endpoint becomes available again.
+        }
         const occupied = new Set(taskData.reserved_sessions || taskData.blocked_sessions || []);
         for (const task of snapshot?.campaigns || []) {
             if (task.status === 'running' && task.id !== editingId) {
@@ -264,7 +270,11 @@
             const button = event.target.closest('[data-reveal]');
             if (button) reveal(button.dataset.reveal);
         });
-        el('campaign-new').addEventListener('click', () => { resetEditor(); reveal('campaign-builder'); });
+        el('campaign-new').addEventListener('click', async () => {
+            resetEditor();
+            reveal('campaign-builder');
+            try { await loadSessions(); } catch (error) { notice(error.message, true); }
+        });
         el('campaign-cancel-edit').addEventListener('click', () => { resetEditor(); el('campaign-builder').open = false; });
         el('campaign-create-form').addEventListener('input', preview);
         el('campaign-create-form').addEventListener('change', preview);
@@ -477,6 +487,10 @@
             await load();
             loadSessions().catch(error => notice(error.message, true));
         });
+        if (el('comingSoon').classList.contains('active')) {
+            load();
+            loadSessions().catch(error => notice(error.message, true));
+        }
         setInterval(() => { if (el('comingSoon').classList.contains('active')) load(); }, 10000);
     });
 })();
