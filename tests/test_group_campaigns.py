@@ -367,9 +367,12 @@ class CampaignStoreTests(unittest.TestCase):
             async def close(self):
                 pass
 
-        with patch('group_campaigns.time.monotonic', side_effect=(n * 10000 for n in range(1000))):
-            asyncio.run(campaign_loop(self.store, cid, Gateway()))
-        self.assertEqual(self.store.get(cid)['status'], 'paused')
+        async def run_briefly():
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(campaign_loop(self.store, cid, Gateway()), timeout=0.05)
+
+        asyncio.run(run_briefly())
+        self.assertEqual(self.store.get(cid)['status'], 'running')
         self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
         self.store.state(cid, 'running')
         self.store.group_update(group['id'], status='ready')

@@ -773,11 +773,11 @@ async def campaign_loop(store, cid, gateway):
                 if store.get(cid)['status'] != 'running':
                     break
                 gid = group['id']
-                if group['channel_id'] and hasattr(gateway, 'member_count'):
-                    await store.refresh_member_count(group, gateway)
                 if group['status'] == 'error':
                     continue
                 try:
+                    if group['channel_id'] and hasattr(gateway, 'member_count'):
+                        await store.refresh_member_count(group, gateway)
                     if group['status'] == 'pending':
                         store.group_update(gid, status='creating')
                         owner = names[(group['slot'] - 1) % len(names)]
@@ -835,32 +835,27 @@ async def campaign_loop(store, cid, gateway):
                     kind = type(error).__name__
                     if transient_request(error) and group['status'] == 'warming':
                         warm_failures[gid] = warm_failures.get(gid, 0) + 1
-                        if warm_failures[gid] < 3:
-                            store.event(cid, f"Grupo {group['slot']}: comunicação temporariamente indisponível; próximo envio no intervalo configurado. Detalhe: {error}")
-                            continue
+                        store.event(cid, f"Grupo {group['slot']}: comunicação temporariamente indisponível; o próximo envio será tentado automaticamente. Detalhe: {error}")
+                        continue
                     if transient_request(error) and group['status'] in {'ready', 'warming'}:
-                        message = 'Falha temporária de comunicação com o Telegram. Clique em Iniciar tarefa para retomar; leads sem confirmação permanecem reservados.'
-                        store.state(cid, 'paused', message)
-                        store.event(cid, f"Grupo {group['slot']}: {message} Detalhe: {kind}: {error}")
-                        break
+                        store.event(cid, f"Grupo {group['slot']}: falha temporária de comunicação; a tarefa continuará e tentará novamente automaticamente. Detalhe: {kind}: {error}")
+                        continue
                     if kind in {'FloodWaitError', 'PeerFloodError', 'UserRestrictedError', 'AuthKeyUnregisteredError', 'SessionRevokedError'}:
-                        if group['status'] == 'pending':
-                            store.group_update(gid, status='error', error=str(error)[:1000])
-                        raise
+                        store.group_update(gid, status='error', error=str(error)[:1000])
+                        store.event(cid, f"Grupo {group['slot']}: {kind}. O grupo foi ignorado, mas a tarefa continuará automaticamente.")
+                        worked = True
+                        continue
                     store.group_update(gid, status='error', error=str(error)[:1000])
-                    store.event(cid, f"Grupo {group['slot']}: {error}. Pause e substitua o grupo ou revise a sessão.")
+                    store.event(cid, f"Grupo {group['slot']}: {error}. O grupo foi ignorado; a tarefa continuará com os demais grupos.")
                     worked = True
                 if worked:
                     await wait(random.randint(settings.get('delay_min', settings.get('delay', 60)), settings.get('delay_max', settings.get('delay', 60))))
                     worked = False
-            groups = store.groups(cid)
-            if groups and all(group['status'] == 'error' for group in groups):
-                store.state(cid, 'paused', 'Todos os grupos precisam de revisão ou substituição.')
-                break
             await wait(15)
     except Exception as error:
-        store.state(cid, 'paused', str(error))
-        store.event(cid, f'Tarefa pausada: {error}')
+        # A campaign must only stop on an explicit user pause. The worker
+        # below recreates the gateway and resumes this loop after this log.
+        store.event(cid, f'Erro inesperado no executor: {error}. A tarefa permanece ativa.')
     finally:
         await gateway.close()
 
@@ -1253,23 +1248,30 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 if not info or not info.get('active', True) or info.get('status', 'active') != 'active' or manager.is_session_flooded(name):
                     raise ValueError(f'Sessão indisponível: {name}')
             paths = get_paths(username)
-            gateway = TelegramCampaignGateway(paths, {name: saved[name] for name in names}, api)
+            session_data = {name: saved[name] for name in names}
+            gateway = TelegramCampaignGateway(paths, session_data, api)
             store.prepare_start(cid)
             set_lock('group_campaign', True, username=username)
 
             def run():
                 async def with_runtime():
-                    with guard:
-                        runtimes[username] = (cid, gateway, asyncio.get_running_loop())
-                    try:
-                        await campaign_loop(store, cid, gateway)
-                    finally:
+                    current_gateway = gateway
+                    while store.get(cid)['status'] == 'running':
                         with guard:
-                            runtimes.pop(username, None)
+                            runtimes[username] = (cid, current_gateway, asyncio.get_running_loop())
+                        try:
+                            await campaign_loop(store, cid, current_gateway)
+                        finally:
+                            with guard:
+                                runtimes.pop(username, None)
+                        if store.get(cid)['status'] == 'running':
+                            store.event(cid, 'Executor reiniciado automaticamente após um erro.')
+                            await asyncio.sleep(5)
+                            current_gateway = TelegramCampaignGateway(paths, session_data, api)
                 try:
                     asyncio.run(with_runtime())
                 except Exception as error:
-                    store.state(cid, 'paused', str(error))
+                    store.event(cid, f'Erro ao reiniciar o executor: {error}. A tarefa continua marcada como ativa.')
                 finally:
                     set_lock('group_campaign', False, username=username)
 
