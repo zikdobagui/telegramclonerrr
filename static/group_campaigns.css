@@ -10,13 +10,16 @@
 #comingSoon .gc-panel-body { margin-top:14px; padding-top:14px; border-top:1px solid rgba(148,163,184,.16); }
 #comingSoon .gc-upload, #comingSoon .gc-save, #comingSoon .gc-monitor-heading, #comingSoon .gc-task-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 #comingSoon .gc-upload .form-group { flex:1; min-width:0; }
-#comingSoon .form-group textarea { width:100%; box-sizing:border-box; padding:10px 12px; font:inherit; font-size:13px; }
+#comingSoon .form-group textarea { width:100%; box-sizing:border-box; padding:8px 10px; font:inherit; font-size:13px; line-height:1.35; resize:vertical; }
 #comingSoon .gc-note, #comingSoon .gc-explanation { background:rgba(14,165,233,.08) !important; color:#94a3b8 !important; }
 #comingSoon .gc-step { margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid rgba(148,163,184,.16); }
 #comingSoon .gc-step-heading { display:flex; align-items:flex-start; gap:10px; margin-bottom:12px; }
 #comingSoon .gc-step-heading h3, #comingSoon .gc-monitor-heading h3, #comingSoon .gc-task-head h3 { color:#e2e8f0 !important; margin-bottom:4px !important; }
 #comingSoon .gc-step-heading p, #comingSoon .gc-monitor-heading p, #comingSoon .gc-save p { color:#94a3b8; font-size:12px; margin:4px 0; line-height:1.5; }
-#comingSoon .gc-sessions { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; max-height:320px; overflow:auto; margin-bottom:8px; }
+#comingSoon .gc-session-tools { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+#comingSoon .gc-session-tools input { min-width:0; flex:1; padding:7px 9px; font-size:12px; }
+#comingSoon .gc-session-tools span { color:#94a3b8; font-size:11px; white-space:nowrap; }
+#comingSoon .gc-sessions { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:6px; max-height:280px; overflow:auto; margin-bottom:8px; padding-right:2px; }
 #comingSoon .gc-session { display:flex; align-items:center; gap:8px; padding:10px; border:1px solid rgba(148,163,184,.18); border-radius:8px; color:#cbd5e1; font-size:12px; cursor:pointer; overflow-wrap:anywhere; background:rgba(15,23,42,.72); }
 #comingSoon .gc-session:has(input:checked) { border-color:#38bdf8; background:rgba(14,165,233,.12); }
 #comingSoon .gc-session:has(input:disabled) { opacity:.5; cursor:not-allowed; }
@@ -85,8 +88,8 @@
 #comingSoon .form-group { margin-bottom:8px !important; min-width:0; }
 #comingSoon .form-group label { margin-bottom:4px !important; }
 #comingSoon .form-row { gap:10px !important; }
-#comingSoon .gc-sessions { max-height:210px; gap:6px; }
-#comingSoon .gc-session { padding:7px 9px; }
+#comingSoon .gc-sessions { max-height:280px; gap:6px; }
+#comingSoon .gc-session { min-height:48px; padding:6px 8px; }
 #comingSoon .gc-session-identity small { margin-top:1px; }
 #comingSoon .gc-save, #comingSoon #campaign-edit-note { grid-column:1 / -1; }
 #comingSoon .gc-save { padding-top:2px; }
@@ -126,4 +129,5 @@
     #comingSoon > .task-queue-summary > div { padding:8px !important; }
     #comingSoon > .task-queue-summary small { line-height:1.3; }
     #comingSoon .gc-monitor-heading { align-items:flex-start; }
+    #comingSoon .gc-sessions { grid-template-columns:minmax(0,1fr); max-height:250px; }
 }

@@ -114,16 +114,30 @@
         el('campaign-preview').textContent = `${count} grupos · ${sessions} sessões · até ${perGroup ? count * limit : limit} adições/dia · ${el('campaign-warming').value === 'yes' ? 'com aquecimento' : 'sem aquecimento'}`;
     }
     function renderSessions() {
-        el('campaign-session-options').innerHTML = [...el('campaign-sessions').options].map(option => `<label class="gc-session"><input type="checkbox" value="${esc(option.value)}" ${option.selected ? 'checked' : ''} ${option.disabled ? 'disabled' : ''}><span class="gc-session-identity"><strong>${esc(option.dataset.name)}</strong><small>${esc(option.dataset.phone)}</small></span><span class="gc-session-state">${option.disabled ? 'Indisponível' : 'Disponível'}</span></label>`).join('') || '<p>Nenhuma sessão cadastrada. Adicione uma conta na aba Sessões.</p>';
+        const query = String(el('campaign-session-search')?.value || '').trim().toLocaleLowerCase('pt-BR');
+        const available = [...el('campaign-sessions').options].filter(option => !option.disabled);
+        const shown = available.filter(option => !query || `${option.dataset.name} ${option.dataset.phone} ${option.value}`.toLocaleLowerCase('pt-BR').includes(query));
+        el('campaign-session-available').textContent = `${shown.length} de ${available.length} disponíveis`;
+        el('campaign-session-options').innerHTML = shown.map(option => `<label class="gc-session"><input type="checkbox" value="${esc(option.value)}" ${option.selected ? 'checked' : ''}><span class="gc-session-identity"><strong>${esc(option.dataset.name)}</strong><small>${esc(option.dataset.phone)}</small></span><span class="gc-session-state">Disponível</span></label>`).join('') || `<p>${query ? 'Nenhuma sessão disponível encontrada.' : 'Nenhuma sessão disponível no momento.'}</p>`;
         preview();
     }
     async function loadSessions() {
-        const response = await fetch('/api/sessions', {cache:'no-store'});
+        const [response, tasksResponse] = await Promise.all([
+            fetch('/api/sessions', {cache:'no-store'}),
+            fetch('/api/tasks/blocked-sessions', {cache:'no-store'}),
+        ]);
         if (!response.ok) throw new Error('Não foi possível carregar sessões');
         const data = await response.json();
+        const taskData = tasksResponse.ok ? await tasksResponse.json() : {};
+        const occupied = new Set(taskData.reserved_sessions || taskData.blocked_sessions || []);
+        for (const task of snapshot?.campaigns || []) {
+            if (task.status === 'running' && task.id !== editingId) {
+                for (const name of task.settings.sessions || []) occupied.add(name);
+            }
+        }
         const selected = new Set(Array.from(el('campaign-sessions').selectedOptions, option => option.value));
-        el('campaign-sessions').innerHTML = (data.sessions || []).map(s => {
-            const unavailable = s.active === false || (s.status && s.status !== 'active');
+        el('campaign-sessions').innerHTML = (data.sessions || []).map((s, index) => {
+            const unavailable = s.active === false || (s.status && s.status !== 'active') || occupied.has(index) || occupied.has(s.session_name);
             const name = [s.first_name, s.last_name].filter(Boolean).join(' ').trim() || s.name || s.username || s.session_name || 'Sem nome';
             const phone = s.phone ? String(s.phone) : 'Telefone não informado';
             return `<option data-name="${esc(name)}" data-phone="${esc(phone)}" value="${esc(s.session_name)}" ${unavailable ? 'disabled' : ''} ${selected.has(s.session_name) && !unavailable ? 'selected' : ''}>${esc(name)} · ${esc(phone)}${unavailable ? ' — indisponível' : ''}</option>`;
@@ -259,6 +273,7 @@
             if (option) option.selected = event.target.checked;
             preview();
         });
+        el('campaign-session-search').addEventListener('input', renderSessions);
         preview();
         el('campaign-images-clear').addEventListener('click', () => {
             selectedImages = [];
@@ -454,8 +469,14 @@
                 await load();
             });
         });
-        el('campaign-refresh').addEventListener('click', () => { load(); loadSessions().catch(error => notice(error.message, true)); });
-        document.querySelector('[data-tab="comingSoon"]').addEventListener('click', () => { load(); loadSessions().catch(error => notice(error.message, true)); });
+        el('campaign-refresh').addEventListener('click', async () => {
+            await load();
+            loadSessions().catch(error => notice(error.message, true));
+        });
+        document.querySelector('[data-tab="comingSoon"]').addEventListener('click', async () => {
+            await load();
+            loadSessions().catch(error => notice(error.message, true));
+        });
         setInterval(() => { if (el('comingSoon').classList.contains('active')) load(); }, 10000);
     });
 })();
