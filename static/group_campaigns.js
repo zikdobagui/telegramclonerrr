@@ -4,6 +4,8 @@
     const labels = {paused:'Pausada', running:'Em execução', pending:'A criar / vincular', creating:'Criando', warming:'Aquecendo', ready:'Pronto para distribuir', error:'Precisa de revisão'};
     let editingId = null;
     let selectedImages = [];
+    let selectedGroupImage = '';
+    let selectedDescriptions = [];
     let version = 0;
     let snapshot = null;
     let viewInitialized = false;
@@ -153,7 +155,11 @@
     function resetEditor() {
         editingId = null;
         selectedImages = [];
+        selectedGroupImage = '';
+        selectedDescriptions = [];
         el('campaign-images-status').textContent = '';
+        el('campaign-group-image-status').textContent = '';
+        el('campaign-descriptions-status').textContent = '';
         el('campaign-create-form').reset();
         el('campaign-count').disabled = false;
         el('campaign-names').disabled = false;
@@ -175,8 +181,14 @@
         el('campaign-names-file').disabled = true;
         const settings = task.settings;
         selectedImages = [...(settings.images || [])];
+        selectedGroupImage = settings.group_image || '';
+        selectedDescriptions = [...(settings.descriptions || [])];
         el('campaign-images').value = '';
         el('campaign-images-status').textContent = `${selectedImages.length} imagens salvas`;
+        el('campaign-group-image').value = '';
+        el('campaign-group-image-status').textContent = selectedGroupImage ? 'Imagem dos grupos salva' : '';
+        el('campaign-descriptions-file').value = '';
+        el('campaign-descriptions-status').textContent = selectedDescriptions.length ? `${selectedDescriptions.length} descrições salvas` : '';
         const fields = {name:task.name, count:task.groups.length, limit:settings.daily_limit,
             'limit-scope':settings.limit_scope, dedup:settings.dedup, 'delay-min':settings.delay_min ?? settings.delay ?? 60, 'delay-max':settings.delay_max ?? settings.delay ?? 60,
             admin:(settings.admin_usernames || [settings.admin_username].filter(Boolean)).join('\n'),
@@ -293,6 +305,22 @@
         el('campaign-images').addEventListener('change', () => {
             el('campaign-images-status').textContent = [...el('campaign-images').files].map(file => file.name).join(', ');
         });
+        el('campaign-group-image').addEventListener('change', () => {
+            const file = el('campaign-group-image').files[0];
+            el('campaign-group-image-status').textContent = file ? file.name : '';
+        });
+        el('campaign-descriptions-file').addEventListener('change', async event => {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                if (file.size > 1024 * 1024) throw new Error('O arquivo de descrições deve ter até 1 MB.');
+                const text = await file.text();
+                const blocks = text.replace(/\r/g, '').split(/\n\s*\n/).map(item => item.trim()).filter(Boolean);
+                selectedDescriptions = (blocks.length > 1 ? blocks : text.split(/\r?\n/)).map(item => item.trim()).filter(Boolean).slice(0, 30);
+                if (!selectedDescriptions.length) throw new Error('O arquivo não contém descrições válidas.');
+                el('campaign-descriptions-status').textContent = `${selectedDescriptions.length} descrições carregadas`;
+            } catch (error) { selectedDescriptions = []; el('campaign-descriptions-status').textContent = ''; notice(error.message, true); }
+        });
         el('campaign-warming').addEventListener('change', () => {
             el('campaign-warm-fields').hidden = el('campaign-warming').value !== 'yes';
         });
@@ -333,8 +361,18 @@
                     el('campaign-images').value = '';
                     el('campaign-images-status').textContent = `${selectedImages.length} imagens carregadas`;
                 }
+                const groupImage = el('campaign-group-image').files[0];
+                if (groupImage) {
+                    if (groupImage.size > 10 * 1024 * 1024) throw new Error('A imagem do grupo deve ter até 10 MB.');
+                    const data = new FormData();
+                    data.append('images', groupImage);
+                    selectedGroupImage = (await api('/images', {method:'POST', body:data})).images[0];
+                    el('campaign-group-image').value = '';
+                    el('campaign-group-image-status').textContent = 'Imagem dos grupos carregada';
+                }
                 const payload = {
                     images:selectedImages,
+                    group_image:selectedGroupImage, descriptions:selectedDescriptions,
                     group_names:editingId === null ? names : undefined,
                     name:el('campaign-name').value, count:el('campaign-count').value, daily_limit:el('campaign-limit').value,
                     admin_usernames:el('campaign-admin').value,

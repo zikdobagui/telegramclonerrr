@@ -187,6 +187,14 @@ class CampaignStore:
         for image in images:
             if not isinstance(image, str) or not re.fullmatch(r'[a-f0-9]{32}\.(jpg|png|webp)', image) or not os.path.isfile(os.path.join(os.path.dirname(self.path), 'campaign_media', image)):
                 raise ValueError('Imagem indisponível. Selecione novamente o arquivo')
+        group_image = payload.get('group_image', '')
+        if group_image:
+            if not isinstance(group_image, str) or not re.fullmatch(r'[a-f0-9]{32}\.(jpg|png|webp)', group_image) or not os.path.isfile(os.path.join(os.path.dirname(self.path), 'campaign_media', group_image)):
+                raise ValueError('Imagem do grupo indisponível. Selecione novamente o arquivo')
+        descriptions = payload.get('descriptions', [])
+        if not isinstance(descriptions, list) or len(descriptions) > 30 or any(not isinstance(item, str) for item in descriptions):
+            raise ValueError('Use até 30 descrições de grupos')
+        descriptions = [item.strip()[:255] for item in descriptions if item.strip()]
         if warming and not messages and not images:
             raise ValueError('Adicione frases ou imagens para habilitar o aquecimento')
         delay_min = integer(payload.get('delay_min', payload.get('delay', 60)), 'Intervalo mínimo (segundos)', low=1, high=3600)
@@ -196,6 +204,7 @@ class CampaignStore:
         settings = {
             'admin_usernames': admin_usernames(payload.get('admin_usernames', payload.get('admin_username'))),
             'sessions': list(dict.fromkeys(session_names)), 'warming': warming, 'messages': messages[:1000], 'images': images,
+            'group_image': group_image, 'descriptions': descriptions,
             'warm_days': integer(payload.get('warm_days', 1), 'Dias de aquecimento', high=90),
             'warm_interval': integer(payload.get('warm_interval', 60), 'Intervalo de mensagens (minutos)', high=1440),
             'delay': delay_min, 'delay_min': delay_min, 'delay_max': delay_max,
@@ -590,13 +599,20 @@ class TelegramCampaignGateway:
             if not getattr(entity, 'megagroup', False):
                 raise ValueError('O link deve apontar para um supergrupo')
         else:
-            result = await client(CreateChannelRequest(title=group['title'], about=group['title'], megagroup=True))
+            result = await client(CreateChannelRequest(title=group['title'], about=group.get('description') or group['title'], megagroup=True))
             entity = result.chats[0]
         # Persist the identity before subsequent Telegram requests can fail.
         persist(channel_id=str(entity.id), access_hash=str(entity.access_hash), creator=name)
         self.peers[(group['id'], name)] = entity
         if not group['reference']:
             await client(EditChatDefaultBannedRightsRequest(peer=entity, banned_rights=ChatBannedRights(until_date=None, invite_users=False, change_info=True, pin_messages=True)))
+            image_name = group.get('group_image')
+            if image_name:
+                from telethon.tl.functions.channels import EditPhotoRequest
+                from telethon.tl.types import InputChatUploadedPhoto
+                image_path = os.path.join(self.paths['data_dir'], 'campaign_media', image_name)
+                photo = await client.upload_file(image_path)
+                await client(EditPhotoRequest(channel=entity, photo=InputChatUploadedPhoto(file=photo)))
         invite = await client(ExportChatInviteRequest(peer=entity))
         return {'channel_id': str(entity.id), 'access_hash': str(entity.access_hash), 'creator': name, 'invite': invite.link}
 
@@ -781,7 +797,10 @@ async def campaign_loop(store, cid, gateway):
                     if group['status'] == 'pending':
                         store.group_update(gid, status='creating')
                         owner = names[(group['slot'] - 1) % len(names)]
-                        created = await gateway.create(group, owner, lambda **values: store.group_update(gid, **values))
+                        descriptions = settings.get('descriptions', [])
+                        created = await gateway.create({**group,
+                            'description': descriptions[(group['slot'] - 1) % len(descriptions)] if descriptions else '',
+                            'group_image': settings.get('group_image', '')}, owner, lambda **values: store.group_update(gid, **values))
                         store.group_update(gid, **created, status='warming' if settings['warming'] else 'ready',
                                            warm_until=time.time() + settings['warm_days'] * 86400 if settings['warming'] else 0)
                         admins = admin_usernames(settings.get('admin_usernames', settings.get('admin_username')))
@@ -918,7 +937,10 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 store.delete(cid)
             else:
                 payload = request.get_json() or {}
-                payload.setdefault('images', store.get(cid)['settings'].get('images', []))
+                settings = store.get(cid)['settings']
+                payload.setdefault('images', settings.get('images', []))
+                payload.setdefault('group_image', settings.get('group_image', ''))
+                payload.setdefault('descriptions', settings.get('descriptions', []))
                 names = payload.get('sessions', [])
                 available = {s['session_name'] for s in get_sessions(username).load_sessions() if s.get('active', True) and s.get('status', 'active') == 'active'}
                 if not isinstance(names, list) or not names or any(name not in available for name in names):
