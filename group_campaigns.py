@@ -13,6 +13,82 @@ from contextlib import contextmanager
 from datetime import datetime
 
 
+LEGACY_CHANNEL_CONSTRUCTOR = '0aadfc8f'
+
+
+def register_legacy_channel_constructor():
+    """Read Channel objects returned by Telegram API sessions on layer 181.
+
+    Telegram can keep an API ID on an older negotiated layer.  In that case it
+    returns ``channel#aadfc8f`` even when the installed Telethon schema only
+    contains newer Channel constructors.  Registering this small reader turns
+    that response into Telethon's current Channel object, which keeps the rest
+    of the client (including InviteToChannelRequest) unchanged.
+    """
+    try:
+        from telethon.tl import alltlobjects, types
+    except ImportError:
+        return
+    constructor_id = int(LEGACY_CHANNEL_CONSTRUCTOR, 16)
+    if constructor_id in alltlobjects.tlobjects:
+        return
+
+    class LegacyChannel:
+        CONSTRUCTOR_ID = constructor_id
+
+        @classmethod
+        def from_reader(cls, reader):
+            flags = reader.read_int()
+            flags2 = reader.read_int()
+            channel_id = reader.read_long()
+            access_hash = reader.read_long() if flags & 8192 else None
+            title = reader.tgread_string()
+            username = reader.tgread_string() if flags & 64 else None
+            photo = reader.tgread_object()
+            date = reader.tgread_date()
+
+            def vector():
+                reader.read_int()  # vector constructor
+                return [reader.tgread_object() for _ in range(reader.read_int())]
+
+            restriction_reason = vector() if flags & 512 else None
+            admin_rights = reader.tgread_object() if flags & 16384 else None
+            banned_rights = reader.tgread_object() if flags & 32768 else None
+            default_banned_rights = reader.tgread_object() if flags & 262144 else None
+            participants_count = reader.read_int() if flags & 131072 else None
+            usernames = vector() if flags2 & 1 else None
+            stories_max_id = reader.read_int() if flags2 & 16 else None
+            color = reader.tgread_object() if flags2 & 128 else None
+            profile_color = reader.tgread_object() if flags2 & 256 else None
+            emoji_status = reader.tgread_object() if flags2 & 512 else None
+            level = reader.read_int() if flags2 & 1024 else None
+            return types.Channel(
+                id=channel_id, title=title, photo=photo, date=date,
+                creator=bool(flags & 1), left=bool(flags & 4),
+                broadcast=bool(flags & 32), verified=bool(flags & 128),
+                megagroup=bool(flags & 256), restricted=bool(flags & 512),
+                signatures=bool(flags & 2048), min=bool(flags & 4096),
+                scam=bool(flags & 524288), has_link=bool(flags & 1048576),
+                has_geo=bool(flags & 2097152), slowmode_enabled=bool(flags & 4194304),
+                call_active=bool(flags & 8388608), call_not_empty=bool(flags & 16777216),
+                fake=bool(flags & 33554432), gigagroup=bool(flags & 67108864),
+                noforwards=bool(flags & 134217728), join_to_send=bool(flags & 268435456),
+                join_request=bool(flags & 536870912), forum=bool(flags & 1073741824),
+                stories_hidden=bool(flags2 & 2), stories_hidden_min=bool(flags2 & 4),
+                stories_unavailable=bool(flags2 & 8), access_hash=access_hash,
+                username=username, restriction_reason=restriction_reason,
+                admin_rights=admin_rights, banned_rights=banned_rights,
+                default_banned_rights=default_banned_rights,
+                participants_count=participants_count, usernames=usernames,
+                stories_max_id=stories_max_id, color=color,
+                profile_color=profile_color, emoji_status=emoji_status, level=level)
+
+    alltlobjects.tlobjects[constructor_id] = LegacyChannel
+
+
+register_legacy_channel_constructor()
+
+
 def day_key():
     from zoneinfo import ZoneInfo
     return datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()
@@ -148,7 +224,8 @@ class CampaignStore:
             groups = conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1', (cid,)).fetchall()
             recovered = 0
             for group in groups:
-                if group['status'] != 'error' or not (group['error'] == "'ChatInviteJoinResultOk' object has no attribute 'chats'" or transient_request(group['error'])):
+                legacy_channel_error = LEGACY_CHANNEL_CONSTRUCTOR in group['error'].lower()
+                if group['status'] != 'error' or not (group['error'] == "'ChatInviteJoinResultOk' object has no attribute 'chats'" or transient_request(group['error']) or legacy_channel_error):
                     continue
                 if transient_request(group['error']) and not (group['channel_id'] and group['invite']):
                     continue
