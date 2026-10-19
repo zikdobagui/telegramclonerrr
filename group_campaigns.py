@@ -229,8 +229,11 @@ class CampaignStore:
                     continue
                 if transient_request(group['error']) and not (group['channel_id'] and group['invite']):
                     continue
-                if group['channel_id'] and group['access_hash'] and group['creator'] and group['invite']:
-                    # These groups already exist. Resume the previous phase.
+                if group['channel_id'] and group['access_hash'] and group['creator']:
+                    # These groups already exist. An error while reading the
+                    # Telegram response can happen before the share link is
+                    # saved, but the persisted channel identity is sufficient
+                    # to resume it without creating a duplicate group.
                     until = group['warm_until']
                     if settings['warming'] and not until:
                         until = time.time() + settings['warm_days'] * 86400
@@ -695,13 +698,21 @@ class TelegramCampaignGateway:
 
     async def peer(self, group, name):
         from telethon.tl.types import InputChannel
+        from telethon.tl.functions.messages import ExportChatInviteRequest
         key = (group['id'], name)
         client = await self.client(name)
         if key not in self.peers:
             if name == group['creator']:
                 self.peers[key] = InputChannel(int(group['channel_id']), int(group['access_hash']))
             else:
-                self.peers[key] = await self.resolve(client, group['invite'] or group['reference'])
+                reference = group['invite'] or group['reference']
+                if not reference:
+                    # The group was created and persisted, but exporting its
+                    # link failed before it could be written to the database.
+                    # Generate a fresh link through its owner and continue.
+                    owner, owner_peer = await self.peer(group, group['creator'])
+                    reference = (await owner(ExportChatInviteRequest(peer=owner_peer))).link
+                self.peers[key] = await self.resolve(client, reference)
         return client, self.peers[key]
 
     async def warm(self, group, name, phrase, image=None):
