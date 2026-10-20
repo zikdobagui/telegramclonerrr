@@ -14,6 +14,7 @@ from datetime import datetime
 
 
 LEGACY_CHANNEL_CONSTRUCTOR = '0aadfc8f'
+LEGACY_CHAT_INVITE_CONSTRUCTOR = 'cde0ec40'
 
 
 def register_legacy_channel_constructor():
@@ -86,7 +87,60 @@ def register_legacy_channel_constructor():
     alltlobjects.tlobjects[constructor_id] = LegacyChannel
 
 
+def register_legacy_chat_invite_constructor():
+    """Read ``chatInvite#cde0ec40`` returned by older Telegram API layers.
+
+    Telethon 1.42 ships a newer ChatInvite constructor. Some accounts still
+    receive the layer-181 constructor while resolving a private invite link.
+    Registering this reader lets the normal invite flow continue safely.
+    """
+    try:
+        from telethon.tl import alltlobjects, types
+    except ImportError:
+        return
+    constructor_id = int(LEGACY_CHAT_INVITE_CONSTRUCTOR, 16)
+    if constructor_id in alltlobjects.tlobjects:
+        return
+
+    class LegacyChatInvite:
+        CONSTRUCTOR_ID = constructor_id
+
+        @classmethod
+        def from_reader(cls, reader):
+            flags = reader.read_int()
+            title = reader.tgread_string()
+            about = reader.tgread_string() if flags & 32 else None
+            photo = reader.tgread_object()
+            participants_count = reader.read_int()
+
+            participants = None
+            if flags & 16:
+                reader.read_int()  # vector constructor
+                participants = [reader.tgread_object() for _ in range(reader.read_int())]
+
+            color = reader.read_int()
+            return types.ChatInvite(
+                title=title,
+                about=about,
+                photo=photo,
+                participants_count=participants_count,
+                participants=participants,
+                color=color,
+                channel=bool(flags & 1),
+                broadcast=bool(flags & 2),
+                public=bool(flags & 4),
+                megagroup=bool(flags & 8),
+                request_needed=bool(flags & 64),
+                verified=bool(flags & 128),
+                scam=bool(flags & 256),
+                fake=bool(flags & 512)
+            )
+
+    alltlobjects.tlobjects[constructor_id] = LegacyChatInvite
+
+
 register_legacy_channel_constructor()
+register_legacy_chat_invite_constructor()
 
 
 def day_key():
