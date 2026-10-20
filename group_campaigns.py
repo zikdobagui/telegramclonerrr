@@ -98,6 +98,12 @@ def transient_request(error):
     return bool(re.fullmatch(r'An error occurred while communicating with DC \d+(?: \(caused by \w+\))?', str(error))) or bool(re.fullmatch(r'Request was unsuccessful \d+ time\(s\)', str(error))) or isinstance(error, (TimeoutError, ConnectionError)) or type(error).__name__ in {'ServerError', 'RpcCallFailError', 'TimedOutError', 'InterdcCallErrorError', 'InterdcCallRichErrorError'}
 
 
+def recoverable_invite_peer_error(error):
+    """Identifica falha local do Telethon que não invalida o grupo já salvo."""
+    message = str(error).lower()
+    return 'inputpeer' in message and 'invitetochannelrequest' in message and ('nonetype' in message or 'none type' in message)
+
+
 def admin_username(value):
     username = str(value or '').strip().removeprefix('@')
     if username and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{3,31}', username):
@@ -225,7 +231,8 @@ class CampaignStore:
             recovered = 0
             for group in groups:
                 legacy_channel_error = LEGACY_CHANNEL_CONSTRUCTOR in group['error'].lower()
-                if group['status'] != 'error' or not (group['error'] == "'ChatInviteJoinResultOk' object has no attribute 'chats'" or transient_request(group['error']) or legacy_channel_error):
+                peer_cast_error = recoverable_invite_peer_error(group['error'])
+                if group['status'] != 'error' or not (group['error'] == "'ChatInviteJoinResultOk' object has no attribute 'chats'" or transient_request(group['error']) or legacy_channel_error or peer_cast_error):
                     continue
                 if transient_request(group['error']) and not (group['channel_id'] and group['invite']):
                     continue

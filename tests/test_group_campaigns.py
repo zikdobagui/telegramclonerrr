@@ -105,6 +105,21 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertIsNone(self.store.claim(cid, groups[0]['id']))
         self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
 
+    def test_resume_recovers_saved_group_after_invite_peer_cast_error(self):
+        cid, groups = self.task()
+        for group in groups:
+            self.store.group_update(
+                group['id'], status='error', channel_id=str(1000 + group['id']),
+                access_hash='456', creator='one.session', invite='https://t.me/+existing',
+                error='Cannot cast NoneType to InputPeer (caused by InviteToChannelRequest)'
+            )
+        self.store.state(cid, 'paused')
+
+        self.store.prepare_start(cid)
+
+        self.assertEqual(self.store.get(cid)['status'], 'running')
+        self.assertTrue(all(group['status'] == 'ready' and not group['error'] for group in self.store.groups(cid)))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
