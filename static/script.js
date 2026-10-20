@@ -2954,6 +2954,9 @@ async function loadTasks() {
                                 <button class="btn btn-warning" onclick="editTask(${task.id})" style="padding: 10px 20px; font-size: 14px;">
                                     <i class="fas fa-edit"></i> Editar
                                 </button>
+                                <button class="btn btn-secondary" onclick="removeDeletedAccounts(${task.id})" ${task.deleted_cleanup_running ? 'disabled' : ''} style="padding: 10px 20px; font-size: 14px;" title="Usa a primeira sessão administradora ou dona vinculada à tarefa">
+                                    <i class="fas fa-user-slash"></i> ${task.deleted_cleanup_running ? 'Limpando contas...' : 'Remover contas excluídas'}
+                                </button>
                                 <button class="btn btn-primary" onclick="changeTaskMembersFile(${task.id})" style="padding: 10px 20px; font-size: 14px;">
                                     <i class="fas fa-database"></i> Atualizar base
                                 </button>
@@ -3337,6 +3340,30 @@ async function removeTask(taskId) {
         } else {
             showNotification(`Erro: ${data.error}`, 'error');
         }
+    } catch (error) {
+        showNotification(`Erro: ${error.message}`, 'error');
+    }
+}
+
+async function removeDeletedAccounts(taskId) {
+    const confirmed = confirm(
+        'Remover do grupo todas as contas marcadas como excluídas?\n\n' +
+        'A ação usará a primeira sessão administradora ou dona vinculada a esta tarefa.'
+    );
+    if (!confirmed) return;
+
+    try {
+        const response = await fetch(`/api/tasks/${taskId}/remove-deleted-accounts`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Não foi possível iniciar a limpeza');
+        }
+        showNotification(data.message, 'success');
+        loadTasks();
     } catch (error) {
         showNotification(`Erro: ${error.message}`, 'error');
     }

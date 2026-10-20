@@ -890,6 +890,104 @@ def pause_task_after_source_mismatch(task_id, manager, last_result):
 
     return None, pause_reason
 
+def remove_deleted_accounts_from_task_group(task_id, task, sessions, paths, api_id, api_hash, username, manager, process_id):
+    """Remove contas marcadas como excluídas usando uma sessão admin/dona da tarefa."""
+    def report(message, log_type='info'):
+        append_task_log(task_id, message, log_type, manager)
+        emit_to_user('task_log', {
+            'task_id': task_id,
+            'message': message,
+            'type': log_type
+        }, username)
+
+    async def cleanup():
+        from telethon import TelegramClient
+        from telethon.tl.functions.channels import EditBannedRequest
+        from telethon.tl.functions.messages import DeleteChatUserRequest
+        from telethon.tl.types import ChatBannedRights
+
+        last_error = ''
+        for session_info in sessions:
+            session_name = session_info.get('session_name', '')
+            if not session_name:
+                continue
+            client = TelegramClient(os.path.join(paths['sessions_dir'], session_name), api_id, api_hash)
+            try:
+                await client.connect()
+                if not await client.is_user_authorized():
+                    last_error = f'{session_name}: sessão não autorizada'
+                    continue
+
+                group = await client.get_entity(task['group_link'])
+                me = await client.get_me()
+                permissions = await client.get_permissions(group, me)
+                admin_rights = getattr(permissions, 'admin_rights', None)
+                can_remove_members = bool(
+                    getattr(permissions, 'is_creator', False)
+                    or (getattr(permissions, 'is_admin', False) and getattr(admin_rights, 'ban_users', False))
+                )
+                if not can_remove_members:
+                    last_error = f'{session_name}: não é dona nem administradora com permissão para banir membros'
+                    continue
+
+                report(f'🧹 Usando a sessão {session_name} para localizar contas excluídas.', 'info')
+                removed = 0
+                found = 0
+                async for participant in client.iter_participants(group, limit=None):
+                    if not getattr(participant, 'deleted', False):
+                        continue
+                    found += 1
+                    try:
+                        if hasattr(group, 'channel_id'):
+                            await client(EditBannedRequest(
+                                channel=group,
+                                participant=participant,
+                                banned_rights=ChatBannedRights(until_date=None, view_messages=True)
+                            ))
+                        else:
+                            await client(DeleteChatUserRequest(chat_id=group.id, user_id=participant))
+                        removed += 1
+                        update_process(process_id, username=username, current=removed, total=found,
+                                       message=f'{removed} conta(s) excluída(s) removida(s)')
+                    except Exception as error:
+                        report(f'⚠️ Não foi possível remover uma conta excluída: {error}', 'warning')
+
+                return {'found': found, 'removed': removed, 'session_name': session_name}
+            except Exception as error:
+                last_error = f'{session_name}: {error}'
+            finally:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+
+        raise RuntimeError(
+            'Nenhuma sessão selecionada tem permissão de administradora/dona neste grupo.'
+            + (f' Último retorno: {last_error}' if last_error else '')
+        )
+
+    try:
+        result = asyncio.run(cleanup())
+        if result['found']:
+            report(
+                f'✅ Limpeza concluída: {result["removed"]} de {result["found"]} conta(s) excluída(s) removida(s).',
+                'success'
+            )
+        else:
+            report('✅ Limpeza concluída: nenhuma conta excluída foi encontrada no grupo.', 'success')
+        finish_process(process_id, username=username, status='completed',
+                       message=f'{result["removed"]} conta(s) excluída(s) removida(s)')
+    except Exception as error:
+        report(f'❌ Limpeza de contas excluídas não concluída: {error}', 'error')
+        finish_process(process_id, username=username, status='error', message=str(error))
+    finally:
+        manager.load_config()
+        saved_task = next((item for item in manager.config.get('groups', []) if item.get('id') == task_id), None)
+        if saved_task:
+            saved_task.pop('deleted_cleanup_running', None)
+            saved_task.pop('deleted_cleanup_process_id', None)
+            manager.save_config()
+
 def emit_task_log(message, log_type='info', task_id=None):
     """Emite log apenas para aba Tarefas"""
     task_id = task_id or getattr(thread_context, 'task_id', None)
@@ -3576,6 +3674,67 @@ def task_operations(task_id):
         return jsonify({'success': False, 'error': 'Tarefa não encontrada'}), 404
 
     return jsonify({'success': True, 'message': 'Tarefa removida'})
+
+@app.route('/api/tasks/<int:task_id>/remove-deleted-accounts', methods=['POST'])
+@login_required
+def remove_deleted_task_accounts(task_id):
+    """Inicia a remoção de contas excluídas com uma sessão admin/dona da tarefa."""
+    automation_manager.load_config()
+    task = next((item for item in automation_manager.config.get('groups', []) if item.get('id') == task_id), None)
+    if not task:
+        return jsonify({'success': False, 'error': 'Tarefa não encontrada'}), 404
+    if task.get('status') == 'active':
+        return jsonify({'success': False, 'error': 'Pause a tarefa antes de limpar contas excluídas.'}), 400
+    if task.get('deleted_cleanup_running'):
+        return jsonify({'success': False, 'error': 'Já existe uma limpeza de contas excluídas em andamento nesta tarefa.'}), 409
+
+    selected_indexes = task.get('selected_sessions') or []
+    all_sessions = session_manager.load_sessions(force_reload=True)
+    selected_sessions = []
+    for value in selected_indexes:
+        try:
+            index = int(value)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < len(all_sessions):
+            selected_sessions.append(dict(all_sessions[index]))
+    if not selected_sessions:
+        return jsonify({'success': False, 'error': 'Esta tarefa não possui sessões disponíveis para executar a limpeza.'}), 400
+
+    paths = get_user_paths()
+    config = load_json_file(paths['config_file'], {})
+    credentials = config.get('api_credentials') or []
+    if credentials:
+        api_id = credentials[0].get('api_id')
+        api_hash = credentials[0].get('api_hash')
+    else:
+        api_id, api_hash = config.get('api_id'), config.get('api_hash')
+    if not api_id or not api_hash:
+        return jsonify({'success': False, 'error': 'Configure uma API do Telegram antes de iniciar a limpeza.'}), 400
+
+    username = session.get('username')
+    process_id = start_process(
+        'deleted-account-cleanup',
+        f'Limpeza de contas excluídas — tarefa #{task_id}',
+        username=username,
+        detail=task.get('group_link', '')
+    )
+    task['deleted_cleanup_running'] = True
+    task['deleted_cleanup_process_id'] = process_id
+    automation_manager.save_config()
+
+    worker_manager = AutomationManager(paths['data_dir'])
+    worker = threading.Thread(
+        target=remove_deleted_accounts_from_task_group,
+        args=(task_id, dict(task), selected_sessions, paths, api_id, api_hash, username, worker_manager, process_id),
+        daemon=True
+    )
+    worker.start()
+    return jsonify({
+        'success': True,
+        'message': 'Limpeza iniciada. A primeira sessão administradora ou dona da tarefa será usada.',
+        'process_id': process_id
+    })
 
 @app.route('/api/tasks/<int:task_id>/logs', methods=['DELETE'])
 @login_required
