@@ -152,7 +152,7 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertIsNone(self.store.claim(cid, groups[0]['id']))
         self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
 
-    def test_resume_preserves_warmup_and_rejects_unrelated_errors(self):
+    def test_resume_preserves_warmup_and_restarts_groups_in_review(self):
         import time
         cid, groups = self.task(warming=True, messages='Olá')
         until = time.time() + 3600
@@ -165,12 +165,8 @@ class CampaignStoreTests(unittest.TestCase):
         current = self.store.groups(cid)
         self.assertEqual(current[0]['status'], 'warming')
         self.assertEqual(current[0]['warm_until'], until)
-        self.assertEqual(current[1]['status'], 'error')
-        self.store.group_update(groups[0]['id'], status='error', error='CHANNEL_PRIVATE')
-        self.store.state(cid, 'paused')
-        with self.assertRaisesRegex(ValueError, 'Nenhum grupo disponível'):
-            self.store.prepare_start(cid)
-        self.assertEqual(self.store.get(cid)['status'], 'paused')
+        self.assertEqual(current[1]['status'], 'pending')
+        self.assertFalse(current[1]['error'])
 
     def test_custom_group_names_override_count_and_preserve_exact_titles(self):
         cid = self.store.create({'name': 'Minha tarefa', 'count': 10, 'group_names': '\ufeffOfertas VIP\r\n\r\n Tecnologia & Amigos 🎉 \n'}, ['one.session'])

@@ -274,7 +274,7 @@ class CampaignStore:
             conn.execute('UPDATE campaigns SET status=?,error=? WHERE id=?', (status, error[:1000], cid))
 
     def prepare_start(self, cid):
-        """Recover the fixed invite parsing error without retrying deliveries."""
+        """Reinicia grupos em revisão ao iniciar manualmente a tarefa."""
         with self.db() as conn:
             conn.execute('BEGIN IMMEDIATE')
             campaign = conn.execute('SELECT * FROM campaigns WHERE id=?', (cid,)).fetchone()
@@ -284,17 +284,17 @@ class CampaignStore:
             groups = conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1', (cid,)).fetchall()
             recovered = 0
             for group in groups:
-                legacy_channel_error = LEGACY_CHANNEL_CONSTRUCTOR in group['error'].lower()
-                peer_cast_error = recoverable_invite_peer_error(group['error'])
-                if group['status'] != 'error' or not (group['error'] == "'ChatInviteJoinResultOk' object has no attribute 'chats'" or transient_request(group['error']) or legacy_channel_error or peer_cast_error):
+                if group['status'] != 'error':
                     continue
-                if transient_request(group['error']) and not (group['channel_id'] and group['invite']):
+                deletion = conn.execute('SELECT status FROM group_deletions WHERE group_id=?', (group['id'],)).fetchone()
+                if deletion and deletion['status'] in {'pending', 'unknown'}:
+                    # A exclusão pode ter sido efetivada no Telegram; nunca a
+                    # reinicie automaticamente para não criar um duplicado.
                     continue
                 if group['channel_id'] and group['access_hash'] and group['creator']:
                     # These groups already exist. An error while reading the
                     # Telegram response can happen before the share link is
-                    # saved, but the persisted channel identity is sufficient
-                    # to resume it without creating a duplicate group.
+                    # saved. The persisted identity is sufficient to retry it.
                     until = group['warm_until']
                     if settings['warming'] and not until:
                         until = time.time() + settings['warm_days'] * 86400
@@ -304,7 +304,9 @@ class CampaignStore:
                     # Re-resolve the existing invite; never create a new group.
                     conn.execute("UPDATE groups SET status='pending',error='' WHERE id=?", (group['id'],))
                 else:
-                    continue
+                    # The creation did not yield a reusable group yet. A new
+                    # manual start is an explicit request to attempt it again.
+                    conn.execute("UPDATE groups SET status='pending',error='' WHERE id=?", (group['id'],))
                 recovered += 1
             runnable = conn.execute("SELECT count(*) FROM groups WHERE campaign_id=? AND current=1 AND status IN ('pending','warming','ready')", (cid,)).fetchone()[0]
             if not runnable:
