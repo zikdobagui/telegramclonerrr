@@ -731,6 +731,48 @@ class TelegramCampaignGateway:
             raise ValueError('O Telegram não informou a quantidade de membros.')
         return count
 
+    async def remove_deleted_members(self, group):
+        """Remove usuários com conta excluída usando uma sessão admin ou dona."""
+        from telethon.tl.functions.channels import GetParticipantRequest, EditBannedRequest
+        from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator, ChatBannedRights
+
+        errors = []
+        for name in self.sessions:
+            try:
+                client, peer = await self.peer(group, name)
+                current = await client(GetParticipantRequest(peer, 'me'))
+                participant = current.participant
+                can_remove = isinstance(participant, ChannelParticipantCreator) or (
+                    isinstance(participant, ChannelParticipantAdmin)
+                    and getattr(getattr(participant, 'admin_rights', None), 'ban_users', False)
+                )
+                if not can_remove:
+                    errors.append(f'{name}: sem permissão para banir membros')
+                    continue
+
+                found = removed = 0
+                async for member in client.iter_participants(peer, limit=None):
+                    if not getattr(member, 'deleted', False):
+                        continue
+                    found += 1
+                    try:
+                        await client(EditBannedRequest(
+                            channel=peer,
+                            participant=member,
+                            banned_rights=ChatBannedRights(until_date=None, view_messages=True)
+                        ))
+                        removed += 1
+                    except Exception as error:
+                        errors.append(f'Não foi possível remover uma conta: {error}')
+                return {'session': name, 'found': found, 'removed': removed, 'errors': errors}
+            except Exception as error:
+                errors.append(f'{name}: {error}')
+
+        raise OwnershipValidationError(
+            'Nenhuma sessão desta tarefa é dona ou administradora com permissão para banir membros.'
+            + (f' Detalhe: {errors[-1]}' if errors else '')
+        )
+
     async def promote_admin(self, group, username):
         from telethon.tl.functions.channels import EditAdminRequest
         from telethon.tl.types import ChatAdminRights
@@ -1221,6 +1263,70 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 with guard:
                     group_actions_busy.discard(username)
                     set_lock('group_campaign', False, username=username)
+
+    @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/remove-deleted-members', methods=['POST'])
+    @endpoint
+    def campaign_remove_deleted_members_api(cid, gid):
+        username = session['username']
+        with guard:
+            store = store_for(username)
+            task = store.get(cid)
+            if task['status'] == 'running' or worker_busy(username):
+                raise ValueError('Pause e aguarde a tarefa terminar antes de remover contas excluídas.')
+            if username in group_actions_busy:
+                raise ValueError('Aguarde a operação atual deste grupo terminar.')
+            group = next((item for item in store.groups(cid) if item['id'] == gid), None)
+            if not group or not all(group.get(key) for key in ('channel_id', 'access_hash', 'creator')):
+                raise ValueError('O grupo ainda não foi criado ou vinculado.')
+            if group['deletion_status'] in {'pending', 'unknown'}:
+                raise ValueError('Resolva a exclusão pendente antes de remover contas.')
+            allowed, message = check_lock('group_factory', username=username)
+            if not allowed or get_locks(username).get('extraction'):
+                raise ValueError(message if not allowed else 'Aguarde a extração terminar.')
+
+            manager = get_sessions(username)
+            saved = {item['session_name']: item for item in manager.load_sessions(force_reload=True)}
+            names = list(dict.fromkeys([group['creator'], *(task['settings'].get('sessions') or [])]))
+            usable = {
+                name: saved[name] for name in names
+                if name in saved and saved[name].get('active', True)
+                and saved[name].get('status', 'active') == 'active'
+                and not manager.is_session_flooded(name)
+            }
+            if not usable:
+                raise ValueError('Nenhuma sessão ativa da tarefa está disponível para a limpeza.')
+            api = get_api()
+            if not all(api):
+                raise ValueError('Configure sua API primeiro.')
+            gateway = TelegramCampaignGateway(get_paths(username), usable, api)
+            set_lock('group_campaign', True, username=username)
+            group_actions_busy.add(username)
+
+        async def run():
+            try:
+                return await asyncio.wait_for(gateway.remove_deleted_members(group), timeout=300)
+            finally:
+                try:
+                    await asyncio.wait_for(gateway.close(), timeout=10)
+                except Exception:
+                    pass
+
+        try:
+            result = asyncio.run(run())
+            message = (
+                f"Limpeza concluída com a sessão {result['session']}: "
+                f"{result['removed']} de {result['found']} conta(s) excluída(s) removida(s)."
+            )
+            store.event(cid, f"Grupo {group['slot']}: {message}")
+            return jsonify(success=True, message=message)
+        except Exception as error:
+            message = str(error) or 'Não foi possível remover as contas excluídas.'
+            store.event(cid, f"Grupo {group['slot']}: falha ao remover contas excluídas: {message}")
+            return jsonify(success=False, error=message), 400
+        finally:
+            with guard:
+                group_actions_busy.discard(username)
+                set_lock('group_campaign', False, username=username)
 
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/ownership', defaults={'check_only': False}, methods=['POST'])
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>/ownership/check', defaults={'check_only': True}, methods=['POST'])

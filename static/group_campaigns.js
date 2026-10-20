@@ -250,7 +250,7 @@
                     ${task.groups.map(group => `<details class="gc-group" data-detail="group-${group.id}">
                         <summary><span><span class="gc-group-title">${esc(group.title)}</span><small>${group.members?.count != null ? `${Number(group.members.count).toLocaleString('pt-BR')} membros no grupo · ` : ''}${group.added} adicionados pela tarefa · cota usada hoje: ${group.today}${task.settings.limit_scope === 'group' ? '/' + group.daily_limit : ''}</small></span><span class="gc-badge ${esc(group.status)}">${esc(labels[group.status] || group.status)}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
                         <div class="gc-group-content">
-                        ${group.channel_id ? `<div class="gc-members"><p><strong>Membros no Telegram: ${group.members?.count != null ? Number(group.members.count).toLocaleString('pt-BR') : 'Ainda não consultado'}</strong></p>${group.members?.updated ? `<small>Consultado em ${esc(new Date(group.members.updated * 1000).toLocaleString('pt-BR'))}. Atualização automática durante a execução, com intervalo mínimo de 1 minuto.</small>` : ''}${group.members?.error ? `<p class="gc-alert">${esc(group.members.error)}</p>` : ''}<button type="button" class="btn btn-primary" data-action="members" data-id="${task.id}" data-group-id="${group.id}">Atualizar membros</button></div>` : ''}
+                        ${group.channel_id ? `<div class="gc-members"><p><strong>Membros no Telegram: ${group.members?.count != null ? Number(group.members.count).toLocaleString('pt-BR') : 'Ainda não consultado'}</strong></p>${group.members?.updated ? `<small>Consultado em ${esc(new Date(group.members.updated * 1000).toLocaleString('pt-BR'))}. Atualização automática durante a execução, com intervalo mínimo de 1 minuto.</small>` : ''}${group.members?.error ? `<p class="gc-alert">${esc(group.members.error)}</p>` : ''}<button type="button" class="btn btn-primary" data-action="members" data-id="${task.id}" data-group-id="${group.id}">Atualizar membros</button><button type="button" class="btn btn-danger" data-action="remove-deleted-members" data-id="${task.id}" data-group-id="${group.id}" ${busy ? 'disabled' : ''} title="Usa uma sessão dona ou administradora com permissão para remover membros">Remover contas excluídas</button><small>Use com a tarefa pausada. A ação procura uma sessão dona ou administradora deste grupo.</small></div>` : ''}
                         ${group.invite && /^https:\/\/t\.me\//.test(group.invite) ? `<p><a href="${esc(group.invite)}" target="_blank" rel="noopener noreferrer">Abrir grupo no Telegram ↗</a></p>` : ''}
                         ${group.error ? `<p class="gc-alert" role="alert">${esc(group.error)}</p>` : ''}
                         ${group.status === 'warming' ? `<p>Aquecimento até ${esc(new Date(group.warm_until * 1000).toLocaleString('pt-BR'))}</p>` : ''}
@@ -423,6 +423,24 @@
                     } finally {
                         button.disabled = false;
                         button.textContent = 'Atualizar membros';
+                    }
+                    return;
+                }
+                if (button.dataset.action === 'remove-deleted-members') {
+                    const task = snapshot.campaigns.find(task => task.id === id);
+                    const group = task.groups.find(group => group.id === Number(button.dataset.groupId));
+                    if (!window.confirm(`Remover do grupo "${group.title}" todas as contas marcadas como excluídas pelo Telegram?`)) {
+                        button.disabled = false;
+                        return;
+                    }
+                    button.textContent = 'Removendo contas…';
+                    try {
+                        const result = await api(`/${id}/groups/${group.id}/remove-deleted-members`, {method:'POST'});
+                        notice(result.message);
+                        await load();
+                    } finally {
+                        button.disabled = false;
+                        button.textContent = 'Remover contas excluídas';
                     }
                     return;
                 }
