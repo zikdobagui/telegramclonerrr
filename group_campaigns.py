@@ -152,6 +152,59 @@ def transient_request(error):
     return bool(re.fullmatch(r'An error occurred while communicating with DC \d+(?: \(caused by \w+\))?', str(error))) or bool(re.fullmatch(r'Request was unsuccessful \d+ time\(s\)', str(error))) or isinstance(error, (TimeoutError, ConnectionError)) or type(error).__name__ in {'ServerError', 'RpcCallFailError', 'TimedOutError', 'InterdcCallErrorError', 'InterdcCallRichErrorError'}
 
 
+def session_restriction(error):
+    """Whether Telegram rejected the *account*, rather than the target group.
+
+    These failures must rotate the account pool.  Treating them as a group
+    failure used to put an otherwise healthy group into the review queue.
+    """
+    kind = type(error).__name__
+    message = str(error).lower()
+    return kind in {'PeerFloodError', 'UserRestrictedError'} or any(text in message for text in (
+        'spam-reported', 'account is limited', 'cannot message non-contacts',
+        'check @spambot', 'peer flood', 'user restricted',
+    ))
+
+
+def session_wait_until(data_dir, session_name):
+    """Read the shared session cooldown file without failing a campaign."""
+    try:
+        with open(os.path.join(data_dir, 'session_floods.json'), encoding='utf-8') as source:
+            value = json.load(source).get(session_name)
+        until = datetime.fromisoformat(value) if value else None
+        return until if until and until > datetime.now() else None
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def place_session_on_wait(data_dir, session_name, error):
+    """Persist an account restriction so every worker skips this session.
+
+    Telegram supplies a duration for FloodWait.  Spam restrictions do not have
+    one, so use a conservative 24-hour wait and let the user retry it later.
+    """
+    seconds = max(60, int(getattr(error, 'seconds', 0) or 0))
+    if not getattr(error, 'seconds', None):
+        seconds = 24 * 60 * 60
+    until = datetime.now() + __import__('datetime').timedelta(seconds=seconds)
+    path = os.path.join(data_dir, 'session_floods.json')
+    try:
+        data = {}
+        if os.path.exists(path):
+            with open(path, encoding='utf-8') as source:
+                data = json.load(source)
+        if not isinstance(data, dict):
+            data = {}
+        data[session_name] = until.isoformat()
+        with open(path, 'w', encoding='utf-8') as output:
+            json.dump(data, output, ensure_ascii=False, indent=2)
+    except (OSError, TypeError, json.JSONDecodeError):
+        # The current process still skips it; failure to persist must not put a
+        # healthy group into review.
+        pass
+    return until
+
+
 def recoverable_invite_peer_error(error):
     """Identifica falha local do Telethon que não invalida o grupo já salvo."""
     message = str(error).lower()
@@ -621,13 +674,20 @@ class CampaignStore:
             used = conn.execute("SELECT count(*) FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('sending','added','unknown')" + slot_sql, params).fetchone()[0]
             if used >= limit:
                 return None
+            # A retry is only created when Telegram explicitly rejected the
+            # account before accepting an invite. It is safe to retain the
+            # lead and try it with another selected session.
+            retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' ORDER BY d.id LIMIT 1", (cid, gid)).fetchone()
+            if retry:
+                conn.execute("UPDATE deliveries SET status='sending',error='' WHERE id=?", (retry['id'],))
+                return {'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])}
             lead = conn.execute('''SELECT * FROM leads l WHERE canonical_id IS NULL AND EXISTS (
                 SELECT 1 FROM campaign_leads cl JOIN leads selected ON selected.id=cl.lead_id
                 WHERE cl.campaign_id=? AND (selected.id=l.id OR selected.canonical_id=l.id)
             ) AND NOT EXISTS (
                 SELECT 1 FROM deliveries WHERE campaign_id=? AND scope=? AND lead_id IN (
                     SELECT id FROM leads WHERE id=l.id OR canonical_id=l.id
-                )) ORDER BY id LIMIT 1''', (cid, cid, scope)).fetchone()
+                ) AND status <> 'retry') ORDER BY id LIMIT 1''', (cid, cid, scope)).fetchone()
             if not lead:
                 return None
             did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status) VALUES(?,?,?,?,?,?,'sending')", (cid, gid, group['slot'], lead['id'], scope, day)).lastrowid
@@ -969,6 +1029,7 @@ async def campaign_loop(store, cid, gateway):
     names = settings['sessions']
     turn = 0
     warm_failures = {}
+    data_dir = os.path.dirname(store.path)
 
     async def wait(seconds):
         end = time.monotonic() + seconds
@@ -1029,10 +1090,42 @@ async def campaign_loop(store, cid, gateway):
                         if not delivery:
                             continue
                         try:
-                            added = await gateway.invite(group, names[turn % len(names)], delivery['payload'], lambda uid: store.reserve_identity(delivery['id'], uid))
+                            added = None
+                            restriction_errors = []
+                            used_session = None
+                            # Rotate immediately when one account is limited.
+                            # Do not turn a valid group into an error/review
+                            # item merely because one session was spam-limited.
+                            for offset in range(len(names)):
+                                candidate = names[(turn + offset) % len(names)]
+                                until = session_wait_until(data_dir, candidate)
+                                if until:
+                                    continue
+                                # Lightweight test/custom gateways may not
+                                # expose the production ``sessions`` mapping.
+                                if candidate not in getattr(gateway, 'sessions', {name: True for name in names}):
+                                    continue
+                                try:
+                                    added = await gateway.invite(group, candidate, delivery['payload'], lambda uid: store.reserve_identity(delivery['id'], uid))
+                                    used_session = candidate
+                                    break
+                                except Exception as error:
+                                    if not session_restriction(error):
+                                        raise
+                                    until = place_session_on_wait(data_dir, candidate, error)
+                                    restriction_errors.append((candidate, error, until))
+                                    store.event(
+                                        cid,
+                                        f"Sessão {candidate} entrou em espera até {until.strftime('%d/%m/%Y %H:%M')}: conta limitada pelo Telegram ({type(error).__name__}: {error}). A tarefa seguirá com as outras sessões."
+                                    )
+                            if used_session is None:
+                                details = '; '.join(f'{name}: {type(error).__name__}' for name, error, _ in restriction_errors)
+                                store.finish(delivery['id'], 'retry', f'Sessões em espera: {details}'[:1000])
+                                store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} aguardará uma sessão disponível; o grupo permanece ativo. {details}")
+                                continue
                             status = 'skipped' if added is None else ('added' if added else 'failed')
                             store.finish(delivery['id'], status, 'Identidade já utilizada' if added is None else ('' if added else 'Telegram não permitiu adicionar este lead'))
-                            store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} {'adicionado' if added else ('ignorado por duplicidade' if added is None else 'não adicionado pelo Telegram')}.")
+                            store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} {'adicionado' if added else ('ignorado por duplicidade' if added is None else 'não adicionado pelo Telegram')} ({used_session}).")
                             turn += 1
                         except Exception as error:
                             # Privacy and invalid-user errors are definite failures. Others may
@@ -1522,12 +1615,19 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             manager = get_sessions(username)
             saved = {row['session_name']: row for row in manager.load_sessions(force_reload=True)}
             names = task['settings']['sessions']
+            usable = {}
             for name in names:
                 info = saved.get(name)
-                if not info or not info.get('active', True) or info.get('status', 'active') != 'active' or manager.is_session_flooded(name):
-                    raise ValueError(f'Sessão indisponível: {name}')
+                if not info or not info.get('active', True) or info.get('status', 'active') != 'active':
+                    store.event(cid, f'Sessão {name} indisponível e ignorada ao iniciar; as demais sessões continuarão a tarefa.')
+                    continue
+                usable[name] = info
+                if manager.is_session_flooded(name):
+                    store.event(cid, f'Sessão {name} já está em espera por limitação/flood; as demais sessões continuarão a tarefa.')
+            if not usable:
+                raise ValueError('Nenhuma sessão ativa disponível para iniciar a tarefa')
             paths = get_paths(username)
-            session_data = {name: saved[name] for name in names}
+            session_data = usable
             gateway = TelegramCampaignGateway(paths, session_data, api)
             store.prepare_start(cid)
             set_lock('group_campaign', True, username=username)
