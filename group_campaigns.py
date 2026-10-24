@@ -687,7 +687,7 @@ class CampaignStore:
             ) AND NOT EXISTS (
                 SELECT 1 FROM deliveries WHERE campaign_id=? AND scope=? AND lead_id IN (
                     SELECT id FROM leads WHERE id=l.id OR canonical_id=l.id
-                ) AND status <> 'retry') ORDER BY id LIMIT 1''', (cid, cid, scope)).fetchone()
+                )) ORDER BY id LIMIT 1''', (cid, cid, scope)).fetchone()
             if not lead:
                 return None
             did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status) VALUES(?,?,?,?,?,?,'sending')", (cid, gid, group['slot'], lead['id'], scope, day)).lastrowid
