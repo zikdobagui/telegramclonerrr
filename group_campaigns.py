@@ -1618,14 +1618,18 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             usable = {}
             for name in names:
                 info = saved.get(name)
-                if not info or not info.get('active', True) or info.get('status', 'active') != 'active':
+                status = str((info or {}).get('status') or 'active').lower()
+                # ``flood`` is a temporary account wait, not an invalid
+                # session. Keep it in the pool so the task can start and
+                # resume on its own when the cooldown expires.
+                if not info or not info.get('active', True) or status in {'invalid', 'corrupted', 'disconnected', 'banned'}:
                     store.event(cid, f'Sessão {name} indisponível e ignorada ao iniciar; as demais sessões continuarão a tarefa.')
                     continue
                 usable[name] = info
                 if manager.is_session_flooded(name):
-                    store.event(cid, f'Sessão {name} já está em espera por limitação/flood; as demais sessões continuarão a tarefa.')
+                    store.event(cid, f'Sessão {name} já está em espera por limitação/flood; a tarefa iniciará e aguardará a liberação automaticamente.')
             if not usable:
-                raise ValueError('Nenhuma sessão ativa disponível para iniciar a tarefa')
+                raise ValueError('Nenhuma sessão válida disponível para iniciar a tarefa')
             paths = get_paths(username)
             session_data = usable
             gateway = TelegramCampaignGateway(paths, session_data, api)
