@@ -3688,16 +3688,28 @@ def remove_deleted_task_accounts(task_id):
     if task.get('deleted_cleanup_running'):
         return jsonify({'success': False, 'error': 'Já existe uma limpeza de contas excluídas em andamento nesta tarefa.'}), 409
 
+    # Prefer the task accounts, then scan every other active account. The
+    # administrator of a group is often not one of the accounts that ran the
+    # addition task, so cleanup must discover it automatically.
     selected_indexes = task.get('selected_sessions') or []
     all_sessions = session_manager.load_sessions(force_reload=True)
-    selected_sessions = []
+    candidate_indexes = []
     for value in selected_indexes:
         try:
             index = int(value)
         except (TypeError, ValueError):
             continue
-        if 0 <= index < len(all_sessions):
-            selected_sessions.append(dict(all_sessions[index]))
+        if 0 <= index < len(all_sessions) and index not in candidate_indexes:
+            candidate_indexes.append(index)
+
+    for index, account in enumerate(all_sessions):
+        if index in candidate_indexes:
+            continue
+        status = str(account.get('status') or 'active').lower()
+        if account.get('active', True) and status == 'active':
+            candidate_indexes.append(index)
+
+    selected_sessions = [dict(all_sessions[index]) for index in candidate_indexes]
     if not selected_sessions:
         return jsonify({'success': False, 'error': 'Esta tarefa não possui sessões disponíveis para executar a limpeza.'}), 400
 
@@ -4480,7 +4492,10 @@ def start_task(task_id):
                         'target_members': task['target_members'],
                         'daily_limit': task['daily_limit'],
                         'automation_manager': automation_manager,  # Passa o automation_manager correto
-                        'force_rotate_after_each_add': True,
+                        # Keep a session working until its configured quota is
+                        # reached. A hard-coded True here used to rotate after
+                        # the first successful invitation.
+                        'force_rotate_after_each_add': False,
                         'selected_session_count': len(task_sessions),
                         'source_group_link': task.get('source_group_link', ''),
                         'source_group_id': task.get('source_group_id'),
