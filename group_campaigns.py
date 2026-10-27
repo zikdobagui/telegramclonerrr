@@ -171,10 +171,42 @@ def session_wait_until(data_dir, session_name):
     try:
         with open(os.path.join(data_dir, 'session_floods.json'), encoding='utf-8') as source:
             value = json.load(source).get(session_name)
+        # Older installations saved just the ISO date.  Keep those waits
+        # valid while newer entries also preserve a human-readable reason.
+        if isinstance(value, dict):
+            value = value.get('until')
         until = datetime.fromisoformat(value) if value else None
         return until if until and until > datetime.now() else None
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return None
+
+
+def session_wait_details(data_dir, session_names):
+    """Return the persisted Telegram restrictions in a display-safe form."""
+    try:
+        with open(os.path.join(data_dir, 'session_floods.json'), encoding='utf-8') as source:
+            saved = json.load(source)
+        if not isinstance(saved, dict):
+            saved = {}
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        saved = {}
+    result = []
+    for name in session_names:
+        raw = saved.get(name)
+        value = raw.get('until') if isinstance(raw, dict) else raw
+        try:
+            until = datetime.fromisoformat(value) if value else None
+        except (TypeError, ValueError):
+            until = None
+        if until and until > datetime.now():
+            result.append({
+                'name': name,
+                'until': until.timestamp(),
+                'until_text': until.strftime('%d/%m/%Y %H:%M'),
+                'reason': str(raw.get('reason') or 'Limitação/flood registrada anteriormente.') if isinstance(raw, dict) else 'Limitação/flood registrada anteriormente.',
+                'kind': str(raw.get('kind') or '') if isinstance(raw, dict) else '',
+            })
+    return result
 
 
 def place_session_on_wait(data_dir, session_name, error):
@@ -195,7 +227,11 @@ def place_session_on_wait(data_dir, session_name, error):
                 data = json.load(source)
         if not isinstance(data, dict):
             data = {}
-        data[session_name] = until.isoformat()
+        data[session_name] = {
+            'until': until.isoformat(),
+            'kind': type(error).__name__,
+            'reason': str(error)[:500] or 'Conta limitada pelo Telegram.',
+        }
         with open(path, 'w', encoding='utf-8') as output:
             json.dump(data, output, ensure_ascii=False, indent=2)
     except (OSError, TypeError, json.JSONDecodeError):
@@ -312,6 +348,13 @@ class CampaignStore:
         with self.db() as conn:
             conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, message[:1000], time.time()))
             conn.execute('DELETE FROM events WHERE campaign_id=? AND id NOT IN (SELECT id FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 100)', (cid, cid))
+
+    def event_once(self, cid, message):
+        """Avoid filling the history with the same cooldown notice every loop."""
+        with self.db() as conn:
+            previous = conn.execute('SELECT message FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 1', (cid,)).fetchone()
+            if not previous or previous['message'] != message[:1000]:
+                conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, message[:1000], time.time()))
 
     def get(self, cid):
         with self.db() as conn:
@@ -726,6 +769,7 @@ class CampaignStore:
                 task['lead_source'] = dict(source) if source else None
                 task['lead_count'] = conn.execute('SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?', (cid,)).fetchone()[0]
                 task['groups'] = self.groups(cid)
+                task['session_waits'] = session_wait_details(os.path.dirname(self.path), task['settings'].get('sessions', []))
                 task['events'] = [dict(row) for row in conn.execute('SELECT message,created FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 20', (cid,))]
                 task['counts'] = dict(conn.execute('SELECT status,count(*) FROM deliveries WHERE campaign_id=? GROUP BY status', (cid,)))
                 for group in task['groups']:
@@ -1086,6 +1130,17 @@ async def campaign_loop(store, cid, gateway):
                             store.event(cid, f"Grupo {group['slot']}: conteúdo de aquecimento enviado.")
                             worked = True
                     elif group['status'] == 'ready':
+                        waits = {item['name']: item for item in session_wait_details(data_dir, names)}
+                        loaded = getattr(gateway, 'sessions', {name: True for name in names})
+                        available_names = [name for name in names if name not in waits and name in loaded]
+                        if not available_names:
+                            blocked = [
+                                f"{name}: LIMITADA por spam/flood até {waits[name]['until_text']} ({waits[name]['kind'] or waits[name]['reason']})"
+                                if name in waits else f'{name}: não carregada ou inválida'
+                                for name in names
+                            ]
+                            store.event_once(cid, 'Todas as sessões desta tarefa estão indisponíveis. Nenhum lead foi enviado. ' + ' | '.join(blocked))
+                            continue
                         delivery = store.claim(cid, gid)
                         if not delivery:
                             continue
@@ -1096,14 +1151,11 @@ async def campaign_loop(store, cid, gateway):
                             # Rotate immediately when one account is limited.
                             # Do not turn a valid group into an error/review
                             # item merely because one session was spam-limited.
-                            for offset in range(len(names)):
-                                candidate = names[(turn + offset) % len(names)]
-                                until = session_wait_until(data_dir, candidate)
-                                if until:
-                                    continue
+                            for offset in range(len(available_names)):
+                                candidate = available_names[(turn + offset) % len(available_names)]
                                 # Lightweight test/custom gateways may not
                                 # expose the production ``sessions`` mapping.
-                                if candidate not in getattr(gateway, 'sessions', {name: True for name in names}):
+                                if candidate not in loaded:
                                     continue
                                 try:
                                     added = await gateway.invite(group, candidate, delivery['payload'], lambda uid: store.reserve_identity(delivery['id'], uid))
@@ -1156,6 +1208,10 @@ async def campaign_loop(store, cid, gateway):
                 if worked:
                     await wait(random.randint(settings.get('delay_min', settings.get('delay', 60)), settings.get('delay_max', settings.get('delay', 60))))
                     worked = False
+                    # Complete the current group's daily goal before moving to
+                    # the next slot.  A later group starts only when this one
+                    # has no eligible lead or has reached its own limit.
+                    break
             await wait(15)
     except Exception as error:
         # A campaign must only stop on an explicit user pause. The worker
