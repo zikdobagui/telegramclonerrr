@@ -80,6 +80,10 @@ class SessionManager:
                 session_name = session.get('session_name', '')
 
                 flood_until_str = floods.get(session_name) or session.get('flood_until')
+                # Accept the short-lived structured form written by older
+                # group-campaign builds, then continue with the ISO deadline.
+                if isinstance(flood_until_str, dict):
+                    flood_until_str = flood_until_str.get('until')
                 if not flood_until_str:
                     continue
 
@@ -136,6 +140,8 @@ class SessionManager:
         try:
             floods = load_json_file(flood_file, {}) if os.path.exists(flood_file) else {}
             flood_until_str = floods.get(session_name)
+            if isinstance(flood_until_str, dict):
+                flood_until_str = flood_until_str.get('until')
             if not flood_until_str:
                 for session in self.sessions:
                     if session.get('session_name') == session_name:

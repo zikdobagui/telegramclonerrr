@@ -190,6 +190,13 @@ def session_wait_details(data_dir, session_names):
             saved = {}
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         saved = {}
+    try:
+        with open(os.path.join(data_dir, 'session_flood_details.json'), encoding='utf-8') as source:
+            details = json.load(source)
+        if not isinstance(details, dict):
+            details = {}
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        details = {}
     result = []
     for name in session_names:
         raw = saved.get(name)
@@ -199,14 +206,41 @@ def session_wait_details(data_dir, session_names):
         except (TypeError, ValueError):
             until = None
         if until and until > datetime.now():
+            detail = details.get(name) if isinstance(details.get(name), dict) else {}
+            # Support entries written by the first version of this UI, while
+            # keeping session_floods.json compatible with every other worker.
+            if isinstance(raw, dict):
+                detail = {**raw, **detail}
             result.append({
                 'name': name,
                 'until': until.timestamp(),
                 'until_text': until.strftime('%d/%m/%Y %H:%M'),
-                'reason': str(raw.get('reason') or 'Limitação/flood registrada anteriormente.') if isinstance(raw, dict) else 'Limitação/flood registrada anteriormente.',
-                'kind': str(raw.get('kind') or '') if isinstance(raw, dict) else '',
+                'reason': str(detail.get('reason') or 'Limitação/flood registrada anteriormente.'),
+                'kind': str(detail.get('kind') or ''),
             })
     return result
+
+
+def expired_session_waits(data_dir, session_names):
+    """Names whose stored cooldown elapsed and must be tested again now."""
+    try:
+        with open(os.path.join(data_dir, 'session_floods.json'), encoding='utf-8') as source:
+            saved = json.load(source)
+        if not isinstance(saved, dict):
+            return []
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return []
+    expired = []
+    for name in session_names:
+        raw = saved.get(name)
+        value = raw.get('until') if isinstance(raw, dict) else raw
+        try:
+            until = datetime.fromisoformat(value) if value else None
+        except (TypeError, ValueError):
+            until = None
+        if until and until <= datetime.now():
+            expired.append(name)
+    return expired
 
 
 def place_session_on_wait(data_dir, session_name, error):
@@ -227,13 +261,24 @@ def place_session_on_wait(data_dir, session_name, error):
                 data = json.load(source)
         if not isinstance(data, dict):
             data = {}
-        data[session_name] = {
-            'until': until.isoformat(),
+        # This file is shared by all Telegram workers.  Its values must stay
+        # ISO strings; richer UI-only context is stored separately below.
+        data[session_name] = until.isoformat()
+        with open(path, 'w', encoding='utf-8') as output:
+            json.dump(data, output, ensure_ascii=False, indent=2)
+        details_path = os.path.join(data_dir, 'session_flood_details.json')
+        details = {}
+        if os.path.exists(details_path):
+            with open(details_path, encoding='utf-8') as source:
+                details = json.load(source)
+        if not isinstance(details, dict):
+            details = {}
+        details[session_name] = {
             'kind': type(error).__name__,
             'reason': str(error)[:500] or 'Conta limitada pelo Telegram.',
         }
-        with open(path, 'w', encoding='utf-8') as output:
-            json.dump(data, output, ensure_ascii=False, indent=2)
+        with open(details_path, 'w', encoding='utf-8') as output:
+            json.dump(details, output, ensure_ascii=False, indent=2)
     except (OSError, TypeError, json.JSONDecodeError):
         # The current process still skips it; failure to persist must not put a
         # healthy group into review.
@@ -1139,8 +1184,11 @@ async def campaign_loop(store, cid, gateway):
                                 if name in waits else f'{name}: não carregada ou inválida'
                                 for name in names
                             ]
-                            store.event_once(cid, 'Todas as sessões desta tarefa estão indisponíveis. Nenhum lead foi enviado. ' + ' | '.join(blocked))
+                            store.event_once(cid, 'Todas as sessões desta tarefa estão indisponíveis. Nenhum lead foi enviado. A tarefa continua ativa e testará novamente assim que a próxima espera vencer. ' + ' | '.join(blocked))
                             continue
+                        expired = expired_session_waits(data_dir, names)
+                        if expired:
+                            store.event_once(cid, 'Espera de spam/flood encerrada para: ' + ', '.join(expired) + '. A tarefa continua ativa e está testando estas sessões novamente agora.')
                         delivery = store.claim(cid, gid)
                         if not delivery:
                             continue
