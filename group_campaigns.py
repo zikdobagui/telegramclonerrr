@@ -401,6 +401,16 @@ class CampaignStore:
             if not previous or previous['message'] != message[:1000]:
                 conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, message[:1000], time.time()))
 
+    def event_recent(self, cid, message, seconds=300):
+        """Record a waiting state at most once in a short interval."""
+        with self.db() as conn:
+            exists = conn.execute(
+                'SELECT 1 FROM events WHERE campaign_id=? AND message=? AND created>=? LIMIT 1',
+                (cid, message[:1000], time.time() - seconds)
+            ).fetchone()
+            if not exists:
+                conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, message[:1000], time.time()))
+
     def get(self, cid):
         with self.db() as conn:
             row = conn.execute('SELECT * FROM campaigns WHERE id=?', (cid,)).fetchone()
@@ -741,14 +751,16 @@ class CampaignStore:
                 conn.execute('INSERT OR REPLACE INTO campaign_sources VALUES(?,?,?)', (cid, os.path.basename(filename.replace('\\', '/'))[:255], time.time()))
         return stats
 
-    def claim(self, cid, gid):
+    def claim(self, cid, gid, diagnose=False):
         """Reserve before network I/O: uncertain results are never resent automatically."""
+        def result(delivery, reason=''):
+            return (delivery, reason) if diagnose else delivery
         with self.db() as conn:
             conn.execute('BEGIN IMMEDIATE')
             campaign = conn.execute('SELECT * FROM campaigns WHERE id=?', (cid,)).fetchone()
             group = conn.execute('SELECT * FROM groups WHERE id=? AND campaign_id=? AND current=1', (gid, cid)).fetchone()
             if not campaign or campaign['status'] != 'running' or not group or group['status'] != 'ready':
-                return None
+                return result(None, 'o grupo não está pronto para receber leads')
             settings = json.loads(campaign['settings'])
             scope = group['slot'] if settings['dedup'] == 'group' else 0
             day = day_key()
@@ -761,14 +773,15 @@ class CampaignStore:
                 limit = group['daily_limit']
             used = conn.execute("SELECT count(*) FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('sending','added','unknown')" + slot_sql, params).fetchone()[0]
             if used >= limit:
-                return None
+                scope_name = 'da tarefa' if settings['limit_scope'] == 'task' else 'deste grupo'
+                return result(None, f'a meta diária {scope_name} foi atingida ({used}/{limit})')
             # A retry is only created when Telegram explicitly rejected the
             # account before accepting an invite. It is safe to retain the
             # lead and try it with another selected session.
             retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' ORDER BY d.id LIMIT 1", (cid, gid)).fetchone()
             if retry:
                 conn.execute("UPDATE deliveries SET status='sending',error='' WHERE id=?", (retry['id'],))
-                return {'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])}
+                return result({'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])})
             lead = conn.execute('''SELECT * FROM leads l WHERE canonical_id IS NULL AND EXISTS (
                 SELECT 1 FROM campaign_leads cl JOIN leads selected ON selected.id=cl.lead_id
                 WHERE cl.campaign_id=? AND (selected.id=l.id OR selected.canonical_id=l.id)
@@ -777,9 +790,11 @@ class CampaignStore:
                     SELECT id FROM leads WHERE id=l.id OR canonical_id=l.id
                 )) ORDER BY id LIMIT 1''', (cid, cid, scope)).fetchone()
             if not lead:
-                return None
+                imported = conn.execute('SELECT count(*) FROM campaign_leads WHERE campaign_id=?', (cid,)).fetchone()[0]
+                reason = 'nenhum contato foi importado para esta tarefa' if not imported else 'não há lead elegível; todos já foram processados ou reservados'
+                return result(None, reason)
             did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status) VALUES(?,?,?,?,?,?,'sending')", (cid, gid, group['slot'], lead['id'], scope, day)).lastrowid
-            return {'id': did, 'lead_id': lead['id'], 'payload': json.loads(lead['payload'])}
+            return result({'id': did, 'lead_id': lead['id'], 'payload': json.loads(lead['payload'])})
 
     def finish(self, did, status, error=''):
         with self.db() as conn:
@@ -1119,6 +1134,7 @@ async def campaign_loop(store, cid, gateway):
     turn = 0
     warm_failures = {}
     data_dir = os.path.dirname(store.path)
+    store.event_recent(cid, f'Executor da tarefa iniciado: {len(names)} sessão(ões) configurada(s). O histórico mostrará cada adição ou motivo de espera.', seconds=30)
 
     async def wait(seconds):
         end = time.monotonic() + seconds
@@ -1189,8 +1205,9 @@ async def campaign_loop(store, cid, gateway):
                         expired = expired_session_waits(data_dir, names)
                         if expired:
                             store.event_once(cid, 'Espera de spam/flood encerrada para: ' + ', '.join(expired) + '. A tarefa continua ativa e está testando estas sessões novamente agora.')
-                        delivery = store.claim(cid, gid)
+                        delivery, waiting_reason = store.claim(cid, gid, diagnose=True)
                         if not delivery:
+                            store.event_recent(cid, f"Grupo {group['slot']}: aguardando porque {waiting_reason}.")
                             continue
                         try:
                             added = None
@@ -1738,6 +1755,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             session_data = usable
             gateway = TelegramCampaignGateway(paths, session_data, api)
             store.prepare_start(cid)
+            store.event(cid, f'Tarefa iniciada com {len(usable)} sessão(ões) válida(s). O executor está ativo; acompanhe abaixo a próxima ação ou o motivo da espera.')
             set_lock('group_campaign', True, username=username)
 
             def run():

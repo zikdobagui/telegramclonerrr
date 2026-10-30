@@ -50,6 +50,15 @@
 #comingSoon .gc-replace, #comingSoon .gc-history { margin-top:12px; padding-top:8px; border-top:1px solid rgba(148,163,184,.16); }
 #comingSoon .gc-replace .form-group:first-of-type { margin-top:12px; }
 #comingSoon .gc-history p { padding:5px 0; overflow-wrap:anywhere; }
+#comingSoon .gc-history-help { margin:4px 0 10px; padding:9px 10px; border-radius:8px; background:rgba(14,165,233,.07); color:#cbd5e1; line-height:1.5; }
+#comingSoon .gc-log-list { display:grid; gap:7px; max-height:420px; overflow:auto; padding-right:3px; }
+#comingSoon .gc-log { display:grid; grid-template-columns:145px minmax(0,1fr); gap:10px; padding:9px 10px; border:1px solid rgba(148,163,184,.14); border-left:3px solid #64748b; border-radius:7px; background:rgba(15,23,42,.48); }
+#comingSoon .gc-log time { color:#94a3b8; font-size:11px; line-height:1.45; }
+#comingSoon .gc-log p { margin:0; padding:0; color:#cbd5e1; line-height:1.45; }
+#comingSoon .gc-log.success { border-left-color:#34d399; }
+#comingSoon .gc-log.warning { border-left-color:#fbbf24; background:rgba(245,158,11,.06); }
+#comingSoon .gc-log.waiting { border-left-color:#38bdf8; }
+#comingSoon .gc-log-empty { margin:0; padding:10px; border-radius:7px; background:rgba(148,163,184,.08); }
 #comingSoon .gc-alert { padding:10px; border-left:3px solid #ef4444; background:rgba(239,68,68,.08); color:#fca5a5; font-size:12px; overflow-wrap:anywhere; }
 #comingSoon .gc-empty { text-align:center; padding:24px 12px; color:#94a3b8; }
 #comingSoon .gc-empty h3 { color:#e2e8f0 !important; margin:10px 0 !important; }
@@ -130,4 +139,5 @@
     #comingSoon > .task-queue-summary small { line-height:1.3; }
     #comingSoon .gc-monitor-heading { align-items:flex-start; }
     #comingSoon .gc-sessions { grid-template-columns:minmax(0,1fr); max-height:250px; }
+    #comingSoon .gc-log { grid-template-columns:1fr; gap:3px; }
 }

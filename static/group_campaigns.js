@@ -90,6 +90,17 @@
         el('campaign-status').textContent = message;
         showNotification(message, error ? 'error' : 'success');
     }
+    function eventTone(message) {
+        const text = String(message || '').toLocaleLowerCase('pt-BR');
+        if (text.includes('adicionado') || text.includes('iniciado') || text.includes('liberação')) return 'success';
+        if (text.includes('spam') || text.includes('flood') || text.includes('erro') || text.includes('não confirmado') || text.includes('indisponível')) return 'warning';
+        if (text.includes('aguardando') || text.includes('meta diária')) return 'waiting';
+        return 'info';
+    }
+    function renderHistory(events) {
+        if (!events?.length) return '<p class="gc-log-empty">Nenhum evento ainda. Ao iniciar, o status da primeira tentativa aparecerá aqui.</p>';
+        return `<div class="gc-log-list">${events.map(event => `<article class="gc-log ${eventTone(event.message)}"><time>${esc(new Date(event.created * 1000).toLocaleString('pt-BR'))}</time><p>${esc(event.message)}</p></article>`).join('')}</div>`;
+    }
     function reveal(id) {
         const target = el(id);
         if (id === 'campaign-builder') viewInitialized = true;
@@ -265,7 +276,7 @@
                             <button class="btn btn-primary" name="action" value="replace" ${busy ? 'disabled' : ''}>Substituir grupo</button><small>O grupo anterior permanece no Telegram.</small></details>
                         </form>${ownershipControls(task, group, busy)}${deletionControls(task, group, busy)}</div>
                     </details>`).join('')}</div></details>
-                    <details class="gc-history" data-detail="events-${task.id}"><summary>Ver histórico e informações de execução</summary><p><strong>Spam/flood:</strong> quando o Telegram limita uma sessão, ela aparece acima com nome, motivo e horário de liberação. Se todas estiverem limitadas, nenhum lead é enviado. <strong>Meta por grupo:</strong> com “Cada grupo separadamente”, o Grupo 1 atinge a meta primeiro e depois segue para o próximo. Sem confirmação: o lead fica reservado para evitar repetição. As metas renovam à meia-noite de São Paulo. Após reiniciar o servidor, use Iniciar tarefa para retomar.</p>${task.events.map(event => `<p>${esc(new Date(event.created * 1000).toLocaleString('pt-BR'))} — ${esc(event.message)}</p>`).join('') || '<p>Aguardando início.</p>'}</details>
+                    <details class="gc-history" data-detail="events-${task.id}"><summary>Histórico e diagnóstico da execução <span class="gc-badge">${task.events.length}</span></summary><p class="gc-history-help"><strong>Spam/flood:</strong> uma sessão limitada aparece acima com nome, motivo e horário de nova tentativa. <strong>Meta por grupo:</strong> o Grupo 1 atinge a meta primeiro e depois segue para o próximo. Quando não houver atividade, o histórico informa se faltam leads, se a meta foi atingida ou se as sessões estão em espera.</p>${renderHistory(task.events)}</details>
                     </div>
                 </section>`;
             }).join('') || '<div class="gc-empty"><i class="fas fa-layer-group" aria-hidden="true"></i><h3>Sua primeira tarefa começa aqui</h3><p>Escolha os grupos e as sessões. Depois de salvar, ela aparecerá neste espaço.</p><button class="btn btn-primary" type="button" data-reveal="campaign-builder">Criar minha primeira tarefa</button></div>';
