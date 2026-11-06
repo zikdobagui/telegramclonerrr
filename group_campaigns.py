@@ -749,6 +749,10 @@ class CampaignStore:
                 conn.execute('DELETE FROM campaign_leads WHERE campaign_id=?', (cid,))
                 conn.executemany('INSERT INTO campaign_leads VALUES(?,?)', [(cid, lead_id) for lead_id in selected])
                 conn.execute('INSERT OR REPLACE INTO campaign_sources VALUES(?,?,?)', (cid, os.path.basename(filename.replace('\\', '/'))[:255], time.time()))
+                stats['task_total'] = conn.execute(
+                    'SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?',
+                    (cid,)
+                ).fetchone()[0]
         return stats
 
     def claim(self, cid, gid, diagnose=False):
