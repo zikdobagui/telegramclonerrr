@@ -138,7 +138,7 @@
     }
     function eventTone(message) {
         const text = String(message || '').toLocaleLowerCase('pt-BR');
-        if (/não confirmado|não adicionado|não foi possível|erro|rejeitad|spam|flood|indisponível|falha/.test(text)) return 'warning';
+        if (/não confirmado|não adicionado|não foi possível|erro|rejeitad|spam|flood|indisponível|falha|inválid|desativad/.test(text)) return 'warning';
         if (/adicionado|sucesso|iniciado|confirmad/.test(text)) return 'success';
         if (/aguardando|meta diária|intervalo|espera/.test(text)) return 'waiting';
         return 'info';
@@ -310,11 +310,12 @@
                     <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta diária da tarefa')}<div class="gc-focus"><span class="gc-eyebrow">${task.status === 'running' ? 'Destino prioritário' : 'Próximo destino'}</span><strong>${focus ? esc(focus.title) : perGroup ? 'Sem grupo elegível agora' : 'Distribuição entre grupos'}</strong><small>${focus ? focus.status === 'error' ? 'Sequência bloqueada: revise o erro deste grupo e reinicie a tarefa. Os próximos grupos aguardam.' : focus.today >= focus.daily_limit ? 'Aguardando confirmação das vagas reservadas. Os próximos grupos aguardam.' : 'As tentativas continuam neste grupo até confirmar a meta diária. Os próximos grupos aguardam.' : 'Confira as cotas e os estados dos grupos abaixo.'}</small></div></div>
                     ${spamAlert}
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
-                    <p class="info">${task.lead_source ? `Arquivo desta tarefa: <strong>${esc(task.lead_source.filename)}</strong> · ${task.lead_count} contatos` : 'Esta tarefa está sem arquivo próprio. Importe os contatos para habilitar as adições; a lista compartilhada antiga não será usada.'}</p>
-                    <button type="button" class="btn btn-primary" data-action="import-leads" data-id="${task.id}">Importar arquivo desta tarefa</button><a class="btn btn-primary gc-export-leads" href="/api/group-campaigns/${task.id}/leads/export" download="leads-tarefa-${task.id}.json">Exportar leads (JSON)</a><small>Exporte os contatos desta tarefa e importe o JSON no outro login. O arquivo inclui todos os leads selecionados, inclusive os já processados.</small>
+                    <p class="info">${task.lead_source ? `Arquivo desta tarefa: <strong>${esc(task.lead_source.filename)}</strong> · ${task.lead_count} contatos importados · ${task.excluded_lead_count || 0} retirados por referência inválida/conta desativada` : 'Esta tarefa está sem arquivo próprio. Importe os contatos para habilitar as adições; a lista compartilhada antiga não será usada.'}</p>
+                    <button type="button" class="btn btn-primary" data-action="import-leads" data-id="${task.id}">Importar arquivo desta tarefa</button><a class="btn btn-primary gc-export-leads" href="/api/group-campaigns/${task.id}/leads/export" download="leads-tarefa-${task.id}.json">Exportar base limpa (JSON)</a><small>Exporte os contatos desta tarefa e importe o JSON no outro login. O arquivo exclui referências inválidas e contas desativadas detectadas nesta tarefa. Contatos adicionados e outros resultados continuam incluídos. O arquivo original no computador é preservado.</small>
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
                     ${!task.groups.length ? '<p class="info">Esta tarefa não tem mais grupos. O histórico foi mantido; você pode excluir a tarefa quando quiser.</p>' : ''}
                     ${busy ? '<p class="info gc-note">Para editar, excluir ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
+                    <form data-settings="${task.id}" class="gc-upload gc-delay-settings"><div class="form-group"><label>Delay mínimo (segundos)<input name="delay_min" type="number" min="1" max="3600" required value="${task.settings.delay_min ?? task.settings.delay ?? 60}" ${busy ? 'disabled' : ''}></label></div><div class="form-group"><label>Delay máximo (segundos)<input name="delay_max" type="number" min="1" max="3600" required value="${task.settings.delay_max ?? task.settings.delay ?? 60}" ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Salvar delay</button></form><small>Pause a tarefa para ajustar. Para delay fixo, informe o mesmo valor nos dois campos. No modo simultâneo, o intervalo vale por sessão. O tempo de resposta e as esperas exigidas pelo Telegram continuam valendo.</small>
                     ${task.settings.limit_scope === 'task' ? `<form data-settings="${task.id}" class="gc-upload"><div class="form-group"><label>Limite diário de todos os grupos juntos<input name="daily_limit" type="number" value="${task.settings.daily_limit}" min="1" max="10000" required ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Salvar limite</button></form>` : ''}
                     <details class="gc-group-list" data-detail="groups-${task.id}"><summary>Ver grupos da tarefa <span class="gc-badge">${task.groups.length}</span></summary><div class="gc-group-grid">
                     ${task.groups.map(group => `<details class="gc-group ${focus?.id === group.id ? 'gc-focused' : ''}" data-detail="group-${group.id}">
@@ -604,7 +605,7 @@
                 }
                 const path = form.dataset.group ? `/${taskId}/groups/${form.dataset.group}` : `/${taskId}/settings`;
                 await api(path, json('PUT', data));
-                notice(replace ? 'Grupo substituído. Clique em Iniciar para continuar o ciclo.' : 'Limite atualizado');
+                notice(replace ? 'Grupo substituído. Clique em Iniciar para continuar o ciclo.' : 'delay_min' in data ? 'Delay atualizado. Inicie a tarefa para usar o novo intervalo.' : 'Limite atualizado');
                 document.activeElement?.blur();
                 await load();
             });

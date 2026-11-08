@@ -67,7 +67,8 @@ def run():
                 assert page.locator('.gc-session-identity small').inner_text() == '+5500000000000'
                 page.locator('#campaign-name').fill('Tarefa de teste')
                 page.locator('#campaign-session-options input[value="test.session"]').check()
-                page.locator('.gc-advanced > summary').click()
+                assert page.locator('#campaign-delay-min').is_visible()
+                assert page.locator('#campaign-delay-max').is_visible()
                 page.locator('#campaign-delay-min').fill('1')
                 page.locator('#campaign-delay-max').fill('29')
                 page.locator('#campaign-warming').select_option('yes')

@@ -368,6 +368,11 @@ class CampaignStore:
                     campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
                     lead_id INTEGER NOT NULL REFERENCES leads(id),
                     PRIMARY KEY(campaign_id,lead_id));
+                CREATE TABLE IF NOT EXISTS campaign_lead_exclusions (
+                    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                    lead_id INTEGER NOT NULL REFERENCES leads(id),
+                    reason TEXT NOT NULL, created REAL NOT NULL,
+                    PRIMARY KEY(campaign_id,lead_id));
                 CREATE TABLE IF NOT EXISTS campaign_sources (
                     campaign_id INTEGER PRIMARY KEY REFERENCES campaigns(id) ON DELETE CASCADE,
                     filename TEXT NOT NULL, imported REAL NOT NULL);
@@ -708,6 +713,7 @@ class CampaignStore:
             rows = [{'username': line.strip()} for line in text.splitlines() if line.strip()]
         else:
             raise ValueError('Use JSON, CSV ou TXT (um @username por linha)')
+        source_link = data.get('source_group_link') if filename.lower().endswith('.json') and isinstance(data, dict) else None
         stats = {'added': 0, 'duplicates': 0, 'invalid': 0}
         selected = set()
         with self.db() as conn:
@@ -718,6 +724,8 @@ class CampaignStore:
                 if not isinstance(row, dict):
                     stats['invalid'] += 1
                     continue
+                if source_link and not row.get('source_group_link'):
+                    row = {**row, 'source_group_link': source_link}
                 uid = str(row.get('id') or '').strip()
                 username = str(row.get('username') or '').strip().removeprefix('https://t.me/').lstrip('@').lower()
                 phone = re.sub(r'\D', '', str(row.get('phone') or ''))
@@ -779,7 +787,11 @@ class CampaignStore:
                 """SELECT DISTINCT canonical.id,canonical.payload FROM campaign_leads cl
                    JOIN leads selected ON selected.id=cl.lead_id
                    JOIN leads canonical ON canonical.id=COALESCE(selected.canonical_id,selected.id)
-                   WHERE cl.campaign_id=? ORDER BY canonical.id""", (cid,)).fetchall()
+                   WHERE cl.campaign_id=? AND NOT EXISTS (
+                       SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id
+                       WHERE e.campaign_id=cl.campaign_id
+                       AND COALESCE(excluded.canonical_id,excluded.id)=canonical.id
+                   ) ORDER BY canonical.id""", (cid,)).fetchall()
             return [json.loads(row['payload']) for row in rows]
 
     def claim(self, cid, gid, diagnose=False):
@@ -809,7 +821,7 @@ class CampaignStore:
             # A retry is only created when Telegram explicitly rejected the
             # account before accepting an invite. It is safe to retain the
             # lead and try it with another selected session.
-            retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' ORDER BY d.id LIMIT 1", (cid, gid)).fetchone()
+            retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND NOT EXISTS (SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id WHERE e.campaign_id=d.campaign_id AND COALESCE(excluded.canonical_id,excluded.id)=COALESCE(l.canonical_id,l.id)) ORDER BY d.id LIMIT 1", (cid, gid)).fetchone()
             if retry:
                 conn.execute("UPDATE deliveries SET status='sending',error='' WHERE id=?", (retry['id'],))
                 return result({'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])})
@@ -817,9 +829,12 @@ class CampaignStore:
                 SELECT 1 FROM campaign_leads cl JOIN leads selected ON selected.id=cl.lead_id
                 WHERE cl.campaign_id=? AND (selected.id=l.id OR selected.canonical_id=l.id)
             ) AND NOT EXISTS (
+                SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id
+                WHERE e.campaign_id=? AND COALESCE(excluded.canonical_id,excluded.id)=l.id
+            ) AND NOT EXISTS (
                 SELECT 1 FROM deliveries WHERE campaign_id=? AND scope=? AND lead_id IN (
                     SELECT id FROM leads WHERE id=l.id OR canonical_id=l.id
-                )) ORDER BY id LIMIT 1''', (cid, cid, scope)).fetchone()
+                )) ORDER BY id LIMIT 1''', (cid, cid, cid, scope)).fetchone()
             if not lead:
                 imported = conn.execute('SELECT count(*) FROM campaign_leads WHERE campaign_id=?', (cid,)).fetchone()[0]
                 reason = 'nenhum contato foi importado para esta tarefa' if not imported else 'não há lead elegível; todos já foram processados ou reservados'
@@ -834,9 +849,16 @@ class CampaignStore:
                 if expired_group_invite(delivery['error']):
                     conn.execute("UPDATE deliveries SET status='retry' WHERE id=?", (delivery['id'],))
 
-    def finish(self, did, status, error=''):
+    def finish(self, did, status, error='', error_kind=''):
         with self.db() as conn:
             conn.execute('UPDATE deliveries SET status=?,error=? WHERE id=?', (status, error[:1000], did))
+            if status == 'failed' and error_kind in {'UserIdInvalidError', 'InputUserDeactivatedError', 'LeadReferenceInvalidError'}:
+                delivery = conn.execute('SELECT campaign_id,lead_id FROM deliveries WHERE id=?', (did,)).fetchone()
+                inserted = conn.execute('INSERT OR IGNORE INTO campaign_lead_exclusions VALUES(?,?,?,?)',
+                                        (delivery['campaign_id'], delivery['lead_id'], error_kind, time.time())).rowcount
+                if inserted:
+                    conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)',
+                                 (delivery['campaign_id'], f"Lead #{delivery['lead_id']} retirado da base ativa e da exportação desta tarefa ({error_kind}). Referência inválida ou conta desativada; histórico preservado.", time.time()))
 
     def reserve_identity(self, did, telegram_id):
         """Final dedup check after resolving a phone/username to its Telegram ID."""
@@ -849,6 +871,11 @@ class CampaignStore:
 
     def recover(self):
         with self.db() as conn:
+            conn.execute('''INSERT OR IGNORE INTO campaign_lead_exclusions(campaign_id,lead_id,reason,created)
+                SELECT campaign_id,lead_id,'UserIdInvalidError',? FROM deliveries
+                WHERE status='failed' AND error LIKE 'Invalid object ID for a user.%'
+                AND error LIKE '%InviteToChannelRequest%'
+                ''', (time.time(),))
             conn.execute("UPDATE campaigns SET status='paused',error='Servidor reiniciado. Clique em Iniciar para continuar.' WHERE status='running'")
             conn.execute("UPDATE deliveries SET status='unknown',error='Resultado não confirmado antes da interrupção' WHERE status='sending'")
             conn.execute("UPDATE groups SET status='error',error='Criação interrompida. Verifique o Telegram e substitua por link para evitar recriar.' WHERE status='creating'")
@@ -866,6 +893,7 @@ class CampaignStore:
                 source = conn.execute('SELECT filename,imported FROM campaign_sources WHERE campaign_id=?', (cid,)).fetchone()
                 task['lead_source'] = dict(source) if source else None
                 task['lead_count'] = conn.execute('SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?', (cid,)).fetchone()[0]
+                task['excluded_lead_count'] = conn.execute('SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_lead_exclusions e JOIN leads l ON l.id=e.lead_id WHERE e.campaign_id=?', (cid,)).fetchone()[0]
                 task['groups'] = self.groups(cid)
                 task['session_waits'] = session_wait_details(os.path.dirname(self.path), task['settings'].get('sessions', []))
                 task['events'] = [dict(row) for row in conn.execute('SELECT id,message,created FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 500', (cid,))]
@@ -885,6 +913,8 @@ class TelegramCampaignGateway:
         self.client_locks = {}
         self.invite_links = {}
         self.invite_locks = {}
+        self.source_users = {}
+        self.source_locks = {}
 
     async def client(self, name):
         async with self.client_locks.setdefault(name, asyncio.Lock()):
@@ -1136,6 +1166,72 @@ class TelegramCampaignGateway:
         before_send()
         await client(DeleteChannelRequest(peer))
 
+    async def resolve_lead(self, client, name, payload, refresh=False):
+        from telethon import utils
+        from telethon.tl.types import InputUser, PeerUser
+        from telethon.tl.functions.contacts import ResolveUsernameRequest
+        from telethon.errors import UserIdInvalidError
+        audit = getattr(self, 'audit', lambda message: None)
+        expected = int(payload['id']) if str(payload.get('id') or '').isdigit() else None
+
+        def checked(entity):
+            if getattr(entity, 'deleted', False) is True:
+                raise LeadReferenceInvalidError('A conta do lead foi desativada.')
+            user = utils.get_input_user(entity)
+            if not getattr(user, 'user_id', None) or not getattr(user, 'access_hash', None):
+                raise LeadReferenceInvalidError('A sessão não obteve uma referência válida de usuário.')
+            if expected and user.user_id != expected:
+                raise LeadReferenceInvalidError('O username agora pertence a outro ID. Convite interrompido para não adicionar outra pessoa.')
+            return user
+
+        try:
+            if payload.get('username'):
+                if refresh:
+                    audit(f'Sessão {name}: atualizando o username diretamente no Telegram, sem reutilizar a referência rejeitada.')
+                    resolved = await asyncio.wait_for(client(ResolveUsernameRequest(payload['username'].lstrip('@'))), timeout=30)
+                    for entity in resolved.users:
+                        if entity.id == resolved.peer.user_id:
+                            return checked(entity)
+                    raise LeadReferenceInvalidError('O Telegram não retornou o usuário solicitado.')
+                return checked(await asyncio.wait_for(client.get_input_entity(payload['username']), timeout=30))
+            if not refresh:
+                try:
+                    reference = PeerUser(expected) if expected else payload.get('phone')
+                    if reference:
+                        return checked(await asyncio.wait_for(client.get_input_entity(reference), timeout=30))
+                except (ValueError, TypeError):
+                    pass
+            source = payload.get('source_group_link')
+            if source and expected:
+                key = (name, source)
+                async with self.source_locks.setdefault(key, asyncio.Lock()):
+                    if key not in self.source_users:
+                        audit(f'Sessão {name}: consultando o grupo de origem para obter referências válidas desta conta (limite de 45s).')
+                        try:
+                            async def load():
+                                entity = await self.resolve(client, source)
+                                return await client.get_participants(entity, limit=None)
+                            users = await asyncio.wait_for(load(), timeout=45)
+                            self.source_users[key] = {entity.id: entity for entity in users}
+                        except Exception as error:
+                            if session_restriction(error):
+                                raise
+                            self.source_users[key] = {}
+                            audit(f'Sessão {name}: não foi possível carregar o grupo de origem ({type(error).__name__}); a consulta não será repetida para cada lead nesta execução.')
+                    entity = self.source_users[key].get(expected)
+                if entity is not None:
+                    return checked(entity)
+            if not refresh and expected and payload.get('access_hash'):
+                # Ask Telegram to validate the exported reference before inviting.
+                audit(f'Sessão {name}: validando o ID exportado nesta conta antes do convite.')
+                entity = await asyncio.wait_for(client.get_entity(InputUser(expected, int(payload['access_hash']))), timeout=30)
+                return checked(entity)
+        except TimeoutError as error:
+            raise LeadResolutionError('A consulta da identidade nesta sessão excedeu o limite de tempo. Nenhum convite foi enviado com essa referência.') from error
+        except (ValueError, TypeError, KeyError, UserIdInvalidError) as error:
+            raise LeadReferenceInvalidError('Não foi possível obter um ID/access_hash válido nesta sessão. O arquivo pode ter sido extraído por outra conta; informe um username válido ou o grupo de origem.') from error
+        raise LeadReferenceInvalidError('Lead sem referência válida para esta sessão. É necessário um username válido ou acesso ao grupo de origem; o hash exportado não será reenviado após rejeição.')
+
     async def invite(self, group, name, payload, reserve_identity):
         from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantRequest
         from telethon.tl.types import InputUser
@@ -1143,15 +1239,7 @@ class TelegramCampaignGateway:
         prefix = f"Grupo {group['slot']} · sessão {name}" if 'slot' in group else f'Sessão {name}'
         audit(f'{prefix}: conectando ao grupo e resolvendo a identidade do lead.')
         client, peer = await self.peer(group, name)
-        try:
-            if payload.get('username'):
-                user = await client.get_input_entity(payload['username'])
-            elif payload.get('id') and payload.get('access_hash'):
-                user = InputUser(int(payload['id']), int(payload['access_hash']))
-            else:
-                user = await client.get_input_entity(payload.get('phone') or int(payload['id']))
-        except (ValueError, KeyError, TypeError) as error:
-            raise LeadResolutionError(f'Lead não resolvido nesta sessão: {error}') from error
+        user = await self.resolve_lead(client, name, payload)
         user_id = getattr(user, 'user_id', None)
         if not user_id:
             raise LeadResolutionError('A referência não corresponde a um usuário do Telegram')
@@ -1178,11 +1266,31 @@ class TelegramCampaignGateway:
             if await is_member():
                 return None
         except ParticipantIdInvalidError:
-            audit(f'{prefix}: consulta prévia rejeitada (ParticipantIdInvalidError); tentando o convite para obter o resultado definitivo.')
+            audit(f'{prefix}: referência rejeitada na consulta prévia; resolvendo novamente antes de convidar.')
+            user = await self.resolve_lead(client, name, payload, refresh=True)
+            if user.user_id != user_id:
+                raise LeadReferenceInvalidError('A identidade mudou durante a atualização. Nenhum convite foi enviado.')
+            try:
+                if await is_member():
+                    return None
+            except ParticipantIdInvalidError as error:
+                raise LeadReferenceInvalidError('O Telegram rejeitou a referência mesmo após atualização nesta sessão. Nenhum convite foi enviado.') from error
         try:
             audit(f'{prefix}: enviando convite ao Telegram.')
             result = await client(InviteToChannelRequest(channel=peer, users=[user]))
         except Exception as error:
+            if type(error).__name__ == 'UserIdInvalidError':
+                audit(f'{prefix}: convite rejeitado por referência inválida; atualizando a identidade uma única vez.')
+                user = await self.resolve_lead(client, name, payload, refresh=True)
+                if user.user_id != user_id:
+                    raise LeadReferenceInvalidError('A identidade mudou durante a atualização; o convite não será reenviado.')
+                result = await client(InviteToChannelRequest(channel=peer, users=[user]))
+                if getattr(result, 'missing_invitees', []):
+                    return False
+                try:
+                    return await is_member()
+                except Exception as check_error:
+                    raise InviteConfirmationError('Convite reenviado com referência atualizada; participação ainda não confirmada.') from check_error
             if not transient_request(error):
                 raise
             # A lost response can still mean Telegram accepted the invitation.
@@ -1214,6 +1322,10 @@ class InviteConfirmationError(ValueError):
 
 
 class LeadResolutionError(ValueError):
+    pass
+
+
+class LeadReferenceInvalidError(LeadResolutionError):
     pass
 
 
@@ -1250,6 +1362,7 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
     """One coroutine per account; SQLite reserves each lead and quota atomically."""
     data_dir = os.path.dirname(store.path)
     gid = group['id']
+    attempts = 0
 
     def active():
         if store.get(cid)['status'] != 'running':
@@ -1259,6 +1372,7 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
             settings['limit_scope'] != 'group' or current['today'] < current['daily_limit'])
 
     async def account(name):
+        nonlocal attempts
         while active():
             if session_wait_until(data_dir, name):
                 while active() and session_wait_until(data_dir, name):
@@ -1270,6 +1384,7 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
             if not delivery:
                 store.event_recent(cid, f"Grupo {group['slot']}: sessão {name} aguardando porque {reason}.")
                 return
+            attempts += 1
             prefix = f"Grupo {group['slot']}: sessão {name} · lead #{delivery['lead_id']}"
             store.event(cid, f'{prefix}: iniciando adição simultânea.')
             try:
@@ -1291,11 +1406,11 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                         store.event(cid, f"Grupo {group['slot']}: sessão {name} encerrou a espera e retomará as tentativas neste grupo.")
                     continue
                 definite = type(error).__name__ in {
-                    'LeadResolutionError', 'UserPrivacyRestrictedError', 'UserNotMutualContactError',
+                    'LeadResolutionError', 'LeadReferenceInvalidError', 'UserPrivacyRestrictedError', 'UserNotMutualContactError',
                     'InputUserDeactivatedError', 'UserIdInvalidError', 'UserNotParticipantError',
                     'UsernameNotOccupiedError', 'UsernameInvalidError', 'UserChannelsTooMuchError',
                     'UserKickedError', 'UserBannedInChannelError', 'UserBotError'}
-                store.finish(delivery['id'], 'failed' if definite else 'unknown', str(error))
+                store.finish(delivery['id'], 'failed' if definite else 'unknown', str(error), error_kind=type(error).__name__)
                 store.event(cid, f"{prefix}: {'não adicionado' if definite else 'sem confirmação'} ({type(error).__name__}: {error}).")
                 if not definite and not transient_request(error) and not isinstance(error, InviteConfirmationError):
                     store.group_update(gid, status='error', error=str(error)[:1000])
@@ -1320,6 +1435,8 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
         if isinstance(result, BaseException):
             store.event(cid, f"Grupo {group['slot']}: executor da sessão {name} interrompido ({type(result).__name__}). Confira os resultados pendentes antes de reenviar.")
 
+    return attempts
+
 
 async def campaign_loop(store, cid, gateway):
     settings = store.get(cid)['settings']
@@ -1341,6 +1458,7 @@ async def campaign_loop(store, cid, gateway):
     try:
         while store.get(cid)['status'] == 'running':
             worked = False
+            had_work = False
             groups = store.groups(cid)
             if settings['limit_scope'] == 'group':
                 # Only confirmed additions complete a destination. Errors or
@@ -1426,7 +1544,7 @@ async def campaign_loop(store, cid, gateway):
                         if expired:
                             store.event_once(cid, 'Espera de spam/flood encerrada para: ' + ', '.join(expired) + '. A tarefa continua ativa e está testando estas sessões novamente agora.')
                         if settings.get('parallel_sessions', False):
-                            await parallel_group_additions(store, cid, group, gateway, [name for name in names if name in loaded], settings)
+                            had_work = bool(await parallel_group_additions(store, cid, group, gateway, [name for name in names if name in loaded], settings))
                             break
                         delivery, waiting_reason = store.claim(cid, gid, diagnose=True)
                         if not delivery:
@@ -1478,9 +1596,9 @@ async def campaign_loop(store, cid, gateway):
                                 raise
                             # Privacy and invalid-user errors are definite failures. Others may
                             # have occurred after Telegram accepted the request: do not retry.
-                            definite = type(error).__name__ in {'LeadResolutionError', 'UserPrivacyRestrictedError', 'UserNotMutualContactError', 'InputUserDeactivatedError', 'UserIdInvalidError', 'UserNotParticipantError', 'UsernameNotOccupiedError', 'UsernameInvalidError', 'UserChannelsTooMuchError', 'UserKickedError', 'UserBannedInChannelError', 'UserBotError'}
-                            store.finish(delivery['id'], 'failed' if definite else 'unknown', str(error))
-                            store.event(cid, f"Grupo {group['slot']}: sessão {used_session or 'não selecionada'} · lead #{delivery['lead_id']} não confirmado: {error}")
+                            definite = type(error).__name__ in {'LeadResolutionError', 'LeadReferenceInvalidError', 'UserPrivacyRestrictedError', 'UserNotMutualContactError', 'InputUserDeactivatedError', 'UserIdInvalidError', 'UserNotParticipantError', 'UsernameNotOccupiedError', 'UsernameInvalidError', 'UserChannelsTooMuchError', 'UserKickedError', 'UserBannedInChannelError', 'UserBotError'}
+                            store.finish(delivery['id'], 'failed' if definite else 'unknown', str(error), error_kind=type(error).__name__)
+                            store.event(cid, f"Grupo {group['slot']}: sessão {used_session or 'não selecionada'} · lead #{delivery['lead_id']} {'não adicionado' if definite else 'não confirmado'}: {error}")
                             if not definite and not isinstance(error, InviteConfirmationError):
                                 raise
                         worked = True
@@ -1502,6 +1620,7 @@ async def campaign_loop(store, cid, gateway):
                     store.event(cid, f"Grupo {group['slot']}: {error}. O grupo foi ignorado; a tarefa continuará com os demais grupos.")
                     worked = True
                 if worked:
+                    had_work = True
                     delay = random.randint(settings.get('delay_min', settings.get('delay', 60)), settings.get('delay_max', settings.get('delay', 60)))
                     store.event(cid, f"Grupo {group['slot']}: intervalo de {delay}s antes da próxima tentativa.")
                     await wait(delay)
@@ -1510,7 +1629,10 @@ async def campaign_loop(store, cid, gateway):
                     # the next slot.  A later group starts only when this one
                     # has no eligible lead or has reached its own limit.
                     break
-            await wait(15)
+            if not had_work:
+                await wait(15)
+            else:
+                await asyncio.sleep(0)
     except Exception as error:
         # A campaign must only stop on an explicit user pause. The worker
         # below recreates the gateway and resumes this loop after this log.
@@ -1973,10 +2095,21 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         username = session['username']
         with guard:
             if worker_busy(username):
-                raise ValueError('Pause e aguarde a operação atual terminar antes de editar limites')
+                raise ValueError('Pause e aguarde a operação atual terminar antes de editar limites ou intervalos')
             store = store_for(username)
-            settings = store.get(cid)['settings']
-            settings['daily_limit'] = integer((request.get_json() or {}).get('daily_limit'), 'Limite diário')
+            task = store.get(cid)
+            if task['status'] == 'running':
+                raise ValueError('Pause a tarefa antes de editar limites ou intervalos')
+            settings = task['settings']
+            payload = request.get_json() or {}
+            if 'daily_limit' in payload:
+                settings['daily_limit'] = integer(payload['daily_limit'], 'Limite diário')
+            if 'delay_min' in payload or 'delay_max' in payload:
+                minimum = integer(payload.get('delay_min', settings.get('delay_min', 60)), 'Intervalo mínimo (segundos)', high=3600)
+                maximum = integer(payload.get('delay_max', settings.get('delay_max', minimum)), 'Intervalo máximo (segundos)', high=3600)
+                if maximum < minimum:
+                    raise ValueError('O intervalo máximo deve ser maior ou igual ao mínimo')
+                settings.update(delay=minimum, delay_min=minimum, delay_max=maximum)
             with store.db() as conn:
                 conn.execute('UPDATE campaigns SET settings=? WHERE id=?', (json.dumps(settings), cid))
         return jsonify(success=True)

@@ -72,17 +72,59 @@ class InviteResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([type(call.args[0]).__name__ for call in client.await_args_list],
                          ['GetParticipantRequest', 'InviteToChannelRequest', 'GetParticipantRequest'])
 
-    async def test_invalid_participant_precheck_still_attempts_invitation(self):
-        from telethon.errors import ParticipantIdInvalidError
-        from telethon.tl.types import InputUser
+    async def test_invalid_participant_precheck_refreshes_user_before_invitation(self):
+        from telethon.errors import ParticipantIdInvalidError, UserNotParticipantError
+        from telethon.tl.types import InputUser, User, PeerUser
         gateway = TelegramCampaignGateway({}, {}, ())
-        client = AsyncMock(side_effect=[ParticipantIdInvalidError(None), SimpleNamespace(),
-                                       SimpleNamespace(participant=SimpleNamespace())])
+        client = AsyncMock(side_effect=[ParticipantIdInvalidError(None),
+            SimpleNamespace(users=[User(id=123, access_hash=789)], peer=PeerUser(123)),
+            UserNotParticipantError(None), SimpleNamespace(),
+            SimpleNamespace(participant=SimpleNamespace())])
         client.get_input_entity.return_value = InputUser(123, 456)
         gateway.peer = AsyncMock(return_value=(client, 'peer'))
         self.assertTrue(await gateway.invite({}, 'one', {'username': 'example'}, lambda uid: True))
         self.assertEqual([type(call.args[0]).__name__ for call in client.await_args_list],
-                         ['GetParticipantRequest', 'InviteToChannelRequest', 'GetParticipantRequest'])
+                         ['GetParticipantRequest', 'ResolveUsernameRequest', 'GetParticipantRequest',
+                          'InviteToChannelRequest', 'GetParticipantRequest'])
+        self.assertEqual(client.await_args_list[3].args[0].users[0].access_hash, 789)
+
+    async def test_invalid_invite_refreshes_reference_once_before_retry(self):
+        from telethon.errors import UserNotParticipantError, UserIdInvalidError
+        from telethon.tl.types import InputUser, User, PeerUser
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(side_effect=[UserNotParticipantError(None), UserIdInvalidError(None),
+            SimpleNamespace(users=[User(id=123, access_hash=789)], peer=PeerUser(123)),
+            SimpleNamespace(), SimpleNamespace(participant=SimpleNamespace())])
+        client.get_input_entity.return_value = InputUser(123, 456)
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        self.assertTrue(await gateway.invite({}, 'one', {'id': 123, 'username': 'example'}, lambda uid: True))
+        invites = [call.args[0] for call in client.await_args_list if type(call.args[0]).__name__ == 'InviteToChannelRequest']
+        self.assertEqual([request.users[0].access_hash for request in invites], [456, 789])
+
+    async def test_id_only_lead_without_source_does_not_blindly_reinvite_after_rejection(self):
+        from telethon.errors import ParticipantIdInvalidError
+        from telethon.tl.types import InputUser
+        from group_campaigns import LeadReferenceInvalidError
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(side_effect=ParticipantIdInvalidError(None))
+        client.get_input_entity.return_value = InputUser(123, 456)
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        with self.assertRaises(LeadReferenceInvalidError):
+            await gateway.invite({}, 'one', {'id': 123, 'access_hash': 456}, lambda uid: True)
+        self.assertEqual(client.await_count, 1)
+
+    async def test_source_user_references_are_cached_per_session(self):
+        from telethon.tl.types import User
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock()
+        client.get_input_entity.side_effect = ValueError('not cached')
+        client.get_participants.return_value = [User(id=123, access_hash=789), User(id=124, access_hash=790)]
+        gateway.resolve = AsyncMock(return_value='source')
+        source = 'https://t.me/source'
+        first = await gateway.resolve_lead(client, 'one', {'id': 123, 'source_group_link': source})
+        second = await gateway.resolve_lead(client, 'one', {'id': 124, 'source_group_link': source})
+        self.assertEqual((first.access_hash, second.access_hash), (789, 790))
+        self.assertEqual(client.get_participants.await_count, 1)
 
     async def test_existing_member_is_not_counted_as_new_addition(self):
         from telethon.tl.types import InputUser
@@ -467,6 +509,55 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertTrue(any('@admin_two definido como administrador' in event['message'] for event in events))
         self.assertEqual(store.snapshot()['campaigns'][0]['counts'], {'added': 1})
 
+    def test_invalid_reference_is_excluded_from_all_groups_and_clean_export_only_for_its_task(self):
+        cid, groups = self.task(dedup='group')
+        other, other_groups = self.task(dedup='group')
+        self.leads(2)
+        source = json.dumps({'members': self.store.export_leads(other)}).encode()
+        self.store.import_leads('leads.json', source, cid=cid)
+        first = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(first['id'], 'failed', 'Invalid object ID for a user.', error_kind='UserIdInvalidError')
+        next_delivery = self.store.claim(cid, groups[1]['id'])
+        self.assertNotEqual(next_delivery['lead_id'], first['lead_id'])
+        self.assertEqual(len(self.store.export_leads(cid)), 1)
+        self.assertEqual(len(self.store.export_leads(other)), 2)
+        self.assertEqual(self.store.claim(other, other_groups[0]['id'])['lead_id'], first['lead_id'])
+        self.store.import_leads('leads.json', source, cid=cid)  # Same-file reimport keeps exclusions.
+        self.assertEqual(len(self.store.export_leads(cid)), 1)
+        task = next(task for task in self.store.snapshot()['campaigns'] if task['id'] == cid)
+        self.assertEqual(task['excluded_lead_count'], 1)
+        self.assertTrue(any('retirado da base ativa' in event['message'] for event in task['events']))
+
+    def test_privacy_restrictions_and_unknown_results_are_not_excluded(self):
+        cid, groups = self.task(dedup='group')
+        self.leads(3)
+        first = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(first['id'], 'failed', 'Privacy restriction', error_kind='UserPrivacyRestrictedError')
+        second = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(second['id'], 'unknown', 'Timed out', error_kind='TimeoutError')
+        self.assertEqual(len(self.store.export_leads(cid)), 3)
+        task = next(task for task in self.store.snapshot()['campaigns'] if task['id'] == cid)
+        self.assertEqual(task['excluded_lead_count'], 0)
+
+    def test_import_preserves_source_group_for_session_resolution(self):
+        cid, groups = self.task()
+        self.store.import_leads('source.json', json.dumps({'source_group_link': 'https://t.me/source',
+            'members': [{'id': 123, 'access_hash': 456}]}).encode(), cid=cid)
+        self.assertEqual(self.store.export_leads(cid)[0]['source_group_link'], 'https://t.me/source')
+        delivery = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(delivery['id'], 'failed', 'Referência rejeitada', error_kind='LeadReferenceInvalidError')
+        self.assertEqual(self.store.export_leads(cid), [])
+
+    def test_legacy_invalid_user_failures_are_cleaned_on_recovery(self):
+        cid, groups = self.task(dedup='group')
+        self.leads(2)
+        first = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(first['id'], 'failed', 'Invalid object ID for a user. Make sure to pass the right types (caused by InviteToChannelRequest)')
+        self.store.recover()
+        self.assertEqual(len(self.store.export_leads(cid)), 1)
+        self.store.recover()
+        self.assertEqual(len(self.store.export_leads(cid)), 1)
+
     def test_resume_retries_only_proven_pre_invite_expired_link_failures(self):
         cid = self.store.create({'name': 'Recover link', 'count': 1, 'daily_limit': 3}, ['one.session'])
         group = self.store.groups(cid)[0]
@@ -593,6 +684,36 @@ class CampaignStoreTests(unittest.TestCase):
                 self.assertEqual(task['groups'][1]['today'], 0)
                 self.assertTrue(any('sequência' in event['message'].lower() for event in task['events']))
 
+    def test_sequential_attempts_do_not_add_fixed_fifteen_second_wait(self):
+        cid, groups = self.task()
+        self.leads(3)
+        with self.store.db() as conn:
+            settings = self.store.get(cid)['settings']
+            settings.update(delay_min=1, delay_max=1)
+            conn.execute('UPDATE campaigns SET settings=? WHERE id=?', (json.dumps(settings), cid))
+        calls = []
+        sleeps = []
+        store = self.store
+
+        class Gateway:
+            async def invite(self, *args):
+                calls.append(1)
+                if len(calls) == 2:
+                    store.state(cid, 'paused')
+                return True
+
+            async def close(self):
+                pass
+
+        async def sleep(seconds):
+            if len(calls) == 1:
+                sleeps.append(seconds)
+
+        with patch('group_campaigns.asyncio.sleep', new=sleep), patch('group_campaigns.time.monotonic', side_effect=__import__('itertools').count(0, 2)):
+            asyncio.run(campaign_loop(store, cid, Gateway()))
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(any(seconds > 0 for seconds in sleeps))
+
     def test_loop_keeps_failed_attempts_in_same_group_until_goal(self):
         cid, groups = self.task(limit_scope='group')
         self.leads(5)
@@ -687,6 +808,21 @@ class CampaignApiTests(unittest.TestCase):
     def login(self, username):
         with self.client.session_transaction() as session:
             session['username'] = username
+
+    def test_delay_can_be_saved_in_panel_without_changing_daily_goal(self):
+        self.login('alice')
+        cid = self.client.post('/api/group-campaigns', json={'name': 'Delay', 'sessions': ['one.session'], 'daily_limit': 35}).json['id']
+        path = f'/api/group-campaigns/{cid}/settings'
+        self.assertEqual(self.client.put(path, json={'delay_min': 2, 'delay_max': 2}).status_code, 200)
+        task = self.client.get('/api/group-campaigns').json['campaigns'][0]
+        self.assertEqual(task['settings']['delay_min'], 2)
+        self.assertEqual(task['settings']['delay_max'], 2)
+        self.assertEqual(task['settings']['daily_limit'], 35)
+        self.assertEqual(self.client.put(path, json={'delay_min': 0, 'delay_max': 2}).status_code, 400)
+        self.assertEqual(self.client.put(path, json={'delay_min': 5, 'delay_max': 2}).status_code, 400)
+        store = CampaignStore(str(Path(self.temp.name) / 'alice'))
+        store.state(cid, 'running')
+        self.assertEqual(self.client.put(path, json={'delay_min': 1, 'delay_max': 1}).status_code, 400)
 
     def test_lead_export_is_private_and_importable_in_another_login(self):
         path = '/api/group-campaigns/1/leads/export'
