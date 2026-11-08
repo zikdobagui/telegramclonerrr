@@ -14,6 +14,52 @@ from group_campaigns import CampaignStore, TelegramCampaignGateway, campaign_loo
 
 
 class InviteResultTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invitation_verifies_before_and_after_sending(self):
+        from telethon.errors import UserNotParticipantError
+        from telethon.tl.types import InputUser
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(side_effect=[UserNotParticipantError(None), SimpleNamespace(),
+                                       SimpleNamespace(participant=SimpleNamespace())])
+        client.get_input_entity.return_value = InputUser(123, 456)
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        self.assertTrue(await gateway.invite({}, 'one', {'username': 'example'}, lambda uid: True))
+        self.assertEqual([type(call.args[0]).__name__ for call in client.await_args_list],
+                         ['GetParticipantRequest', 'InviteToChannelRequest', 'GetParticipantRequest'])
+
+    async def test_existing_member_is_not_counted_as_new_addition(self):
+        from telethon.tl.types import InputUser
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(return_value=SimpleNamespace(participant=SimpleNamespace()))
+        client.get_input_entity.return_value = InputUser(123, 456)
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        self.assertIsNone(await gateway.invite({}, 'one', {'username': 'example'}, lambda uid: True))
+        self.assertEqual(client.await_count, 1)
+
+    async def test_lost_invite_response_checks_membership(self):
+        from telethon.errors import UserNotParticipantError
+        from telethon.tl.types import InputUser
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(side_effect=[UserNotParticipantError(None), TimeoutError(),
+                                       SimpleNamespace(participant=SimpleNamespace())])
+        client.get_input_entity.return_value = InputUser(123, 456)
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        self.assertTrue(await gateway.invite({}, 'one', {'username': 'example'}, lambda uid: True))
+
+    async def test_unconfirmed_invite_does_not_claim_success(self):
+        from telethon.errors import UserNotParticipantError
+        from telethon.tl.types import InputUser
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(side_effect=[UserNotParticipantError(None), SimpleNamespace(),
+                                       UserNotParticipantError(None)])
+        client.get_input_entity.return_value = InputUser(123, 456)
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        self.assertFalse(await gateway.invite({}, 'one', {'username': 'example'}, lambda uid: True))
+
+    def test_flood_wait_is_an_account_restriction(self):
+        from telethon.errors import FloodWaitError
+        from group_campaigns import session_restriction
+        self.assertTrue(session_restriction(FloodWaitError(None, capture=42)))
+
     async def test_admin_promotion_uses_creator_and_limited_rights(self):
         from telethon.tl.types import InputUser
         gateway = TelegramCampaignGateway({}, {}, ())

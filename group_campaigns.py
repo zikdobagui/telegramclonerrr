@@ -160,7 +160,7 @@ def session_restriction(error):
     """
     kind = type(error).__name__
     message = str(error).lower()
-    return kind in {'PeerFloodError', 'UserRestrictedError'} or any(text in message for text in (
+    return kind in {'FloodWaitError', 'PeerFloodError', 'UserRestrictedError'} or any(text in message for text in (
         'spam-reported', 'account is limited', 'cannot message non-contacts',
         'check @spambot', 'peer flood', 'user restricted',
     ))
@@ -1087,16 +1087,48 @@ class TelegramCampaignGateway:
             raise LeadResolutionError('A referência não corresponde a um usuário do Telegram')
         if not reserve_identity(user_id):
             return None
-        result = await client(InviteToChannelRequest(channel=peer, users=[user]))
+        from telethon.errors import UserNotParticipantError
+        from telethon.tl.types import ChannelParticipantLeft, ChannelParticipantBanned
+
+        async def is_member():
+            try:
+                response = await client(GetParticipantRequest(channel=peer, participant=user))
+            except UserNotParticipantError:
+                return False
+            participant = response.participant
+            return not isinstance(participant, ChannelParticipantLeft) and not (
+                isinstance(participant, ChannelParticipantBanned) and participant.left
+            )
+
+        # Existing members are duplicates, not new additions by this task.
+        if await is_member():
+            return None
+        try:
+            result = await client(InviteToChannelRequest(channel=peer, users=[user]))
+        except Exception as error:
+            if not transient_request(error):
+                raise
+            # A lost response can still mean Telegram accepted the invitation.
+            try:
+                if await is_member():
+                    return True
+            except Exception:
+                pass
+            raise InviteConfirmationError('Resposta do convite perdida; participação ainda não confirmada.') from error
         if getattr(result, 'missing_invitees', []):
             return False
-        # Some Telegram versions return Updates even when no member was added.
-        await client(GetParticipantRequest(channel=peer, participant=user))
-        return True
+        try:
+            return await is_member()
+        except Exception as error:
+            raise InviteConfirmationError('Convite enviado, mas não foi possível confirmar a participação.') from error
 
     async def close(self):
         for client in self.clients.values():
             await client.disconnect()
+
+
+class InviteConfirmationError(ValueError):
+    pass
 
 
 class LeadResolutionError(ValueError):
@@ -1254,7 +1286,7 @@ async def campaign_loop(store, cid, gateway):
                             definite = type(error).__name__ in {'LeadResolutionError', 'UserPrivacyRestrictedError', 'UserNotMutualContactError', 'InputUserDeactivatedError', 'UserIdInvalidError', 'UserNotParticipantError', 'UsernameNotOccupiedError', 'UsernameInvalidError', 'UserChannelsTooMuchError', 'UserKickedError', 'UserBannedInChannelError', 'UserBotError'}
                             store.finish(delivery['id'], 'failed' if definite else 'unknown', str(error))
                             store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} não confirmado: {error}")
-                            if not definite:
+                            if not definite and not isinstance(error, InviteConfirmationError):
                                 raise
                         worked = True
                 except Exception as error:
