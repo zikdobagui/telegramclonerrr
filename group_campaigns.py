@@ -392,7 +392,7 @@ class CampaignStore:
     def event(self, cid, message):
         with self.db() as conn:
             conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, message[:1000], time.time()))
-            conn.execute('DELETE FROM events WHERE campaign_id=? AND id NOT IN (SELECT id FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 100)', (cid, cid))
+            conn.execute('DELETE FROM events WHERE campaign_id=? AND id NOT IN (SELECT id FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 1000)', (cid, cid))
 
     def event_once(self, cid, message):
         """Avoid filling the history with the same cooldown notice every loop."""
@@ -758,6 +758,17 @@ class CampaignStore:
                 ).fetchone()[0]
         return stats
 
+    def export_leads(self, cid):
+        """Export only this task's selected identities, without delivery/session data."""
+        self.get(cid)
+        with self.db() as conn:
+            rows = conn.execute(
+                """SELECT DISTINCT canonical.id,canonical.payload FROM campaign_leads cl
+                   JOIN leads selected ON selected.id=cl.lead_id
+                   JOIN leads canonical ON canonical.id=COALESCE(selected.canonical_id,selected.id)
+                   WHERE cl.campaign_id=? ORDER BY canonical.id""", (cid,)).fetchall()
+            return [json.loads(row['payload']) for row in rows]
+
     def claim(self, cid, gid, diagnose=False):
         """Reserve before network I/O: uncertain results are never resent automatically."""
         def result(delivery, reason=''):
@@ -837,7 +848,7 @@ class CampaignStore:
                 task['lead_count'] = conn.execute('SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?', (cid,)).fetchone()[0]
                 task['groups'] = self.groups(cid)
                 task['session_waits'] = session_wait_details(os.path.dirname(self.path), task['settings'].get('sessions', []))
-                task['events'] = [dict(row) for row in conn.execute('SELECT message,created FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 20', (cid,))]
+                task['events'] = [dict(row) for row in conn.execute('SELECT id,message,created FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 500', (cid,))]
                 task['counts'] = dict(conn.execute('SELECT status,count(*) FROM deliveries WHERE campaign_id=? GROUP BY status', (cid,)))
                 for group in task['groups']:
                     group['today'] = conn.execute("SELECT count(*) FROM deliveries WHERE campaign_id=? AND slot=? AND day=? AND status IN ('added','sending','unknown')", (cid, group['slot'], day_key())).fetchone()[0]
@@ -1075,6 +1086,9 @@ class TelegramCampaignGateway:
     async def invite(self, group, name, payload, reserve_identity):
         from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantRequest
         from telethon.tl.types import InputUser
+        audit = getattr(self, 'audit', lambda message: None)
+        prefix = f"Grupo {group['slot']} · sessão {name}" if 'slot' in group else f'Sessão {name}'
+        audit(f'{prefix}: conectando ao grupo e resolvendo a identidade do lead.')
         client, peer = await self.peer(group, name)
         try:
             if payload.get('username'):
@@ -1103,6 +1117,7 @@ class TelegramCampaignGateway:
                 isinstance(participant, ChannelParticipantBanned) and participant.left
             )
 
+        audit(f'{prefix}: verificando se o lead já participa do grupo.')
         # A participant lookup may reject a reference before the invitation.
         # That is not proof the invitation itself will fail. Only a confirmed
         # existing membership should prevent sending it.
@@ -1110,8 +1125,9 @@ class TelegramCampaignGateway:
             if await is_member():
                 return None
         except ParticipantIdInvalidError:
-            pass
+            audit(f'{prefix}: consulta prévia rejeitada (ParticipantIdInvalidError); tentando o convite para obter o resultado definitivo.')
         try:
+            audit(f'{prefix}: enviando convite ao Telegram.')
             result = await client(InviteToChannelRequest(channel=peer, users=[user]))
         except Exception as error:
             if not transient_request(error):
@@ -1125,6 +1141,7 @@ class TelegramCampaignGateway:
             raise InviteConfirmationError('Resposta do convite perdida; participação ainda não confirmada.') from error
         if getattr(result, 'missing_invitees', []):
             return False
+        audit(f'{prefix}: convite respondido; conferindo a participação no Telegram.')
         try:
             return await is_member()
         except Exception as error:
@@ -1175,6 +1192,8 @@ def ownership_error(error):
 async def campaign_loop(store, cid, gateway):
     settings = store.get(cid)['settings']
     names = settings['sessions']
+    if isinstance(gateway, TelegramCampaignGateway):
+        gateway.audit = lambda message: store.event(cid, message)
     turn = 0
     warm_failures = {}
     data_dir = os.path.dirname(store.path)
@@ -1190,21 +1209,25 @@ async def campaign_loop(store, cid, gateway):
             worked = False
             groups = store.groups(cid)
             if settings['limit_scope'] == 'group':
-                # Keep a single destination until its daily quota is full.
-                # Failed/duplicate leads do not consume that quota. Unknown
-                # outcomes reserve space so we never exceed the configured cap.
+                # Only confirmed additions complete a destination. Errors or
+                # reserved quota must block this slot, never advance the queue.
                 groups = next(([group] for group in groups
-                               if group['status'] != 'error' and group['today'] < group['daily_limit']), [])
+                               if group['today_added'] < group['daily_limit']), [])
             for group in groups:
                 if store.get(cid)['status'] != 'running':
                     break
                 gid = group['id']
                 if group['status'] == 'error':
+                    store.event_recent(cid, f"Grupo {group['slot']}: sequência bloqueada neste grupo; a meta ainda não foi concluída. Motivo: {group['error'] or 'grupo precisa de revisão'}. Pause a tarefa, revise o erro e inicie novamente para retomar este grupo. Nenhum grupo seguinte receberá leads.")
+                    continue
+                if settings['limit_scope'] == 'group' and group['today'] >= group['daily_limit']:
+                    store.event_recent(cid, f"Grupo {group['slot']}: aguardando confirmação de resultados pendentes; {group['today_added']}/{group['daily_limit']} adições confirmadas. As vagas reservadas atingiram a cota. A sequência não avançará até completar as adições confirmadas.")
                     continue
                 try:
                     if group['channel_id'] and hasattr(gateway, 'member_count'):
                         await store.refresh_member_count(group, gateway)
                     if group['status'] == 'pending':
+                        store.event(cid, f"Grupo {group['slot']}: iniciando criação ou vínculo do grupo no Telegram.")
                         store.group_update(gid, status='creating')
                         owner = names[(group['slot'] - 1) % len(names)]
                         descriptions = settings.get('descriptions', [])
@@ -1230,6 +1253,7 @@ async def campaign_loop(store, cid, gateway):
                         elif time.time() >= group['next_message']:
                             index = group['message_index']
                             store.group_update(gid, next_message=time.time() + settings['warm_interval'] * 60, message_index=index + 1)
+                            store.event(cid, f"Grupo {group['slot']}: preparando envio de aquecimento.")
                             messages = settings['messages']
                             images = settings.get('images', [])
                             content_index = index % (len(messages) + len(images))
@@ -1260,6 +1284,7 @@ async def campaign_loop(store, cid, gateway):
                         if not delivery:
                             store.event_recent(cid, f"Grupo {group['slot']}: aguardando porque {waiting_reason}.")
                             continue
+                        store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} reservado; iniciando tentativa.")
                         try:
                             added = None
                             restriction_errors = []
@@ -1274,12 +1299,16 @@ async def campaign_loop(store, cid, gateway):
                                 if candidate not in loaded:
                                     continue
                                 try:
+                                    used_session = candidate
+                                    lead_label = str(delivery['payload'].get('username') or delivery['payload'].get('id') or 'sem username')[:100]
+                                    store.event(cid, f"Grupo {group['slot']}: sessão {candidate} iniciando adição do lead #{delivery['lead_id']} ({lead_label}).")
                                     added = await gateway.invite(group, candidate, delivery['payload'], lambda uid: store.reserve_identity(delivery['id'], uid))
                                     used_session = candidate
                                     break
                                 except Exception as error:
                                     if not session_restriction(error):
                                         raise
+                                    used_session = None
                                     until = place_session_on_wait(data_dir, candidate, error)
                                     restriction_errors.append((candidate, error, until))
                                     store.event(
@@ -1300,7 +1329,7 @@ async def campaign_loop(store, cid, gateway):
                             # have occurred after Telegram accepted the request: do not retry.
                             definite = type(error).__name__ in {'LeadResolutionError', 'UserPrivacyRestrictedError', 'UserNotMutualContactError', 'InputUserDeactivatedError', 'UserIdInvalidError', 'UserNotParticipantError', 'UsernameNotOccupiedError', 'UsernameInvalidError', 'UserChannelsTooMuchError', 'UserKickedError', 'UserBannedInChannelError', 'UserBotError'}
                             store.finish(delivery['id'], 'failed' if definite else 'unknown', str(error))
-                            store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} não confirmado: {error}")
+                            store.event(cid, f"Grupo {group['slot']}: sessão {used_session or 'não selecionada'} · lead #{delivery['lead_id']} não confirmado: {error}")
                             if not definite and not isinstance(error, InviteConfirmationError):
                                 raise
                         worked = True
@@ -1322,7 +1351,9 @@ async def campaign_loop(store, cid, gateway):
                     store.event(cid, f"Grupo {group['slot']}: {error}. O grupo foi ignorado; a tarefa continuará com os demais grupos.")
                     worked = True
                 if worked:
-                    await wait(random.randint(settings.get('delay_min', settings.get('delay', 60)), settings.get('delay_max', settings.get('delay', 60))))
+                    delay = random.randint(settings.get('delay_min', settings.get('delay', 60)), settings.get('delay_max', settings.get('delay', 60)))
+                    store.event(cid, f"Grupo {group['slot']}: intervalo de {delay}s antes da próxima tentativa.")
+                    await wait(delay)
                     worked = False
                     # Complete the current group's daily goal before moving to
                     # the next slot.  A later group starts only when this one
@@ -1365,6 +1396,29 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             except (ValueError, KeyError, TypeError, UnicodeError) as error:
                 return jsonify(success=False, error=str(error)), 400
         return login_required(wrapped)
+
+    @app.route('/api/group-campaigns/events/stream')
+    @endpoint
+    def campaign_event_stream():
+        from flask import Response
+        store = store_for(session['username'])
+        cursor = max(0, int(request.headers.get('Last-Event-ID') or request.args.get('after', 0)))
+
+        def generate():
+            nonlocal cursor
+            while True:
+                with store.db() as conn:
+                    rows = [dict(row) for row in conn.execute(
+                        'SELECT id,campaign_id,message,created FROM events WHERE id>? ORDER BY id LIMIT 500', (cursor,))]
+                if rows:
+                    cursor = rows[-1]['id']
+                    yield f'id: {cursor}\ndata: {json.dumps(rows, ensure_ascii=False)}\n\n'
+                else:
+                    yield ': heartbeat\n\n'
+                time.sleep(1)
+
+        return Response(generate(), mimetype='text/event-stream', headers={
+            'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no'})
 
     @app.route('/api/group-campaigns', methods=['GET', 'POST'])
     @endpoint
@@ -1432,6 +1486,18 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             with open(os.path.join(directory, name), 'wb') as output:
                 output.write(data)
         return jsonify(success=True, images=[name for name, _ in validated])
+
+    @app.route('/api/group-campaigns/<int:cid>/leads/export', methods=['GET'])
+    @endpoint
+    def campaign_export_leads_api(cid):
+        from flask import send_file
+        store = store_for(session['username'])
+        members = store.export_leads(cid)
+        content = io.BytesIO(json.dumps({'members': members}, ensure_ascii=False, indent=2).encode('utf-8'))
+        response = send_file(content, mimetype='application/json', as_attachment=True,
+                             download_name=f'leads-tarefa-{cid}.json', max_age=0)
+        response.headers['Cache-Control'] = 'private, no-store'
+        return response
 
     @app.route('/api/group-campaigns/leads', methods=['POST'])
     @endpoint

@@ -51,7 +51,7 @@ def run():
                     'document.getElementById("comingSoon").classList.add("active");</script>'
                     '<script src="/static/group_campaigns.js"></script></body></html>')
 
-        server = make_server('127.0.0.1', 0, app, request_handler=QuietHandler)
+        server = make_server('127.0.0.1', 0, app, request_handler=QuietHandler, threaded=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -122,6 +122,14 @@ def run():
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-limit").value === "37"')
                 page.locator('#campaign-cancel-edit').click()
+                # New server events must appear without refreshing the task.
+                log_store = CampaignStore(directory)
+                log_store.event(1, 'Evento SSE de teste: convite em andamento')
+                page.locator('.gc-history').evaluate('(node) => node.open = true')
+                page.get_by_text('Evento SSE de teste: convite em andamento', exact=True).wait_for()
+                page.locator('[data-log-search="1"]').fill('Evento SSE')
+                assert page.locator('.gc-log').count() == 1
+                page.locator('[data-log-search="1"]').fill('')
                 # Simulate a created group and a confirmed transfer; never contact Telegram.
                 store = CampaignStore(directory)
                 owner_group = store.groups(1)[0]

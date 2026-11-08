@@ -10,6 +10,46 @@
     let snapshot = null;
     let viewInitialized = false;
     let groupActionSubmitting = false;
+    let logStream = null;
+    let streamState = 'connecting';
+    const liveEvents = new Map();
+    const logFilters = new Map();
+    function rememberEvents(id, events) {
+        const merged = new Map((liveEvents.get(id) || []).map(event => [event.id, event]));
+        for (const event of events) merged.set(event.id, event);
+        liveEvents.set(id, [...merged.values()].sort((a, b) => b.id - a.id).slice(0, 500));
+    }
+    function updateLogs(id) {
+        const history = el('campaign-list').querySelector(`[data-detail="events-${id}"]`);
+        if (!history) return;
+        const list = history.querySelector('.gc-live-content');
+        const scroll = list.querySelector('.gc-log-list')?.scrollTop || 0;
+        list.innerHTML = renderHistory(liveEvents.get(id) || [], logFilters.get(id));
+        const next = list.querySelector('.gc-log-list');
+        if (next) next.scrollTop = scroll;
+        history.querySelector('.gc-log-count').textContent = (liveEvents.get(id) || []).length;
+    }
+    function updateStreamState(state) {
+        streamState = state;
+        document.querySelectorAll('.gc-live-state').forEach(node => {
+            node.dataset.state = state;
+            node.textContent = state === 'live' ? 'Ao vivo' : state === 'connecting' ? 'Conectando…' : 'Reconectando…';
+        });
+    }
+    function startLogStream() {
+        if (logStream) return;
+        logStream = new EventSource('/api/group-campaigns/events/stream');
+        logStream.onopen = () => updateStreamState('live');
+        logStream.onerror = () => updateStreamState('reconnecting');
+        logStream.onmessage = message => {
+            const rows = JSON.parse(message.data);
+            const ids = new Set(rows.map(row => row.campaign_id));
+            for (const id of ids) {
+                rememberEvents(id, rows.filter(row => row.campaign_id === id));
+                updateLogs(id);
+            }
+        };
+    }
 
     const percent = (value, total) => total > 0 ? Math.min(100, Math.max(0, Math.round(value / total * 100))) : 0;
     function progress(value, total, label) {
@@ -98,14 +138,17 @@
     }
     function eventTone(message) {
         const text = String(message || '').toLocaleLowerCase('pt-BR');
-        if (text.includes('adicionado') || text.includes('iniciado') || text.includes('liberação')) return 'success';
-        if (text.includes('spam') || text.includes('flood') || text.includes('erro') || text.includes('não confirmado') || text.includes('indisponível')) return 'warning';
-        if (text.includes('aguardando') || text.includes('meta diária')) return 'waiting';
+        if (/não confirmado|não adicionado|não foi possível|erro|rejeitad|spam|flood|indisponível|falha/.test(text)) return 'warning';
+        if (/adicionado|sucesso|iniciado|confirmad/.test(text)) return 'success';
+        if (/aguardando|meta diária|intervalo|espera/.test(text)) return 'waiting';
         return 'info';
     }
-    function renderHistory(events) {
-        if (!events?.length) return '<p class="gc-log-empty">Nenhum evento ainda. Ao iniciar, o status da primeira tentativa aparecerá aqui.</p>';
-        return `<div class="gc-log-list">${events.map(event => `<article class="gc-log ${eventTone(event.message)}"><time>${esc(new Date(event.created * 1000).toLocaleString('pt-BR'))}</time><p>${esc(event.message)}</p></article>`).join('')}</div>`;
+    function renderHistory(events, filter = {}) {
+        const tones = {success:'Sucesso', warning:'Atenção', waiting:'Espera', info:'Etapa'};
+        const query = String(filter.query || '').toLocaleLowerCase('pt-BR');
+        const shown = events.filter(event => (!filter.tone || eventTone(event.message) === filter.tone) && String(event.message).toLocaleLowerCase('pt-BR').includes(query));
+        if (!shown.length) return '<p class="gc-log-empty">Nenhum evento para exibir. Novas etapas aparecem automaticamente.</p>';
+        return `<div class="gc-log-list" role="log" aria-label="Eventos da tarefa">${shown.map(event => `<article class="gc-log ${eventTone(event.message)}"><time datetime="${esc(new Date(event.created * 1000).toISOString())}">${esc(new Date(event.created * 1000).toLocaleString('pt-BR'))}</time><span class="gc-log-level">${tones[eventTone(event.message)]}</span><p>${esc(event.message)}</p></article>`).join('')}</div>`;
     }
     function reveal(id) {
         const target = el(id);
@@ -245,13 +288,15 @@
             // Preserve forms while the user is editing a group.
             if (groupActionSubmitting || (el('campaign-list').contains(document.activeElement) && document.activeElement.matches('input')) || [...el('campaign-list').querySelectorAll('input[name="password"]')].some(input => input.value)) return;
             const openDetails = new Set([...el('campaign-list').querySelectorAll('details[open][data-detail]')].map(detail => detail.dataset.detail));
+            const logScroll = new Map([...el('campaign-list').querySelectorAll('.gc-history')].map(history => [history.dataset.detail, history.querySelector('.gc-log-list')?.scrollTop || 0]));
             el('campaign-list').innerHTML = data.campaigns.map(task => {
                 const busy = data.worker_active || task.status === 'running';
                 const counts = task.counts;
+                rememberEvents(task.id, task.events);
                 const perGroup = task.settings.limit_scope === 'group';
                 const dailyGoal = perGroup ? task.groups.reduce((sum, group) => sum + group.daily_limit, 0) : task.settings.daily_limit;
                 const dailyAdded = task.groups.reduce((sum, group) => sum + (group.today_added || 0), 0);
-                const focus = perGroup ? task.groups.find(group => group.status !== 'error' && group.today < group.daily_limit) : null;
+                const focus = perGroup ? task.groups.find(group => (group.today_added || 0) < group.daily_limit) : null;
                 const sessionWaits = task.session_waits || [];
                 const spamAlert = sessionWaits.length ? `<div class="gc-alert" role="alert"><strong>⚠️ Sessões limitadas pelo Telegram (spam/flood)</strong><p>Estas contas não serão usadas até o horário indicado. A tarefa não envia leads enquanto todas estiverem limitadas.</p><ul>${sessionWaits.map(wait => `<li><strong>${esc(wait.name)}</strong> — limitada até ${esc(new Date(wait.until * 1000).toLocaleString('pt-BR'))}${wait.kind ? ` · ${esc(wait.kind)}` : ''}${wait.reason ? ` · ${esc(wait.reason)}` : ''}</li>`).join('')}</ul></div>` : `<p class="info gc-note"><strong>Sessões:</strong> nenhuma limitação de spam/flood registrada para as contas desta tarefa.</p>`;
                 return `<section class="card task-card-modern gc-task">
@@ -262,11 +307,11 @@
                     <button class="btn btn-danger" data-action="delete" data-id="${task.id}" ${busy ? 'disabled' : ''}>Excluir tarefa</button></div></div>
                     <div class="gc-task-body">
                     <div class="gc-task-meta"><span>${task.groups.length} grupos</span><span>${task.settings.sessions.length} sessões</span><span>${task.settings.warming ? 'Com aquecimento' : 'Sem aquecimento'}</span><span>${task.settings.dedup === 'task' ? 'Um grupo por lead' : 'Uma vez por grupo'}</span></div>
-                    <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta diária da tarefa')}<div class="gc-focus"><span class="gc-eyebrow">${task.status === 'running' ? 'Destino prioritário' : 'Próximo destino'}</span><strong>${focus ? esc(focus.title) : perGroup ? 'Sem grupo elegível agora' : 'Distribuição entre grupos'}</strong><small>${focus ? 'As tentativas continuam neste grupo até completar a cota diária.' : 'Confira as cotas e os estados dos grupos abaixo.'}</small></div></div>
+                    <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta diária da tarefa')}<div class="gc-focus"><span class="gc-eyebrow">${task.status === 'running' ? 'Destino prioritário' : 'Próximo destino'}</span><strong>${focus ? esc(focus.title) : perGroup ? 'Sem grupo elegível agora' : 'Distribuição entre grupos'}</strong><small>${focus ? focus.status === 'error' ? 'Sequência bloqueada: revise o erro deste grupo e reinicie a tarefa. Os próximos grupos aguardam.' : focus.today >= focus.daily_limit ? 'Aguardando confirmação das vagas reservadas. Os próximos grupos aguardam.' : 'As tentativas continuam neste grupo até confirmar a meta diária. Os próximos grupos aguardam.' : 'Confira as cotas e os estados dos grupos abaixo.'}</small></div></div>
                     ${spamAlert}
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
                     <p class="info">${task.lead_source ? `Arquivo desta tarefa: <strong>${esc(task.lead_source.filename)}</strong> · ${task.lead_count} contatos` : 'Esta tarefa está sem arquivo próprio. Importe os contatos para habilitar as adições; a lista compartilhada antiga não será usada.'}</p>
-                    <button type="button" class="btn btn-primary" data-action="import-leads" data-id="${task.id}">Importar arquivo desta tarefa</button>
+                    <button type="button" class="btn btn-primary" data-action="import-leads" data-id="${task.id}">Importar arquivo desta tarefa</button><a class="btn btn-primary gc-export-leads" href="/api/group-campaigns/${task.id}/leads/export" download="leads-tarefa-${task.id}.json">Exportar leads (JSON)</a><small>Exporte os contatos desta tarefa e importe o JSON no outro login. O arquivo inclui todos os leads selecionados, inclusive os já processados.</small>
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
                     ${!task.groups.length ? '<p class="info">Esta tarefa não tem mais grupos. O histórico foi mantido; você pode excluir a tarefa quando quiser.</p>' : ''}
                     ${busy ? '<p class="info gc-note">Para editar, excluir ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
@@ -287,11 +332,15 @@
                             <button class="btn btn-primary" name="action" value="replace" ${busy ? 'disabled' : ''}>Substituir grupo</button><small>O grupo anterior permanece no Telegram.</small></details>
                         </form>${ownershipControls(task, group, busy)}${deletionControls(task, group, busy)}</div>
                     </details>`).join('')}</div></details>
-                    <details class="gc-history" data-detail="events-${task.id}"><summary>Histórico e diagnóstico da execução <span class="gc-badge">${task.events.length}</span></summary><p class="gc-history-help"><strong>Spam/flood:</strong> uma sessão limitada aparece acima com nome, motivo e horário de nova tentativa. <strong>Meta por grupo:</strong> o Grupo 1 atinge a meta primeiro e depois segue para o próximo. Quando não houver atividade, o histórico informa se faltam leads, se a meta foi atingida ou se as sessões estão em espera.</p>${renderHistory(task.events)}</details>
+                    <details class="gc-history" data-detail="events-${task.id}"><summary><span>Central de logs</span><span class="gc-live-state" data-state="${streamState}">${streamState === 'live' ? 'Ao vivo' : 'Conectando…'}</span><span class="gc-badge gc-log-count">${(liveEvents.get(task.id) || []).length}</span></summary><div class="gc-log-toolbar"><input type="search" data-log-search="${task.id}" placeholder="Buscar sessão, grupo ou mensagem…" aria-label="Buscar nos logs" value="${esc(logFilters.get(task.id)?.query || '')}"><select data-log-tone="${task.id}" aria-label="Filtrar tipo de evento">${[['','Todos os eventos'],['info','Etapas'],['success','Sucessos'],['warning','Atenção'],['waiting','Esperas']].map(([value,label]) => `<option value="${value}" ${logFilters.get(task.id)?.tone === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><p class="gc-history-help">Eventos mais recentes primeiro · até 500 eventos no painel · conexão automática com o servidor. Você pode acompanhar os logs enquanto edita os grupos.</p><div class="gc-live-content">${renderHistory(liveEvents.get(task.id), logFilters.get(task.id))}</div></details>
                     </div>
                 </section>`;
             }).join('') || '<div class="gc-empty"><i class="fas fa-layer-group" aria-hidden="true"></i><h3>Sua primeira tarefa começa aqui</h3><p>Escolha os grupos e as sessões. Depois de salvar, ela aparecerá neste espaço.</p><button class="btn btn-primary" type="button" data-reveal="campaign-builder">Criar minha primeira tarefa</button></div>';
             el('campaign-list').querySelectorAll('details[data-detail]').forEach(detail => detail.open = openDetails.has(detail.dataset.detail));
+            el('campaign-list').querySelectorAll('.gc-history').forEach(history => {
+                const list = history.querySelector('.gc-log-list');
+                if (list) list.scrollTop = logScroll.get(history.dataset.detail) || 0;
+            });
         } catch (error) {
             el('campaign-status').textContent = error.message;
         }
@@ -560,6 +609,18 @@
                 await load();
             });
         });
+        el('campaign-list').addEventListener('input', event => {
+            const id = Number(event.target.dataset.logSearch || event.target.dataset.logTone);
+            if (!id) return;
+            const filter = logFilters.get(id) || {};
+            if (event.target.dataset.logSearch) filter.query = event.target.value;
+            else filter.tone = event.target.value;
+            logFilters.set(id, filter);
+            updateLogs(id);
+        });
+        startLogStream();
+        window.addEventListener('pagehide', () => { logStream?.close(); logStream = null; });
+        window.addEventListener('pageshow', startLogStream);
         el('campaign-refresh').addEventListener('click', async () => {
             await load();
             loadSessions().catch(error => notice(error.message, true));

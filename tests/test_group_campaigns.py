@@ -421,6 +421,36 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertTrue(any('@admin_two definido como administrador' in event['message'] for event in events))
         self.assertEqual(store.snapshot()['campaigns'][0]['counts'], {'added': 1})
 
+    def test_incomplete_first_group_blocks_later_groups_on_error_or_unknown(self):
+        for blocked in ('error', 'unknown'):
+            with self.subTest(blocked=blocked):
+                cid, groups = self.task(limit_scope='group')
+                self.leads(5)
+                if blocked == 'error':
+                    self.store.group_update(groups[0]['id'], status='error', error='Permissão insuficiente')
+                else:
+                    delivery = self.store.claim(cid, groups[0]['id'])
+                    self.store.finish(delivery['id'], 'unknown', 'Resposta perdida')
+                store = self.store
+                calls = []
+
+                class Gateway:
+                    async def invite(self, *args):
+                        calls.append(args)
+
+                    async def close(self):
+                        pass
+
+                async def stop_on_wait(seconds):
+                    store.state(cid, 'paused')
+
+                with patch('group_campaigns.asyncio.sleep', new=stop_on_wait):
+                    asyncio.run(campaign_loop(store, cid, Gateway()))
+                self.assertEqual(calls, [])
+                task = next(task for task in store.snapshot()['campaigns'] if task['id'] == cid)
+                self.assertEqual(task['groups'][1]['today'], 0)
+                self.assertTrue(any('sequência' in event['message'].lower() for event in task['events']))
+
     def test_loop_keeps_failed_attempts_in_same_group_until_goal(self):
         cid, groups = self.task(limit_scope='group')
         self.leads(5)
@@ -450,6 +480,7 @@ class CampaignStoreTests(unittest.TestCase):
         snapshot = store.snapshot()['campaigns'][0]
         self.assertEqual(snapshot['groups'][0]['today_added'], 1)
         self.assertEqual(snapshot['counts'], {'added': 2, 'failed': 1})
+        self.assertTrue(any('sessão one.session iniciando adição' in event['message'] for event in snapshot['events']))
 
     def test_unknown_invite_result_is_not_retried(self):
         cid = self.store.create({'name': 'Teste', 'count': 1}, ['one.session'])
@@ -514,6 +545,57 @@ class CampaignApiTests(unittest.TestCase):
     def login(self, username):
         with self.client.session_transaction() as session:
             session['username'] = username
+
+    def test_lead_export_is_private_and_importable_in_another_login(self):
+        path = '/api/group-campaigns/1/leads/export'
+        self.assertEqual(self.client.get(path).status_code, 401)
+        self.login('alice')
+        self.client.get('/api/group-campaigns')
+        store = CampaignStore(str(Path(self.temp.name) / 'alice'))
+        cid = store.create({'name': 'Export'}, ['one.session'])
+        other = store.create({'name': 'Other'}, ['one.session'])
+        source = [{'id': 123, 'username': 'lead_export', 'access_hash': 9000000000000000001}]
+        store.import_leads('source.json', json.dumps(source).encode(), cid=cid)
+        store.import_leads('other.txt', b'@other_contact', cid=other)
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment;', response.headers['Content-Disposition'])
+        self.assertEqual(response.headers['Cache-Control'], 'private, no-store')
+        members = response.json['members']
+        self.assertEqual(len(members), 1)
+        self.assertEqual(members[0]['access_hash'], source[0]['access_hash'])
+        self.login('bob')
+        self.assertEqual(self.client.get(path).status_code, 400)
+        self.client.get('/api/group-campaigns')
+        target = CampaignStore(str(Path(self.temp.name) / 'bob'))
+        target_id = target.create({'name': 'Imported'}, ['one.session'])
+        result = target.import_leads('export.json', response.data, cid=target_id)
+        self.assertEqual(result['task_total'], 1)
+        self.assertEqual(target.export_leads(target_id), members)
+
+    def test_event_stream_is_authenticated_isolated_and_resumes(self):
+        self.assertEqual(self.client.get('/api/group-campaigns/events/stream').status_code, 401)
+        self.login('alice')
+        self.client.get('/api/group-campaigns')
+        alice = CampaignStore(str(Path(self.temp.name) / 'alice'))
+        cid = alice.create({'name': 'Live'}, ['one.session'])
+        alice.event(cid, 'Primeiro evento')
+        alice.event(cid, 'Segundo evento')
+        bob = CampaignStore(str(Path(self.temp.name) / 'bob'))
+        other = bob.create({'name': 'Private'}, ['one.session'])
+        bob.event(other, 'Evento privado de Bob')
+        with alice.db() as conn:
+            first = conn.execute('SELECT min(id) FROM events').fetchone()[0]
+        response = self.client.get('/api/group-campaigns/events/stream',
+                                   headers={'Last-Event-ID': str(first)}, buffered=False)
+        try:
+            self.assertEqual(response.mimetype, 'text/event-stream')
+            chunk = next(iter(response.response)).decode()
+            self.assertIn('Segundo evento', chunk)
+            self.assertNotIn('Primeiro evento', chunk)
+            self.assertNotIn('Evento privado de Bob', chunk)
+        finally:
+            response.close()
 
     def test_authentication_validation_import_and_user_isolation(self):
         self.assertEqual(self.client.get('/api/group-campaigns').status_code, 401)

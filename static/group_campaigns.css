@@ -165,3 +165,20 @@ body[data-design="studio"] #comingSoon .gc-group.gc-focused {border-color:#34d39
 #comingSoon .gc-task-stats > div:nth-child(2) strong {color:#fb7185!important;}
 #comingSoon .gc-task-stats > div:nth-child(4) strong {color:#fbbf24!important;}
 @media(max-width:680px) {#comingSoon .gc-daily-overview {grid-template-columns:1fr;gap:16px;padding:16px;}#comingSoon .gc-focus {border-left:0;border-top:1px solid var(--studio-line,#303036);padding:14px 0 0;}}
+/* Live execution console */
+#comingSoon .gc-history > summary {display:flex;align-items:center;gap:10px;font-weight:650;color:var(--studio-text,#e2e8f0);padding:14px 0;}
+#comingSoon .gc-live-state {display:inline-flex;align-items:center;gap:6px;margin-left:auto;color:#fbbf24;font-size:11px;}
+#comingSoon .gc-live-state::before {content:'';width:6px;height:6px;border-radius:50%;background:currentColor;}
+#comingSoon .gc-live-state[data-state="live"] {color:#34d399;}
+#comingSoon .gc-log-toolbar {display:flex;gap:10px;padding:12px;background:var(--studio-raised,#202024);border:1px solid var(--studio-line,#303036);border-radius:10px;}
+#comingSoon .gc-log-toolbar input {flex:1;min-width:0;}
+#comingSoon .gc-log-toolbar :is(input,select) {padding:9px 12px;border:1px solid var(--studio-line,#303036);border-radius:7px;background:var(--studio-panel,#18181b);color:var(--studio-text,#f2f2f4);font:inherit;font-size:12px;}
+#comingSoon .gc-log-list {max-height:500px;gap:0;border:1px solid var(--studio-line,#303036);border-radius:10px;background:var(--studio-bg,#101012);}
+#comingSoon .gc-log {grid-template-columns:145px 68px minmax(0,1fr);align-items:baseline;border:0;border-bottom:1px solid var(--studio-line,#303036);border-left:3px solid #64748b;border-radius:0;background:transparent;padding:12px;}
+#comingSoon .gc-log:last-child {border-bottom:0;}
+#comingSoon .gc-log p {font-family:Consolas,'Cascadia Code',monospace;font-size:12px;line-height:1.65;white-space:pre-wrap;}
+#comingSoon .gc-log-level {font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;}
+#comingSoon .gc-log.success .gc-log-level {color:#34d399;}
+#comingSoon .gc-log.warning .gc-log-level {color:#fbbf24;}
+#comingSoon .gc-log.waiting .gc-log-level {color:#38bdf8;}
+@media(max-width:680px) {#comingSoon .gc-log {grid-template-columns:1fr auto;gap:5px;}#comingSoon .gc-log p {grid-column:1/-1;}#comingSoon .gc-log-toolbar {flex-direction:column;}#comingSoon .gc-history > summary {flex-wrap:wrap;}}
