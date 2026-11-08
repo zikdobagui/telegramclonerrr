@@ -11,6 +11,12 @@
     let viewInitialized = false;
     let groupActionSubmitting = false;
 
+    const percent = (value, total) => total > 0 ? Math.min(100, Math.max(0, Math.round(value / total * 100))) : 0;
+    function progress(value, total, label) {
+        const pct = percent(value, total);
+        return `<div class="gc-progress"><div class="gc-progress-label"><span>${esc(label)}</span><strong>${pct}%</strong></div><progress max="${Math.max(1, total)}" value="${Math.min(value, total)}" aria-label="${esc(label)}"></progress><small>${value.toLocaleString('pt-BR')} de ${total.toLocaleString('pt-BR')} adições confirmadas hoje</small></div>`;
+    }
+
     function groupShareLink(group) {
         if (!group.channel_id) return '';
         const link = group.invite || group.reference || '';
@@ -242,6 +248,10 @@
             el('campaign-list').innerHTML = data.campaigns.map(task => {
                 const busy = data.worker_active || task.status === 'running';
                 const counts = task.counts;
+                const perGroup = task.settings.limit_scope === 'group';
+                const dailyGoal = perGroup ? task.groups.reduce((sum, group) => sum + group.daily_limit, 0) : task.settings.daily_limit;
+                const dailyAdded = task.groups.reduce((sum, group) => sum + (group.today_added || 0), 0);
+                const focus = perGroup ? task.groups.find(group => group.status !== 'error' && group.today < group.daily_limit) : null;
                 const sessionWaits = task.session_waits || [];
                 const spamAlert = sessionWaits.length ? `<div class="gc-alert" role="alert"><strong>⚠️ Sessões limitadas pelo Telegram (spam/flood)</strong><p>Estas contas não serão usadas até o horário indicado. A tarefa não envia leads enquanto todas estiverem limitadas.</p><ul>${sessionWaits.map(wait => `<li><strong>${esc(wait.name)}</strong> — limitada até ${esc(new Date(wait.until * 1000).toLocaleString('pt-BR'))}${wait.kind ? ` · ${esc(wait.kind)}` : ''}${wait.reason ? ` · ${esc(wait.reason)}` : ''}</li>`).join('')}</ul></div>` : `<p class="info gc-note"><strong>Sessões:</strong> nenhuma limitação de spam/flood registrada para as contas desta tarefa.</p>`;
                 return `<section class="card task-card-modern gc-task">
@@ -252,6 +262,7 @@
                     <button class="btn btn-danger" data-action="delete" data-id="${task.id}" ${busy ? 'disabled' : ''}>Excluir tarefa</button></div></div>
                     <div class="gc-task-body">
                     <div class="gc-task-meta"><span>${task.groups.length} grupos</span><span>${task.settings.sessions.length} sessões</span><span>${task.settings.warming ? 'Com aquecimento' : 'Sem aquecimento'}</span><span>${task.settings.dedup === 'task' ? 'Um grupo por lead' : 'Uma vez por grupo'}</span></div>
+                    <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta diária da tarefa')}<div class="gc-focus"><span class="gc-eyebrow">${task.status === 'running' ? 'Destino prioritário' : 'Próximo destino'}</span><strong>${focus ? esc(focus.title) : perGroup ? 'Sem grupo elegível agora' : 'Distribuição entre grupos'}</strong><small>${focus ? 'As tentativas continuam neste grupo até completar a cota diária.' : 'Confira as cotas e os estados dos grupos abaixo.'}</small></div></div>
                     ${spamAlert}
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
                     <p class="info">${task.lead_source ? `Arquivo desta tarefa: <strong>${esc(task.lead_source.filename)}</strong> · ${task.lead_count} contatos` : 'Esta tarefa está sem arquivo próprio. Importe os contatos para habilitar as adições; a lista compartilhada antiga não será usada.'}</p>
@@ -261,8 +272,8 @@
                     ${busy ? '<p class="info gc-note">Para editar, excluir ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
                     ${task.settings.limit_scope === 'task' ? `<form data-settings="${task.id}" class="gc-upload"><div class="form-group"><label>Limite diário de todos os grupos juntos<input name="daily_limit" type="number" value="${task.settings.daily_limit}" min="1" max="10000" required ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" ${busy ? 'disabled' : ''}>Salvar limite</button></form>` : ''}
                     <details class="gc-group-list" data-detail="groups-${task.id}"><summary>Ver grupos da tarefa <span class="gc-badge">${task.groups.length}</span></summary><div class="gc-group-grid">
-                    ${task.groups.map(group => `<details class="gc-group" data-detail="group-${group.id}">
-                        <summary><span><span class="gc-group-title">${esc(group.title)}</span><small>${group.members?.count != null ? `${Number(group.members.count).toLocaleString('pt-BR')} membros no grupo · ` : ''}${group.added} adicionados pela tarefa · meta usada hoje: ${group.today}${task.settings.limit_scope === 'group' ? '/' + group.daily_limit : ''}</small></span><span class="gc-badge ${esc(group.status)}">${esc(labels[group.status] || group.status)}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
+                    ${task.groups.map(group => `<details class="gc-group ${focus?.id === group.id ? 'gc-focused' : ''}" data-detail="group-${group.id}">
+                        <summary><span><span class="gc-group-title">${esc(group.title)}</span><small>${group.members?.count != null ? `${Number(group.members.count).toLocaleString('pt-BR')} membros no grupo · ` : ''}${group.added} adicionados pela tarefa · meta usada hoje: ${group.today}${task.settings.limit_scope === 'group' ? '/' + group.daily_limit : ''}</small>${perGroup ? progress(group.today_added || 0, group.daily_limit, 'Meta diária do grupo') : ''}${group.today > (group.today_added || 0) ? `<small class="gc-reserved">${group.today - (group.today_added || 0)} vaga(s) reservada(s) por envios em andamento ou sem confirmação</small>` : ''}</span><span class="gc-badge ${esc(group.status)}">${esc(labels[group.status] || group.status)}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
                         <div class="gc-group-content">
                         ${group.channel_id ? `<div class="gc-members"><p><strong>Membros no Telegram: ${group.members?.count != null ? Number(group.members.count).toLocaleString('pt-BR') : 'Ainda não consultado'}</strong></p>${group.members?.updated ? `<small>Consultado em ${esc(new Date(group.members.updated * 1000).toLocaleString('pt-BR'))}. Atualização automática durante a execução, com intervalo mínimo de 1 minuto.</small>` : ''}${group.members?.error ? `<p class="gc-alert">${esc(group.members.error)}</p>` : ''}<button type="button" class="btn btn-primary" data-action="members" data-id="${task.id}" data-group-id="${group.id}">Atualizar membros</button><button type="button" class="btn btn-danger" data-action="remove-deleted-members" data-id="${task.id}" data-group-id="${group.id}" ${busy ? 'disabled' : ''} title="Usa uma sessão dona ou administradora com permissão para remover membros">Remover contas excluídas</button><small>Use com a tarefa pausada. A ação procura uma sessão dona ou administradora deste grupo.</small></div>` : ''}
                         ${group.invite && /^https:\/\/t\.me\//.test(group.invite) ? `<p><a href="${esc(group.invite)}" target="_blank" rel="noopener noreferrer">Abrir grupo no Telegram ↗</a></p>` : ''}

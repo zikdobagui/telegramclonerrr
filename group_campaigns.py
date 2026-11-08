@@ -565,6 +565,9 @@ class CampaignStore:
         with self.db() as conn:
             groups = [dict(row) for row in conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1 ORDER BY slot', (cid,))]
             for group in groups:
+                usage = conn.execute("SELECT count(*),sum(CASE WHEN status='added' THEN 1 ELSE 0 END) FROM deliveries WHERE campaign_id=? AND slot=? AND day=? AND status IN ('added','sending','unknown')", (cid, group['slot'], day_key())).fetchone()
+                group['today'] = usage[0]
+                group['today_added'] = usage[1] or 0
                 row = conn.execute('SELECT username,user_id,status,updated FROM ownership_transfers WHERE group_id=?', (group['id'],)).fetchone()
                 group['ownership'] = dict(row) if row else None
                 row = conn.execute('SELECT status FROM group_deletions WHERE group_id=?', (group['id'],)).fetchone()
@@ -1087,7 +1090,7 @@ class TelegramCampaignGateway:
             raise LeadResolutionError('A referência não corresponde a um usuário do Telegram')
         if not reserve_identity(user_id):
             return None
-        from telethon.errors import UserNotParticipantError
+        from telethon.errors import UserNotParticipantError, ParticipantIdInvalidError
         from telethon.tl.types import ChannelParticipantLeft, ChannelParticipantBanned
 
         async def is_member():
@@ -1100,9 +1103,14 @@ class TelegramCampaignGateway:
                 isinstance(participant, ChannelParticipantBanned) and participant.left
             )
 
-        # Existing members are duplicates, not new additions by this task.
-        if await is_member():
-            return None
+        # A participant lookup may reject a reference before the invitation.
+        # That is not proof the invitation itself will fail. Only a confirmed
+        # existing membership should prevent sending it.
+        try:
+            if await is_member():
+                return None
+        except ParticipantIdInvalidError:
+            pass
         try:
             result = await client(InviteToChannelRequest(channel=peer, users=[user]))
         except Exception as error:
@@ -1180,7 +1188,14 @@ async def campaign_loop(store, cid, gateway):
     try:
         while store.get(cid)['status'] == 'running':
             worked = False
-            for group in store.groups(cid):
+            groups = store.groups(cid)
+            if settings['limit_scope'] == 'group':
+                # Keep a single destination until its daily quota is full.
+                # Failed/duplicate leads do not consume that quota. Unknown
+                # outcomes reserve space so we never exceed the configured cap.
+                groups = next(([group] for group in groups
+                               if group['status'] != 'error' and group['today'] < group['daily_limit']), [])
+            for group in groups:
                 if store.get(cid)['status'] != 'running':
                     break
                 gid = group['id']

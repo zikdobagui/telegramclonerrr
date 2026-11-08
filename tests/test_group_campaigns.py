@@ -26,6 +26,18 @@ class InviteResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([type(call.args[0]).__name__ for call in client.await_args_list],
                          ['GetParticipantRequest', 'InviteToChannelRequest', 'GetParticipantRequest'])
 
+    async def test_invalid_participant_precheck_still_attempts_invitation(self):
+        from telethon.errors import ParticipantIdInvalidError
+        from telethon.tl.types import InputUser
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock(side_effect=[ParticipantIdInvalidError(None), SimpleNamespace(),
+                                       SimpleNamespace(participant=SimpleNamespace())])
+        client.get_input_entity.return_value = InputUser(123, 456)
+        gateway.peer = AsyncMock(return_value=(client, 'peer'))
+        self.assertTrue(await gateway.invite({}, 'one', {'username': 'example'}, lambda uid: True))
+        self.assertEqual([type(call.args[0]).__name__ for call in client.await_args_list],
+                         ['GetParticipantRequest', 'InviteToChannelRequest', 'GetParticipantRequest'])
+
     async def test_existing_member_is_not_counted_as_new_addition(self):
         from telethon.tl.types import InputUser
         gateway = TelegramCampaignGateway({}, {}, ())
@@ -408,6 +420,36 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertTrue(any('não foi possível promover @admin_one' in event['message'] for event in events))
         self.assertTrue(any('@admin_two definido como administrador' in event['message'] for event in events))
         self.assertEqual(store.snapshot()['campaigns'][0]['counts'], {'added': 1})
+
+    def test_loop_keeps_failed_attempts_in_same_group_until_goal(self):
+        cid, groups = self.task(limit_scope='group')
+        self.leads(5)
+        store = self.store
+        with store.db() as conn:
+            settings = store.get(cid)['settings']
+            settings.update(delay_min=0, delay_max=0)
+            conn.execute('UPDATE campaigns SET settings=? WHERE id=?', (json.dumps(settings), cid))
+        calls = []
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(group['id'])
+                if len(calls) == 3:
+                    store.state(cid, 'paused')
+                return len(calls) != 1
+
+            async def close(self):
+                pass
+
+        async def no_wait(seconds):
+            pass
+
+        with patch('group_campaigns.asyncio.sleep', new=no_wait), patch('group_campaigns.time.monotonic', side_effect=__import__('itertools').count(0, 30)):
+            asyncio.run(campaign_loop(store, cid, Gateway()))
+        self.assertEqual(calls, [groups[0]['id'], groups[0]['id'], groups[1]['id']])
+        snapshot = store.snapshot()['campaigns'][0]
+        self.assertEqual(snapshot['groups'][0]['today_added'], 1)
+        self.assertEqual(snapshot['counts'], {'added': 2, 'failed': 1})
 
     def test_unknown_invite_result_is_not_retried(self):
         cid = self.store.create({'name': 'Teste', 'count': 1}, ['one.session'])

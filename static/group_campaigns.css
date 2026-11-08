@@ -141,3 +141,27 @@
     #comingSoon .gc-sessions { grid-template-columns:minmax(0,1fr); max-height:250px; }
     #comingSoon .gc-log { grid-template-columns:1fr; gap:3px; }
 }
+/* Daily progress and destination focus */
+#comingSoon .gc-daily-overview {display:grid;grid-template-columns:1.2fr 1fr;gap:24px;padding:20px;margin:16px 0;border:1px solid var(--studio-line,#303036);border-radius:12px;background:var(--studio-raised,#202024);}
+#comingSoon .gc-progress {min-width:0;}
+#comingSoon .gc-progress-label {display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;color:var(--studio-muted,#a2a2ac);margin-bottom:8px;}
+#comingSoon .gc-progress-label strong {font-size:20px;font-variant-numeric:tabular-nums;color:var(--studio-text,#f2f2f4);}
+#comingSoon .gc-progress progress {display:block;width:100%;height:7px;border:0;border-radius:8px;overflow:hidden;background:var(--studio-line,#303036);accent-color:#34d399;}
+#comingSoon .gc-progress progress::-webkit-progress-bar {background:var(--studio-line,#303036);border-radius:8px;}
+#comingSoon .gc-progress progress::-webkit-progress-value {background:#34d399;border-radius:8px;}
+#comingSoon .gc-progress progress::-moz-progress-bar {background:#34d399;border-radius:8px;}
+#comingSoon .gc-progress small {margin-top:7px;font-variant-numeric:tabular-nums;}
+#comingSoon .gc-focus {min-width:0;border-left:1px solid var(--studio-line,#303036);padding-left:24px;}
+#comingSoon .gc-eyebrow {display:block;color:#34d399;font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px;}
+#comingSoon .gc-focus > strong {display:block;color:var(--studio-text,#f2f2f4);font-size:14px;overflow-wrap:anywhere;}
+#comingSoon .gc-focus small {margin-top:6px;}
+body[data-design="studio"] #comingSoon .gc-group.gc-focused {border-color:#34d399!important;}
+#comingSoon .gc-group .gc-progress {margin-top:12px;}
+#comingSoon .gc-group .gc-progress-label strong {font-size:14px;}
+#comingSoon .gc-group .gc-progress progress {height:5px;}
+#comingSoon .gc-group .gc-reserved {color:#fbbf24;margin-top:6px;}
+#comingSoon .gc-task-stats > div {padding:14px!important;}
+#comingSoon .gc-task-stats > div:first-child strong {color:#34d399!important;}
+#comingSoon .gc-task-stats > div:nth-child(2) strong {color:#fb7185!important;}
+#comingSoon .gc-task-stats > div:nth-child(4) strong {color:#fbbf24!important;}
+@media(max-width:680px) {#comingSoon .gc-daily-overview {grid-template-columns:1fr;gap:16px;padding:16px;}#comingSoon .gc-focus {border-left:0;border-top:1px solid var(--studio-line,#303036);padding:14px 0 0;}}
