@@ -14,6 +14,52 @@ from group_campaigns import CampaignStore, TelegramCampaignGateway, campaign_loo
 
 
 class InviteResultTests(unittest.IsolatedAsyncioTestCase):
+    async def test_expired_link_is_renewed_once_for_parallel_sessions_and_persisted(self):
+        from telethon.errors import InviteHashExpiredError
+        gateway = TelegramCampaignGateway({}, {}, ())
+        owner = AsyncMock(return_value=SimpleNamespace(link='https://t.me/+fresh'))
+        clients = {'owner': owner, 'one': AsyncMock(), 'two': AsyncMock()}
+        gateway.client = AsyncMock(side_effect=lambda name: clients[name])
+        group = {'id': 1, 'slot': 1, 'creator': 'owner', 'channel_id': '42',
+                 'access_hash': '123', 'invite': 'https://t.me/+expired', 'reference': ''}
+        persisted = []
+        gateway.persist_group = lambda gid, **values: persisted.append((gid, values))
+
+        async def resolve(client, reference):
+            await asyncio.sleep(0)
+            if reference.endswith('expired'):
+                raise InviteHashExpiredError(None)
+            return SimpleNamespace(id=42)
+
+        gateway.resolve = AsyncMock(side_effect=resolve)
+        results = await asyncio.gather(gateway.peer(group, 'one'), gateway.peer(group, 'two'))
+        self.assertEqual([peer.id for client, peer in results], [42, 42])
+        self.assertEqual(owner.await_count, 1)
+        self.assertEqual(persisted, [(1, {'invite': 'https://t.me/+fresh'})])
+        self.assertEqual(type(owner.await_args.args[0]).__name__, 'ExportChatInviteRequest')
+
+    async def test_link_for_another_group_is_rejected(self):
+        gateway = TelegramCampaignGateway({}, {}, ())
+        gateway.client = AsyncMock(return_value=AsyncMock())
+        gateway.resolve = AsyncMock(return_value=SimpleNamespace(id=99))
+        group = {'id': 1, 'creator': 'owner', 'channel_id': '42', 'access_hash': '123',
+                 'invite': 'https://t.me/+wrong', 'reference': ''}
+        with self.assertRaisesRegex(ValueError, 'outro grupo'):
+            await gateway.peer(group, 'one')
+        self.assertNotIn((1, 'one'), gateway.peers)
+
+    async def test_expired_link_without_owner_permission_is_actionable(self):
+        from telethon.errors import InviteHashExpiredError, ChatAdminRequiredError
+        from group_campaigns import GroupAccessError
+        gateway = TelegramCampaignGateway({}, {}, ())
+        owner = AsyncMock(side_effect=ChatAdminRequiredError(None))
+        gateway.client = AsyncMock(side_effect=lambda name: owner if name == 'owner' else AsyncMock())
+        gateway.resolve = AsyncMock(side_effect=InviteHashExpiredError(None))
+        group = {'id': 1, 'slot': 1, 'creator': 'owner', 'channel_id': '42', 'access_hash': '123',
+                 'invite': 'https://t.me/+expired', 'reference': ''}
+        with self.assertRaisesRegex(GroupAccessError, 'sessão criadora'):
+            await gateway.peer(group, 'one')
+
     async def test_invitation_verifies_before_and_after_sending(self):
         from telethon.errors import UserNotParticipantError
         from telethon.tl.types import InputUser
@@ -420,6 +466,102 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertTrue(any('não foi possível promover @admin_one' in event['message'] for event in events))
         self.assertTrue(any('@admin_two definido como administrador' in event['message'] for event in events))
         self.assertEqual(store.snapshot()['campaigns'][0]['counts'], {'added': 1})
+
+    def test_resume_retries_only_proven_pre_invite_expired_link_failures(self):
+        cid = self.store.create({'name': 'Recover link', 'count': 1, 'daily_limit': 3}, ['one.session'])
+        group = self.store.groups(cid)[0]
+        self.store.group_update(group['id'], status='ready', channel_id='42', access_hash='123', creator='one.session')
+        self.store.state(cid, 'running')
+        self.leads(3)
+        expired = 'The chat the user tried to join has expired and is not valid anymore (caused by CheckChatInviteRequest)'
+        for error in (expired, 'Resposta perdida (caused by InviteToChannelRequest)'):
+            delivery = self.store.claim(cid, group['id'])
+            self.store.finish(delivery['id'], 'unknown', error)
+        self.store.group_update(group['id'], status='error', error=expired)
+        self.store.prepare_start(cid)
+        task = next(task for task in self.store.snapshot()['campaigns'] if task['id'] == cid)
+        self.assertEqual(task['counts'], {'retry': 1, 'unknown': 1})
+        self.assertEqual(task['groups'][0]['status'], 'ready')
+
+    def test_parallel_sessions_overlap_without_exceeding_group_goal(self):
+        from group_campaigns import parallel_group_additions
+        cid = self.store.create({'name': 'Parallel', 'count': 2, 'daily_limit': 3,
+                                 'parallel_sessions': True}, ['one.session', 'two.session'])
+        groups = self.store.groups(cid)
+        for group in groups:
+            self.store.group_update(group['id'], status='ready')
+        self.store.state(cid, 'running')
+        self.leads(8)
+        settings = {**self.store.get(cid)['settings'], 'delay_min': 0, 'delay_max': 0}
+        calls = []
+        active = peak = 0
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                nonlocal active, peak
+                self_test.assertTrue(reserve_identity(payload['id']))
+                calls.append((name, payload['id']))
+                active += 1
+                peak = max(peak, active)
+                await asyncio.sleep(0)
+                active -= 1
+                return True
+
+        self_test = self
+        asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        self.assertEqual(peak, 2)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len({uid for name, uid in calls}), 3)
+        updated = self.store.groups(cid)
+        self.assertEqual(updated[0]['today_added'], 3)
+        self.assertEqual(updated[1]['today'], 0)
+
+    def test_parallel_flood_wait_retries_after_expiry(self):
+        from group_campaigns import parallel_group_additions, session_wait_until
+        from telethon.errors import FloodWaitError
+        cid, groups = self.task(limit_scope='group', parallel_sessions=True)
+        self.leads(2)
+        settings = {**self.store.get(cid)['settings'], 'delay_min': 0, 'delay_max': 0}
+        calls = []
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                reserve_identity(payload['id'])
+                calls.append(payload['id'])
+                if len(calls) == 1:
+                    raise FloodWaitError(None, capture=2)
+                return True
+
+        gateway = Gateway()
+        async def run():
+            await parallel_group_additions(self.store, cid, groups[0], gateway, ['one.session'], settings)
+            self.assertEqual(self.store.groups(cid)[0]['today_added'], 1)
+            self.assertIsNone(session_wait_until(self.temp.name, 'one.session'))
+        asyncio.run(run())
+        self.assertEqual(calls[0], calls[1])
+        self.assertEqual(self.store.groups(cid)[0]['today_added'], 1)
+
+    def test_parallel_pause_drains_inflight_without_new_leads(self):
+        from group_campaigns import parallel_group_additions
+        cid = self.store.create({'name': 'Parallel pause', 'count': 1, 'daily_limit': 5}, ['one.session', 'two.session'])
+        group = self.store.groups(cid)[0]
+        self.store.group_update(group['id'], status='ready')
+        self.store.state(cid, 'running')
+        self.leads(8)
+        store = self.store
+        calls = []
+        settings = {**store.get(cid)['settings'], 'delay_min': 0, 'delay_max': 0}
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(name)
+                await asyncio.sleep(0)
+                store.state(cid, 'paused')
+                return True
+
+        asyncio.run(parallel_group_additions(store, cid, group, Gateway(), settings['sessions'], settings))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(store.groups(cid)[0]['today_added'], 2)
 
     def test_incomplete_first_group_blocks_later_groups_on_error_or_unknown(self):
         for blocked in ('error', 'unknown'):

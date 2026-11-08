@@ -249,7 +249,7 @@ def place_session_on_wait(data_dir, session_name, error):
     Telegram supplies a duration for FloodWait.  Spam restrictions do not have
     one, so use a conservative 24-hour wait and let the user retry it later.
     """
-    seconds = max(60, int(getattr(error, 'seconds', 0) or 0))
+    seconds = max(1, int(getattr(error, 'seconds', 0) or 0))
     if not getattr(error, 'seconds', None):
         seconds = 24 * 60 * 60
     until = datetime.now() + __import__('datetime').timedelta(seconds=seconds)
@@ -284,6 +284,15 @@ def place_session_on_wait(data_dir, session_name, error):
         # healthy group into review.
         pass
     return until
+
+
+def expired_group_invite(error):
+    """Only failures while entering the group, before any member invite."""
+    if type(error).__name__ in {'InviteHashExpiredError', 'InviteHashInvalidError'}:
+        return True
+    message = str(error).lower()
+    return 'checkchatinviterequest' in message and (
+        'has expired' in message or 'invite hash has expired' in message or 'invite hash is invalid' in message)
 
 
 def recoverable_invite_peer_error(error):
@@ -451,6 +460,9 @@ class CampaignStore:
                         until = time.time() + settings['warm_days'] * 86400
                     status = 'warming' if settings['warming'] and until > time.time() else 'ready'
                     conn.execute("UPDATE groups SET status=?,error='',warm_until=? WHERE id=?", (status, until, group['id']))
+                    for delivery in conn.execute("SELECT id,error FROM deliveries WHERE group_id=? AND status='unknown'", (group['id'],)).fetchall():
+                        if expired_group_invite(delivery['error']):
+                            conn.execute("UPDATE deliveries SET status='retry' WHERE id=?", (delivery['id'],))
                 elif group['reference'] and not group['channel_id']:
                     # Re-resolve the existing invite; never create a new group.
                     conn.execute("UPDATE groups SET status='pending',error='' WHERE id=?", (group['id'],))
@@ -505,6 +517,7 @@ class CampaignStore:
             'dedup': 'group' if payload.get('dedup') == 'group' else 'task',
             'limit_scope': 'task' if payload.get('limit_scope') == 'task' else 'group',
             'daily_limit': limit,
+            'parallel_sessions': payload.get('parallel_sessions') is True,
         }
         return name, count, limit, settings
 
@@ -589,7 +602,7 @@ class CampaignStore:
             with self.db() as conn:
                 conn.execute("UPDATE group_member_counts SET count=?,updated=?,error='' WHERE group_id=?", (count, time.time(), group['id']))
         except Exception as error:
-            seconds = max(60, int(getattr(error, 'seconds', 0) or 0))
+            seconds = max(1, int(getattr(error, 'seconds', 0) or 0))
             message = f'Telegram pediu uma espera de {seconds} segundos.' if type(error).__name__ == 'FloodWaitError' else 'Não foi possível consultar agora. A última contagem foi mantida.'
             with self.db() as conn:
                 conn.execute('UPDATE group_member_counts SET error=?,next_check=? WHERE group_id=?', (message, time.time() + seconds, group['id']))
@@ -814,6 +827,13 @@ class CampaignStore:
             did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status) VALUES(?,?,?,?,?,?,'sending')", (cid, gid, group['slot'], lead['id'], scope, day)).lastrowid
             return result({'id': did, 'lead_id': lead['id'], 'payload': json.loads(lead['payload'])})
 
+    def retry_expired_invite_deliveries(self, gid):
+        with self.db() as conn:
+            rows = conn.execute("SELECT id,error FROM deliveries WHERE group_id=? AND status='unknown'", (gid,)).fetchall()
+            for delivery in rows:
+                if expired_group_invite(delivery['error']):
+                    conn.execute("UPDATE deliveries SET status='retry' WHERE id=?", (delivery['id'],))
+
     def finish(self, did, status, error=''):
         with self.db() as conn:
             conn.execute('UPDATE deliveries SET status=?,error=? WHERE id=?', (status, error[:1000], did))
@@ -863,6 +883,8 @@ class TelegramCampaignGateway:
         self.clients = {}
         self.peers = {}
         self.client_locks = {}
+        self.invite_links = {}
+        self.invite_locks = {}
 
     async def client(self, name):
         async with self.client_locks.setdefault(name, asyncio.Lock()):
@@ -941,23 +963,54 @@ class TelegramCampaignGateway:
         invite = await client(ExportChatInviteRequest(peer=entity))
         return {'channel_id': str(entity.id), 'access_hash': str(entity.access_hash), 'creator': name, 'invite': invite.link}
 
+    async def renew_invite(self, group, stale=None):
+        from telethon.tl.functions.messages import ExportChatInviteRequest
+        gid = group['id']
+        async with self.invite_locks.setdefault(gid, asyncio.Lock()):
+            current = self.invite_links.get(gid)
+            if current and current != stale:
+                return current
+            try:
+                owner, owner_peer = await self.peer(group, group['creator'])
+                result = await owner(ExportChatInviteRequest(peer=owner_peer))
+            except Exception as error:
+                raise GroupAccessError(f'Não foi possível renovar o convite pela sessão criadora ({type(error).__name__}). Confira o acesso e a permissão de gerar convites nesta conta.') from error
+            if not getattr(result, 'link', None):
+                raise ValueError('O Telegram não retornou um novo convite para este grupo.')
+            self.invite_links[gid] = result.link
+            persist = getattr(self, 'persist_group', None)
+            if persist:
+                persist(gid, invite=result.link)
+            getattr(self, 'audit', lambda message: None)(
+                f"Grupo {group['slot']}: convite expirado ou indisponível renovado pela sessão criadora. O mesmo grupo foi preservado.")
+            return result.link
+
     async def peer(self, group, name):
         from telethon.tl.types import InputChannel
-        from telethon.tl.functions.messages import ExportChatInviteRequest
         key = (group['id'], name)
         client = await self.client(name)
         if key not in self.peers:
             if name == group['creator']:
                 self.peers[key] = InputChannel(int(group['channel_id']), int(group['access_hash']))
             else:
-                reference = group['invite'] or group['reference']
-                if not reference:
-                    # The group was created and persisted, but exporting its
-                    # link failed before it could be written to the database.
-                    # Generate a fresh link through its owner and continue.
-                    owner, owner_peer = await self.peer(group, group['creator'])
-                    reference = (await owner(ExportChatInviteRequest(peer=owner_peer))).link
-                self.peers[key] = await self.resolve(client, reference)
+                reference = self.invite_links.get(group['id']) or group['invite'] or group['reference']
+                try:
+                    if not reference:
+                        reference = await self.renew_invite(group)
+                    try:
+                        entity = await self.resolve(client, reference)
+                    except Exception as error:
+                        if not expired_group_invite(error):
+                            raise
+                        reference = await self.renew_invite(group, stale=reference)
+                        entity = await self.resolve(client, reference)
+                    if int(entity.id) != int(group['channel_id']):
+                        raise ValueError('O convite aponta para outro grupo. Entrada interrompida para preservar o destino da tarefa.')
+                    self.peers[key] = entity
+                except Exception as error:
+                    if expired_group_invite(error):
+                        raise GroupAccessError('O convite do grupo expirou e não foi possível renová-lo. Verifique o acesso e a permissão da sessão criadora.') from error
+                    raise
         return client, self.peers[key]
 
     async def warm(self, group, name, phrase, image=None):
@@ -1152,6 +1205,10 @@ class TelegramCampaignGateway:
             await client.disconnect()
 
 
+class GroupAccessError(ValueError):
+    pass
+
+
 class InviteConfirmationError(ValueError):
     pass
 
@@ -1189,13 +1246,90 @@ def ownership_error(error):
     return messages.get(kind, 'Não foi possível confirmar a transferência. Consulte o resultado antes de tentar novamente.')
 
 
+async def parallel_group_additions(store, cid, group, gateway, names, settings):
+    """One coroutine per account; SQLite reserves each lead and quota atomically."""
+    data_dir = os.path.dirname(store.path)
+    gid = group['id']
+
+    def active():
+        if store.get(cid)['status'] != 'running':
+            return False
+        current = next((item for item in store.groups(cid) if item['id'] == gid), None)
+        return current is not None and current['status'] == 'ready' and (
+            settings['limit_scope'] != 'group' or current['today'] < current['daily_limit'])
+
+    async def account(name):
+        while active():
+            if session_wait_until(data_dir, name):
+                while active() and session_wait_until(data_dir, name):
+                    await asyncio.sleep(1)
+                if not active():
+                    return
+                store.event(cid, f"Grupo {group['slot']}: sessão {name} encerrou a espera e retomará as tentativas neste grupo.")
+            delivery, reason = store.claim(cid, gid, diagnose=True)
+            if not delivery:
+                store.event_recent(cid, f"Grupo {group['slot']}: sessão {name} aguardando porque {reason}.")
+                return
+            prefix = f"Grupo {group['slot']}: sessão {name} · lead #{delivery['lead_id']}"
+            store.event(cid, f'{prefix}: iniciando adição simultânea.')
+            try:
+                added = await gateway.invite(group, name, delivery['payload'],
+                                             lambda uid: store.reserve_identity(delivery['id'], uid))
+            except Exception as error:
+                if isinstance(error, GroupAccessError) or expired_group_invite(error):
+                    store.finish(delivery['id'], 'retry', str(error))
+                    store.group_update(gid, status='error', error=str(error)[:1000])
+                    store.event(cid, f'{prefix}: entrada no grupo bloqueada antes de enviar o convite ao lead. O lead foi preservado para nova tentativa. {error}')
+                    return
+                if session_restriction(error):
+                    until = place_session_on_wait(data_dir, name, error)
+                    store.finish(delivery['id'], 'retry', f'{type(error).__name__}: {error}')
+                    store.event(cid, f"{prefix}: sessão em espera até {until.strftime('%d/%m/%Y %H:%M:%S')} ({type(error).__name__}). Voltará a ser testada automaticamente após a espera; as outras sessões continuam no mesmo grupo.")
+                    while active() and session_wait_until(data_dir, name):
+                        await asyncio.sleep(1)
+                    if active():
+                        store.event(cid, f"Grupo {group['slot']}: sessão {name} encerrou a espera e retomará as tentativas neste grupo.")
+                    continue
+                definite = type(error).__name__ in {
+                    'LeadResolutionError', 'UserPrivacyRestrictedError', 'UserNotMutualContactError',
+                    'InputUserDeactivatedError', 'UserIdInvalidError', 'UserNotParticipantError',
+                    'UsernameNotOccupiedError', 'UsernameInvalidError', 'UserChannelsTooMuchError',
+                    'UserKickedError', 'UserBannedInChannelError', 'UserBotError'}
+                store.finish(delivery['id'], 'failed' if definite else 'unknown', str(error))
+                store.event(cid, f"{prefix}: {'não adicionado' if definite else 'sem confirmação'} ({type(error).__name__}: {error}).")
+                if not definite and not transient_request(error) and not isinstance(error, InviteConfirmationError):
+                    store.group_update(gid, status='error', error=str(error)[:1000])
+                    store.event(cid, f"Grupo {group['slot']}: sequência bloqueada para revisão. Os próximos grupos aguardam.")
+                    return
+            else:
+                status = 'skipped' if added is None else ('added' if added else 'failed')
+                store.finish(delivery['id'], status, 'Identidade já utilizada' if added is None else '' if added else 'Telegram não permitiu adicionar este lead')
+                store.event(cid, f"{prefix}: {'adicionado e confirmado' if added else 'ignorado por duplicidade' if added is None else 'não adicionado pelo Telegram'}.")
+            if not active():
+                return
+            delay = random.randint(settings.get('delay_min', 60), settings.get('delay_max', 60))
+            store.event(cid, f'{prefix}: intervalo individual de {delay}s antes da próxima tentativa desta sessão.')
+            end = time.monotonic() + delay
+            while active() and time.monotonic() < end:
+                await asyncio.sleep(min(1, max(0, end - time.monotonic())))
+
+    store.event_recent(cid, f"Grupo {group['slot']}: execução simultânea iniciada com {len(names)} sessão(ões) disponíveis. A meta é compartilhada e cada sessão respeita seu próprio intervalo.", seconds=30)
+    # Always drain in-flight requests before changing group or closing clients.
+    results = await asyncio.gather(*(account(name) for name in names), return_exceptions=True)
+    for name, result in zip(names, results):
+        if isinstance(result, BaseException):
+            store.event(cid, f"Grupo {group['slot']}: executor da sessão {name} interrompido ({type(result).__name__}). Confira os resultados pendentes antes de reenviar.")
+
+
 async def campaign_loop(store, cid, gateway):
     settings = store.get(cid)['settings']
     names = settings['sessions']
     if isinstance(gateway, TelegramCampaignGateway):
         gateway.audit = lambda message: store.event(cid, message)
+        gateway.persist_group = lambda gid, **values: store.group_update(gid, **values)
     turn = 0
     warm_failures = {}
+    recovered_invites = set()
     data_dir = os.path.dirname(store.path)
     store.event_recent(cid, f'Executor da tarefa iniciado: {len(names)} sessão(ões) configurada(s). O histórico mostrará cada adição ou motivo de espera.', seconds=30)
 
@@ -1218,6 +1352,17 @@ async def campaign_loop(store, cid, gateway):
                     break
                 gid = group['id']
                 if group['status'] == 'error':
+                    if isinstance(gateway, TelegramCampaignGateway) and expired_group_invite(group['error']) and gid not in recovered_invites:
+                        recovered_invites.add(gid)
+                        try:
+                            await gateway.renew_invite(group, stale=group['invite'] or group['reference'])
+                            store.retry_expired_invite_deliveries(gid)
+                            status = 'warming' if settings['warming'] and group['warm_until'] > time.time() else 'ready'
+                            store.group_update(gid, status=status, error='')
+                            store.event(cid, f"Grupo {group['slot']}: acesso recuperado; a tarefa retomará no mesmo grupo, com o histórico e a meta preservados.")
+                        except Exception as error:
+                            store.event_recent(cid, f"Grupo {group['slot']}: renovação automática não concluída: {error}. Os próximos grupos continuam aguardando.")
+                        continue
                     store.event_recent(cid, f"Grupo {group['slot']}: sequência bloqueada neste grupo; a meta ainda não foi concluída. Motivo: {group['error'] or 'grupo precisa de revisão'}. Pause a tarefa, revise o erro e inicie novamente para retomar este grupo. Nenhum grupo seguinte receberá leads.")
                     continue
                 if settings['limit_scope'] == 'group' and group['today'] >= group['daily_limit']:
@@ -1280,6 +1425,9 @@ async def campaign_loop(store, cid, gateway):
                         expired = expired_session_waits(data_dir, names)
                         if expired:
                             store.event_once(cid, 'Espera de spam/flood encerrada para: ' + ', '.join(expired) + '. A tarefa continua ativa e está testando estas sessões novamente agora.')
+                        if settings.get('parallel_sessions', False):
+                            await parallel_group_additions(store, cid, group, gateway, [name for name in names if name in loaded], settings)
+                            break
                         delivery, waiting_reason = store.claim(cid, gid, diagnose=True)
                         if not delivery:
                             store.event_recent(cid, f"Grupo {group['slot']}: aguardando porque {waiting_reason}.")
@@ -1325,6 +1473,9 @@ async def campaign_loop(store, cid, gateway):
                             store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} {'adicionado' if added else ('ignorado por duplicidade' if added is None else 'não adicionado pelo Telegram')} ({used_session}).")
                             turn += 1
                         except Exception as error:
+                            if isinstance(error, GroupAccessError) or expired_group_invite(error):
+                                store.finish(delivery['id'], 'retry', str(error))
+                                raise
                             # Privacy and invalid-user errors are definite failures. Others may
                             # have occurred after Telegram accepted the request: do not retry.
                             definite = type(error).__name__ in {'LeadResolutionError', 'UserPrivacyRestrictedError', 'UserNotMutualContactError', 'InputUserDeactivatedError', 'UserIdInvalidError', 'UserNotParticipantError', 'UsernameNotOccupiedError', 'UsernameInvalidError', 'UserChannelsTooMuchError', 'UserKickedError', 'UserBannedInChannelError', 'UserBotError'}

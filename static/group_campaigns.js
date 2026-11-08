@@ -250,7 +250,7 @@
         el('campaign-descriptions-file').value = '';
         el('campaign-descriptions-status').textContent = selectedDescriptions.length ? `${selectedDescriptions.length} descrições salvas` : '';
         const fields = {name:task.name, count:task.groups.length, limit:settings.daily_limit,
-            'limit-scope':settings.limit_scope, dedup:settings.dedup, 'delay-min':settings.delay_min ?? settings.delay ?? 60, 'delay-max':settings.delay_max ?? settings.delay ?? 60,
+            parallel:settings.parallel_sessions ? 'yes' : 'no', 'limit-scope':settings.limit_scope, dedup:settings.dedup, 'delay-min':settings.delay_min ?? settings.delay ?? 60, 'delay-max':settings.delay_max ?? settings.delay ?? 60,
             admin:(settings.admin_usernames || [settings.admin_username].filter(Boolean)).join('\n'),
             warming:settings.warming ? 'yes' : 'no', phrases:settings.messages.join('\n'),
             'warm-days':settings.warm_days, 'warm-interval':settings.warm_interval};
@@ -306,7 +306,7 @@
                     <button type="button" class="btn btn-primary" data-action="copy-links" data-id="${task.id}" ${task.groups.some(group => groupShareLink(group)) ? '' : 'disabled'} title="Copiar nomes e links dos grupos desta tarefa">Copiar nomes e links</button>
                     <button class="btn btn-danger" data-action="delete" data-id="${task.id}" ${busy ? 'disabled' : ''}>Excluir tarefa</button></div></div>
                     <div class="gc-task-body">
-                    <div class="gc-task-meta"><span>${task.groups.length} grupos</span><span>${task.settings.sessions.length} sessões</span><span>${task.settings.warming ? 'Com aquecimento' : 'Sem aquecimento'}</span><span>${task.settings.dedup === 'task' ? 'Um grupo por lead' : 'Uma vez por grupo'}</span></div>
+                    <div class="gc-task-meta"><span>${task.groups.length} grupos</span><span>${task.settings.sessions.length} sessões</span><span>${task.settings.parallel_sessions ? 'Execução simultânea' : 'Execução sequencial'}</span><span>${task.settings.warming ? 'Com aquecimento' : 'Sem aquecimento'}</span><span>${task.settings.dedup === 'task' ? 'Um grupo por lead' : 'Uma vez por grupo'}</span></div>
                     <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta diária da tarefa')}<div class="gc-focus"><span class="gc-eyebrow">${task.status === 'running' ? 'Destino prioritário' : 'Próximo destino'}</span><strong>${focus ? esc(focus.title) : perGroup ? 'Sem grupo elegível agora' : 'Distribuição entre grupos'}</strong><small>${focus ? focus.status === 'error' ? 'Sequência bloqueada: revise o erro deste grupo e reinicie a tarefa. Os próximos grupos aguardam.' : focus.today >= focus.daily_limit ? 'Aguardando confirmação das vagas reservadas. Os próximos grupos aguardam.' : 'As tentativas continuam neste grupo até confirmar a meta diária. Os próximos grupos aguardam.' : 'Confira as cotas e os estados dos grupos abaixo.'}</small></div></div>
                     ${spamAlert}
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
@@ -453,7 +453,7 @@
                     sessions:Array.from(el('campaign-sessions').selectedOptions, option => option.value),
                     warming:el('campaign-warming').value === 'yes', messages:el('campaign-phrases').value,
                     warm_days:el('campaign-warm-days').value, warm_interval:el('campaign-warm-interval').value,
-                    delay_min:el('campaign-delay-min').value, delay_max:el('campaign-delay-max').value, dedup:el('campaign-dedup').value, limit_scope:el('campaign-limit-scope').value,
+                    parallel_sessions:el('campaign-parallel').value === 'yes', delay_min:el('campaign-delay-min').value, delay_max:el('campaign-delay-max').value, dedup:el('campaign-dedup').value, limit_scope:el('campaign-limit-scope').value,
                 };
                 const result = await api(editingId === null ? '' : `/${editingId}`, json(editingId === null ? 'POST' : 'PUT', payload));
                 resetEditor();
