@@ -182,3 +182,6 @@ body[data-design="studio"] #comingSoon .gc-group.gc-focused {border-color:#34d39
 #comingSoon .gc-log.warning .gc-log-level {color:#fbbf24;}
 #comingSoon .gc-log.waiting .gc-log-level {color:#38bdf8;}
 @media(max-width:680px) {#comingSoon .gc-log {grid-template-columns:1fr auto;gap:5px;}#comingSoon .gc-log p {grid-column:1/-1;}#comingSoon .gc-log-toolbar {flex-direction:column;}#comingSoon .gc-history > summary {flex-wrap:wrap;}}
+#comingSoon .gc-group.gc-group-error, body[data-design="studio"] #comingSoon .gc-group.gc-group-error {border-color:#f87171!important;background:rgba(239,68,68,.07)!important;}
+#comingSoon .gc-group-error .gc-group-title {color:#fca5a5!important;}
+#comingSoon .gc-group-error-message {display:block;margin-top:8px;color:#fca5a5;font-size:12px;line-height:1.5;overflow-wrap:anywhere;}

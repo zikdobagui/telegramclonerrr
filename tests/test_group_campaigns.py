@@ -574,6 +574,68 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(task['counts'], {'retry': 1, 'unknown': 1})
         self.assertEqual(task['groups'][0]['status'], 'ready')
 
+    def test_parallel_permission_failure_does_not_stop_healthy_session(self):
+        from group_campaigns import parallel_group_additions
+        from telethon.errors import ChatAdminRequiredError
+        cid, groups = self.task(parallel_sessions=True)
+        self.leads(4)
+        settings = {**self.store.get(cid)['settings'], 'delay_min': 0, 'delay_max': 0}
+        calls = []
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(name)
+                if name == 'one.session':
+                    raise ChatAdminRequiredError(None)
+                return True
+
+        asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        self.assertEqual(calls, ['one.session', 'two.session'])
+        self.assertEqual(self.store.groups(cid)[0]['status'], 'ready')
+        self.assertEqual(self.store.groups(cid)[0]['today_added'], 1)
+
+    def test_all_sessions_without_group_access_mark_only_that_group_error(self):
+        from group_campaigns import parallel_group_additions
+        from telethon.errors import ChatAdminRequiredError
+        cid, groups = self.task(parallel_sessions=True)
+        self.leads(4)
+        settings = self.store.get(cid)['settings']
+
+        class Gateway:
+            async def invite(self, *args):
+                raise ChatAdminRequiredError(None)
+
+        asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        updated = self.store.groups(cid)
+        self.assertEqual(updated[0]['status'], 'error')
+        self.assertIn('ChatAdminRequiredError', updated[0]['error'])
+        self.assertEqual(updated[1]['status'], 'ready')
+        self.assertEqual(updated[0]['today'], 0)
+
+    def test_three_consecutive_session_errors_trigger_rotation(self):
+        from group_campaigns import parallel_group_additions
+        cid, groups = self.task(parallel_sessions=True)
+        self.leads(5)
+        settings = {**self.store.get(cid)['settings'], 'delay_min': 0, 'delay_max': 0}
+        store = self.store
+        calls = []
+
+        class Gateway:
+            async def invite(self, *args):
+                calls.append(1)
+                return False
+
+        gateway = Gateway()
+        async def stop_after_rotation(seconds):
+            if gateway.session_retry_at.get('one.session', 0):
+                store.state(cid, 'paused')
+
+        with patch('group_campaigns.asyncio.sleep', new=stop_after_rotation):
+            asyncio.run(parallel_group_additions(store, cid, groups[0], gateway, ['one.session'], settings))
+        self.assertEqual(len(calls), 3)
+        self.assertGreater(gateway.session_retry_at['one.session'], 0)
+        self.assertEqual(store.groups(cid)[0]['status'], 'ready')
+
     def test_parallel_sessions_overlap_without_exceeding_group_goal(self):
         from group_campaigns import parallel_group_additions
         cid = self.store.create({'name': 'Parallel', 'count': 2, 'daily_limit': 3,
@@ -654,7 +716,7 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(store.groups(cid)[0]['today_added'], 2)
 
-    def test_incomplete_first_group_blocks_later_groups_on_error_or_unknown(self):
+    def test_error_group_is_skipped_but_unknown_quota_still_waits(self):
         for blocked in ('error', 'unknown'):
             with self.subTest(blocked=blocked):
                 cid, groups = self.task(limit_scope='group')
@@ -670,6 +732,7 @@ class CampaignStoreTests(unittest.TestCase):
                 class Gateway:
                     async def invite(self, *args):
                         calls.append(args)
+                        return True
 
                     async def close(self):
                         pass
@@ -679,10 +742,9 @@ class CampaignStoreTests(unittest.TestCase):
 
                 with patch('group_campaigns.asyncio.sleep', new=stop_on_wait):
                     asyncio.run(campaign_loop(store, cid, Gateway()))
-                self.assertEqual(calls, [])
+                self.assertEqual([args[0]['id'] for args in calls], [groups[1]['id']] if blocked == 'error' else [])
                 task = next(task for task in store.snapshot()['campaigns'] if task['id'] == cid)
-                self.assertEqual(task['groups'][1]['today'], 0)
-                self.assertTrue(any('sequência' in event['message'].lower() for event in task['events']))
+                self.assertEqual(task['groups'][1]['today'], 1 if blocked == 'error' else 0)
 
     def test_sequential_attempts_do_not_add_fixed_fifteen_second_wait(self):
         cid, groups = self.task()

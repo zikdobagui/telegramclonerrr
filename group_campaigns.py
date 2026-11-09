@@ -1363,6 +1363,28 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
     data_dir = os.path.dirname(store.path)
     gid = group['id']
     attempts = 0
+    if not hasattr(gateway, 'session_failures'):
+        gateway.session_failures = {}
+        gateway.session_retry_at = {}
+        gateway.group_session_rejections = {}
+    failures = gateway.session_failures
+    retry_at = gateway.session_retry_at
+    rejected = gateway.group_session_rejections.setdefault(gid, {})
+
+    def reject_session(name, reason):
+        rejected[name] = reason
+        store.event(cid, f"Grupo {group['slot']}: sessão {name} sem acesso/permissão neste grupo ({reason}); as outras sessões continuarão tentando.")
+        if all(candidate in rejected for candidate in names):
+            message = 'Nenhuma sessão disponível conseguiu acesso/permissão neste grupo. ' + '; '.join(f'{candidate}: {detail}' for candidate, detail in rejected.items())
+            store.group_update(gid, status='error', error=message[:1000])
+            store.event(cid, f"Grupo {group['slot']}: marcado com erro; seguindo para o próximo grupo disponível. {message}")
+
+    def record_failure(name):
+        failures[name] = failures.get(name, 0) + 1
+        if failures[name] >= 3:
+            failures[name] = 0
+            retry_at[name] = time.time() + 60
+            store.event(cid, f"Sessão {name}: 3 falhas consecutivas; retirada da rodada por 60s. As demais sessões continuam simultaneamente. Depois do prazo, esta sessão será testada novamente.")
 
     def active():
         if store.get(cid)['status'] != 'running':
@@ -1374,6 +1396,12 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
     async def account(name):
         nonlocal attempts
         while active():
+            if name in rejected:
+                return
+            while active() and time.time() < retry_at.get(name, 0):
+                await asyncio.sleep(1)
+            if not active():
+                return
             if session_wait_until(data_dir, name):
                 while active() and session_wait_until(data_dir, name):
                     await asyncio.sleep(1)
@@ -1391,6 +1419,15 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                 added = await gateway.invite(group, name, delivery['payload'],
                                              lambda uid: store.reserve_identity(delivery['id'], uid))
             except Exception as error:
+                if type(error).__name__ in {'ChatAdminRequiredError', 'ChatWriteForbiddenError', 'ChannelPrivateError', 'UserBannedInChannelError'}:
+                    store.finish(delivery['id'], 'retry', str(error))
+                    reject_session(name, f'{type(error).__name__}: {error}')
+                    return
+                if type(error).__name__ in {'AuthKeyUnregisteredError', 'SessionRevokedError', 'UserDeactivatedBanError'}:
+                    store.finish(delivery['id'], 'retry', str(error))
+                    retry_at[name] = time.time() + 300
+                    store.event(cid, f'{prefix}: sessão indisponível ({type(error).__name__}); retirada da rodada por 5 minutos. As demais sessões continuam.')
+                    return
                 if isinstance(error, GroupAccessError) or expired_group_invite(error):
                     store.finish(delivery['id'], 'retry', str(error))
                     store.group_update(gid, status='error', error=str(error)[:1000])
@@ -1412,14 +1449,15 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                     'UserKickedError', 'UserBannedInChannelError', 'UserBotError'}
                 store.finish(delivery['id'], 'failed' if definite else 'unknown', str(error), error_kind=type(error).__name__)
                 store.event(cid, f"{prefix}: {'não adicionado' if definite else 'sem confirmação'} ({type(error).__name__}: {error}).")
-                if not definite and not transient_request(error) and not isinstance(error, InviteConfirmationError):
-                    store.group_update(gid, status='error', error=str(error)[:1000])
-                    store.event(cid, f"Grupo {group['slot']}: sequência bloqueada para revisão. Os próximos grupos aguardam.")
-                    return
+                record_failure(name)
             else:
                 status = 'skipped' if added is None else ('added' if added else 'failed')
                 store.finish(delivery['id'], status, 'Identidade já utilizada' if added is None else '' if added else 'Telegram não permitiu adicionar este lead')
                 store.event(cid, f"{prefix}: {'adicionado e confirmado' if added else 'ignorado por duplicidade' if added is None else 'não adicionado pelo Telegram'}.")
+                if added is False:
+                    record_failure(name)
+                else:
+                    failures[name] = 0
             if not active():
                 return
             delay = random.randint(settings.get('delay_min', 60), settings.get('delay_max', 60))
@@ -1446,7 +1484,6 @@ async def campaign_loop(store, cid, gateway):
         gateway.persist_group = lambda gid, **values: store.group_update(gid, **values)
     turn = 0
     warm_failures = {}
-    recovered_invites = set()
     data_dir = os.path.dirname(store.path)
     store.event_recent(cid, f'Executor da tarefa iniciado: {len(names)} sessão(ões) configurada(s). O histórico mostrará cada adição ou motivo de espera.', seconds=30)
 
@@ -1461,27 +1498,16 @@ async def campaign_loop(store, cid, gateway):
             had_work = False
             groups = store.groups(cid)
             if settings['limit_scope'] == 'group':
-                # Only confirmed additions complete a destination. Errors or
-                # reserved quota must block this slot, never advance the queue.
+                # Keep the first unfinished healthy group as the destination.
+                # Groups flagged for review are skipped until explicitly resumed.
                 groups = next(([group] for group in groups
-                               if group['today_added'] < group['daily_limit']), [])
+                               if group['status'] != 'error' and group['today_added'] < group['daily_limit']), [])
             for group in groups:
                 if store.get(cid)['status'] != 'running':
                     break
                 gid = group['id']
                 if group['status'] == 'error':
-                    if isinstance(gateway, TelegramCampaignGateway) and expired_group_invite(group['error']) and gid not in recovered_invites:
-                        recovered_invites.add(gid)
-                        try:
-                            await gateway.renew_invite(group, stale=group['invite'] or group['reference'])
-                            store.retry_expired_invite_deliveries(gid)
-                            status = 'warming' if settings['warming'] and group['warm_until'] > time.time() else 'ready'
-                            store.group_update(gid, status=status, error='')
-                            store.event(cid, f"Grupo {group['slot']}: acesso recuperado; a tarefa retomará no mesmo grupo, com o histórico e a meta preservados.")
-                        except Exception as error:
-                            store.event_recent(cid, f"Grupo {group['slot']}: renovação automática não concluída: {error}. Os próximos grupos continuam aguardando.")
-                        continue
-                    store.event_recent(cid, f"Grupo {group['slot']}: sequência bloqueada neste grupo; a meta ainda não foi concluída. Motivo: {group['error'] or 'grupo precisa de revisão'}. Pause a tarefa, revise o erro e inicie novamente para retomar este grupo. Nenhum grupo seguinte receberá leads.")
+                    store.event_recent(cid, f"Grupo {group['slot']}: ignorado por erro ({group['error']}). A tarefa seguirá com o próximo grupo disponível.")
                     continue
                 if settings['limit_scope'] == 'group' and group['today'] >= group['daily_limit']:
                     store.event_recent(cid, f"Grupo {group['slot']}: aguardando confirmação de resultados pendentes; {group['today_added']}/{group['daily_limit']} adições confirmadas. As vagas reservadas atingiram a cota. A sequência não avançará até completar as adições confirmadas.")
