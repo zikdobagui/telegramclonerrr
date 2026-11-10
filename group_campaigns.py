@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from datetime import datetime
 
 
+REFERENCE_SESSION_LIMIT = 3
+
 LEGACY_CHANNEL_CONSTRUCTOR = '0aadfc8f'
 LEGACY_CHAT_INVITE_CONSTRUCTOR = 'cde0ec40'
 
@@ -513,10 +515,6 @@ class CampaignStore:
             if not campaign:
                 raise ValueError('Tarefa não encontrada')
             conn.execute("UPDATE deliveries SET status='unknown',error='Tentativa anterior interrompida; aguardando reconciliação, sem reenvio automático.' WHERE campaign_id=? AND status='sending'", (cid,))
-            for row in conn.execute("SELECT d.id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.status='unresolved'", (cid,)).fetchall():
-                if json.loads(row['payload']).get('source_group_link'):
-                    conn.execute('DELETE FROM delivery_reference_failures WHERE delivery_id=?', (row['id'],))
-                    conn.execute("UPDATE deliveries SET status='retry',error='Nova tentativa com consulta de origem retomável.' WHERE id=?", (row['id'],))
             settings = json.loads(campaign['settings'])
             if len(settings.get('sessions', [])) > 1 and not settings.get('parallel_sessions'):
                 settings['parallel_sessions'] = True
@@ -898,10 +896,13 @@ class CampaignStore:
                 slot_sql = ' AND slot=?'
                 params.append(group['slot'])
                 limit = group['daily_limit']
-            used = conn.execute("SELECT count(*) FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('sending','added','unknown')" + slot_sql, params).fetchone()[0]
-            if used >= limit:
+            usage = conn.execute("SELECT count(*) AS used,sum(status='added') AS added,sum(status='sending') AS sending,sum(status='unknown') AS unknown FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('sending','added','unknown')" + slot_sql, params).fetchone()
+            if usage['used'] >= limit:
                 scope_name = 'da tarefa' if settings['limit_scope'] == 'task' else 'deste grupo'
-                return result(None, f'a meta diária {scope_name} foi atingida ({used}/{limit})')
+                confirmed = usage['added'] or 0
+                if confirmed >= limit:
+                    return result(None, f'a meta do ciclo de 24h {scope_name} foi concluída ({confirmed}/{limit} adições confirmadas)')
+                return result(None, f'as vagas {scope_name} estão temporariamente reservadas: {confirmed}/{limit} confirmados, {usage["sending"] or 0} em andamento e {usage["unknown"] or 0} sem confirmação. A meta ainda não foi concluída')
             # A retry is only created when Telegram explicitly rejected the
             # account before accepting an invite. It is safe to retain the
             # lead and try it with another selected session.
@@ -916,9 +917,10 @@ class CampaignStore:
                 JOIN claim_selected selected ON selected.id=COALESCE(l.canonical_id,l.id)
                 LEFT JOIN claim_excluded excluded ON excluded.id=COALESCE(l.canonical_id,l.id)
                 WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND excluded.id IS NULL
+                AND (SELECT count(*) FROM delivery_reference_failures f WHERE f.delivery_id=d.id) < ?
                 AND NOT EXISTS (SELECT 1 FROM delivery_reference_failures f
                                 WHERE f.delivery_id=d.id AND f.session_name=?)
-                ORDER BY d.id LIMIT 1""", (cid, gid, session_name or '')).fetchone()
+                ORDER BY d.id LIMIT 1""", (cid, gid, REFERENCE_SESSION_LIMIT, session_name or '')).fetchone()
             if retry:
                 conn.execute("UPDATE deliveries SET status='sending',error='',day=?,session_name=?,resolved_hash=NULL WHERE id=?", (day, session_name, retry['id']))
                 return result({'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])})
@@ -943,11 +945,11 @@ class CampaignStore:
         with self.db() as conn:
             conn.execute('INSERT OR REPLACE INTO delivery_reference_failures VALUES(?,?,?)', (did, name, str(error)[:1000]))
             attempted = {row['session_name'] for row in conn.execute('SELECT session_name FROM delivery_reference_failures WHERE delivery_id=?', (did,))}
-            exhausted = set(names) <= attempted
+            exhausted = set(names) <= attempted or len(attempted) >= REFERENCE_SESSION_LIMIT
             conn.execute('UPDATE deliveries SET status=?,error=? WHERE id=?',
                          ('unresolved' if exhausted else 'retry', str(error)[:1000], did))
             delivery = conn.execute('SELECT campaign_id,lead_id FROM deliveries WHERE id=?', (did,)).fetchone()
-            message = 'nenhuma sessão selecionada conseguiu resolver a referência; contato preservado na base e na exportação' if exhausted else 'referência indisponível nesta sessão; outra sessão selecionada poderá tentar. Contato preservado'
+            message = f'não resolvido após {len(attempted)} conta(s); limite de tentativas por contato atingido nesta importação. Contato preservado na base e na exportação; seguindo para outros leads' if exhausted else f'referência indisponível nesta sessão; {len(attempted)}/{min(REFERENCE_SESSION_LIMIT, len(set(names)))} contas tentadas. Outra sessão poderá tentar; contato preservado'
             conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)',
                          (delivery['campaign_id'], f"Lead #{delivery['lead_id']} · sessão {name}: {message}.", time.time()))
         return exhausted
@@ -986,6 +988,7 @@ class CampaignStore:
             for row in affected:
                 conn.execute("UPDATE deliveries SET status='retry' WHERE campaign_id=? AND lead_id=? AND status='failed'", (row['campaign_id'], row['lead_id']))
             conn.execute("DELETE FROM campaign_lead_exclusions WHERE reason IN ('LeadReferenceInvalidError','UserIdInvalidError')")
+            conn.execute("UPDATE deliveries SET status='unresolved' WHERE status='retry' AND id IN (SELECT delivery_id FROM delivery_reference_failures GROUP BY delivery_id HAVING count(*)>=?)", (REFERENCE_SESSION_LIMIT,))
             conn.execute("UPDATE campaigns SET status='paused',error='Servidor reiniciado. Clique em Iniciar para continuar.' WHERE status='running'")
             conn.execute("UPDATE deliveries SET status='unknown',error='Resultado não confirmado antes da interrupção' WHERE status='sending'")
             conn.execute("UPDATE groups SET status='error',error='Criação interrompida. Verifique o Telegram e substitua por link para evitar recriar.' WHERE status='creating'")
@@ -1942,6 +1945,8 @@ async def campaign_loop(store, cid, gateway):
                                     if isinstance(error, LeadReferenceInvalidError) or type(error).__name__ == 'UserIdInvalidError':
                                         used_session = None
                                         reference_exhausted = store.reference_failed(delivery['id'], candidate, names, error)
+                                        if reference_exhausted:
+                                            break
                                         continue
                                     if not session_restriction(error):
                                         raise

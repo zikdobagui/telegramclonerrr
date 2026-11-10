@@ -637,6 +637,69 @@ class CampaignStoreTests(unittest.TestCase):
         self.store.recover()
         self.assertEqual(len(self.store.export_leads(cid)), 2)
 
+    def test_reference_retries_stop_after_three_accounts_and_continue_with_next_lead(self):
+        names = [f'account-{index}' for index in range(58)]
+        cid = self.store.create({'name': 'Bounded retries', 'count': 1, 'daily_limit': 35}, names)
+        group = self.store.groups(cid)[0]
+        self.store.group_update(group['id'], status='ready')
+        self.store.state(cid, 'running')
+        self.leads(4)
+        ids = []
+        for index, name in enumerate(names[:3]):
+            delivery = self.store.claim(cid, group['id'], session_name=name)
+            ids.append(delivery['id'])
+            self.assertEqual(self.store.reference_failed(delivery['id'], name, names, 'hash indisponível'), index == 2)
+        self.assertEqual(len(set(ids)), 1)
+        following = self.store.claim(cid, group['id'], session_name=names[3])
+        self.assertNotEqual(following['id'], ids[0])
+        self.assertEqual(len(self.store.export_leads(cid)), 4)
+        self.store.state(cid, 'paused')
+        self.store.prepare_start(cid)
+        with self.store.db() as conn:
+            self.assertEqual(conn.execute('SELECT status FROM deliveries WHERE id=?', (ids[0],)).fetchone()['status'], 'unresolved')
+
+    def test_parallel_batch_does_not_cycle_one_unresolvable_lead_through_58_accounts(self):
+        from group_campaigns import parallel_group_additions, LeadReferenceInvalidError
+        names = [f'account-{index}' for index in range(58)]
+        cid = self.store.create({'name': 'Retry cap', 'count': 1, 'daily_limit': 35}, names)
+        group = self.store.groups(cid)[0]
+        self.store.group_update(group['id'], status='ready')
+        self.store.state(cid, 'running')
+        self.leads(1)
+        calls = []
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(name)
+                raise LeadReferenceInvalidError('referência indisponível')
+
+        asyncio.run(parallel_group_additions(self.store, cid, group, Gateway(), names, self.store.get(cid)['settings']))
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(set(calls)), 3)
+        task = next(task for task in self.store.snapshot()['campaigns'] if task['id'] == cid)
+        self.assertEqual(task['counts'], {'unresolved': 1})
+        self.assertEqual(task['groups'][0]['today'], 0)
+        self.assertEqual(len(self.store.export_leads(cid)), 1)
+
+    def test_full_reservations_are_not_reported_as_confirmed_goal(self):
+        for status in ('sending', 'unknown', 'added'):
+            with self.subTest(status=status):
+                cid, groups = self.task()
+                self.leads(2)
+                first = self.store.claim(cid, groups[0]['id'])
+                if status != 'sending':
+                    self.store.finish(first['id'], status)
+                delivery, reason = self.store.claim(cid, groups[0]['id'], diagnose=True)
+                self.assertIsNone(delivery)
+                if status == 'added':
+                    self.assertIn('concluída', reason)
+                    self.assertIn('1/1 adições confirmadas', reason)
+                else:
+                    self.assertIn('temporariamente reservadas', reason)
+                    self.assertIn('0/1 confirmados', reason)
+                    self.assertIn('ainda não foi concluída', reason)
+                    self.assertNotIn('foi atingida', reason)
+
     def test_reference_failure_is_retried_only_by_a_different_session(self):
         cid, groups = self.task()
         self.leads(1)
