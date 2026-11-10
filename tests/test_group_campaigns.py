@@ -817,6 +817,35 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(task['excluded_lead_count'], 0)
         self.assertEqual(len(self.store.export_leads(cid)), 1)
 
+    def test_large_import_with_retry_history_selects_next_lead_with_bounded_sql_work(self):
+        from contextlib import contextmanager
+        cid = self.store.create({'name': 'Large history', 'count': 1, 'daily_limit': 35}, ['one'])
+        group = self.store.groups(cid)[0]
+        self.store.group_update(group['id'], status='ready')
+        self.store.state(cid, 'running')
+        with self.store.db() as conn:
+            conn.executemany('INSERT INTO leads(id,payload,created) VALUES(?,?,0)', [(uid, json.dumps({'id': uid})) for uid in range(1, 26506)])
+            conn.executemany('INSERT INTO campaign_leads VALUES(?,?)', [(cid, uid) for uid in range(1, 26506)])
+            conn.executemany("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status) VALUES(?,?,1,?,0,'legacy','retry')", [(cid, group['id'], uid) for uid in range(1, 12001)])
+            conn.executemany("INSERT INTO delivery_reference_failures VALUES(?,'one','already attempted')", [(uid,) for uid in range(1, 12001)])
+        original_db = self.store.db
+        steps = [0]
+
+        def budget():
+            steps[0] += 1
+            return int(steps[0] > 10000)  # 10 million VM instructions, no wall-clock flakiness.
+
+        @contextmanager
+        def bounded_db():
+            with original_db() as conn:
+                conn.set_progress_handler(budget, 1000)
+                yield conn
+
+        with patch.object(self.store, 'db', bounded_db):
+            delivery = self.store.claim(cid, group['id'], session_name='one')
+        self.assertEqual(delivery['lead_id'], 12001)
+        self.assertLess(steps[0], 10000)
+
     def test_start_converts_orphaned_sending_to_unknown_without_resending(self):
         cid, groups = self.task()
         self.leads(2)
@@ -906,6 +935,7 @@ class CampaignStoreTests(unittest.TestCase):
         self.leads(20)
         store = self.store
         calls = []
+        gate = asyncio.Event()
         active = peak = 0
         settings = store.get(cid)['settings']
 
@@ -915,6 +945,9 @@ class CampaignStoreTests(unittest.TestCase):
                 calls.append(name)
                 active += 1
                 peak = max(peak, active)
+                if len(calls) >= 5:
+                    gate.set()
+                await asyncio.wait_for(gate.wait(), timeout=2)
                 await asyncio.sleep(0)
                 active -= 1
                 return True
@@ -947,6 +980,7 @@ class CampaignStoreTests(unittest.TestCase):
         self.leads(8)
         settings = {**self.store.get(cid)['settings'], 'delay_min': 0, 'delay_max': 0}
         calls = []
+        gate = asyncio.Event()
         active = peak = 0
 
         class Gateway:
@@ -956,6 +990,9 @@ class CampaignStoreTests(unittest.TestCase):
                 calls.append((name, payload['id']))
                 active += 1
                 peak = max(peak, active)
+                if len(calls) >= 2:
+                    gate.set()
+                await asyncio.wait_for(gate.wait(), timeout=2)
                 await asyncio.sleep(0)
                 active -= 1
                 return True
@@ -1003,12 +1040,15 @@ class CampaignStoreTests(unittest.TestCase):
         self.leads(8)
         store = self.store
         calls = []
+        gate = asyncio.Event()
         settings = {**store.get(cid)['settings'], 'delay_min': 0, 'delay_max': 0}
 
         class Gateway:
             async def invite(self, group, name, payload, reserve_identity):
                 calls.append(name)
-                await asyncio.sleep(0)
+                if len(calls) >= 2:
+                    gate.set()
+                await asyncio.wait_for(gate.wait(), timeout=2)
                 store.state(cid, 'paused')
                 return True
 

@@ -419,6 +419,9 @@ class CampaignStore:
                     UNIQUE(campaign_id,lead_id,scope));
                 CREATE UNIQUE INDEX IF NOT EXISTS delivered_identity ON deliveries(campaign_id,scope,resolved_id) WHERE resolved_id IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS delivery_quota ON deliveries(campaign_id,slot,day,status);
+                CREATE INDEX IF NOT EXISTS delivery_task_quota ON deliveries(campaign_id,day,status);
+                CREATE INDEX IF NOT EXISTS delivery_retry_queue ON deliveries(campaign_id,group_id,status,id);
+
                 CREATE TABLE IF NOT EXISTS delivery_reference_failures (
                     delivery_id INTEGER NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
                     session_name TEXT NOT NULL, error TEXT NOT NULL,
@@ -902,20 +905,29 @@ class CampaignStore:
             # A retry is only created when Telegram explicitly rejected the
             # account before accepting an invite. It is safe to retain the
             # lead and try it with another selected session.
-            retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND EXISTS (SELECT 1 FROM campaign_leads cl JOIN leads chosen ON chosen.id=cl.lead_id WHERE cl.campaign_id=d.campaign_id AND COALESCE(chosen.canonical_id,chosen.id)=COALESCE(l.canonical_id,l.id)) AND NOT EXISTS (SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id WHERE e.campaign_id=d.campaign_id AND COALESCE(excluded.canonical_id,excluded.id)=COALESCE(l.canonical_id,l.id)) AND NOT EXISTS (SELECT 1 FROM delivery_reference_failures f WHERE f.delivery_id=d.id AND f.session_name=?) ORDER BY d.id LIMIT 1", (cid, gid, session_name or '')).fetchone()
+            # Indexed per-connection sets prevent an O(file * history) scan.
+            # Temporary tables disappear with this connection; user data is unchanged.
+            conn.execute('CREATE TEMP TABLE claim_selected(id INTEGER PRIMARY KEY)')
+            conn.execute('INSERT OR IGNORE INTO claim_selected SELECT COALESCE(l.canonical_id,l.id) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?', (cid,))
+            conn.execute('CREATE TEMP TABLE claim_excluded(id INTEGER PRIMARY KEY)')
+            conn.execute('INSERT OR IGNORE INTO claim_excluded SELECT COALESCE(l.canonical_id,l.id) FROM campaign_lead_exclusions e JOIN leads l ON l.id=e.lead_id WHERE e.campaign_id=?', (cid,))
+            retry = conn.execute("""
+                SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id
+                JOIN claim_selected selected ON selected.id=COALESCE(l.canonical_id,l.id)
+                LEFT JOIN claim_excluded excluded ON excluded.id=COALESCE(l.canonical_id,l.id)
+                WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND excluded.id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM delivery_reference_failures f
+                                WHERE f.delivery_id=d.id AND f.session_name=?)
+                ORDER BY d.id LIMIT 1""", (cid, gid, session_name or '')).fetchone()
             if retry:
                 conn.execute("UPDATE deliveries SET status='sending',error='',day=?,session_name=?,resolved_hash=NULL WHERE id=?", (day, session_name, retry['id']))
                 return result({'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])})
-            lead = conn.execute('''SELECT * FROM leads l WHERE canonical_id IS NULL AND EXISTS (
-                SELECT 1 FROM campaign_leads cl JOIN leads selected ON selected.id=cl.lead_id
-                WHERE cl.campaign_id=? AND (selected.id=l.id OR selected.canonical_id=l.id)
-            ) AND NOT EXISTS (
-                SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id
-                WHERE e.campaign_id=? AND COALESCE(excluded.canonical_id,excluded.id)=l.id
-            ) AND NOT EXISTS (
-                SELECT 1 FROM deliveries WHERE campaign_id=? AND scope=? AND lead_id IN (
-                    SELECT id FROM leads WHERE id=l.id OR canonical_id=l.id
-                )) ORDER BY id LIMIT 1''', (cid, cid, cid, scope)).fetchone()
+            conn.execute('CREATE TEMP TABLE claim_used(id INTEGER PRIMARY KEY)')
+            conn.execute('INSERT OR IGNORE INTO claim_used SELECT COALESCE(l.canonical_id,l.id) FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.scope=?', (cid, scope))
+            lead = conn.execute("""SELECT l.* FROM claim_selected selected JOIN leads l ON l.id=selected.id
+              LEFT JOIN claim_used used ON used.id=l.id LEFT JOIN claim_excluded excluded ON excluded.id=l.id
+              WHERE l.canonical_id IS NULL AND used.id IS NULL AND excluded.id IS NULL
+              ORDER BY l.id LIMIT 1""").fetchone()
             if not lead:
                 imported = conn.execute('SELECT count(*) FROM campaign_leads WHERE campaign_id=?', (cid,)).fetchone()[0]
                 reason = 'nenhum contato foi importado para esta tarefa' if not imported else 'não há lead elegível; todos já foram processados ou reservados'
@@ -1566,6 +1578,7 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
     attempts = 0
     owned_deliveries = {}
     states = {name: 'preparando' for name in names}
+    claim_gate = asyncio.Lock()
     if not hasattr(gateway, 'session_failures'):
         gateway.session_failures = {}
         gateway.session_retry_at = {}
@@ -1634,7 +1647,9 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                 if not active():
                     return
                 store.event(cid, f"Grupo {group['slot']}: sessão {name} encerrou a espera e retomará as tentativas neste grupo.")
-            delivery, reason = store.claim(cid, gid, diagnose=True, session_name=name)
+            states[name] = 'selecionando lead no banco'
+            async with claim_gate:
+                delivery, reason = await asyncio.to_thread(store.claim, cid, gid, diagnose=True, session_name=name)
             if not delivery:
                 if in_flight():
                     states[name] = 'aguardando vaga'
@@ -1643,6 +1658,9 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                     await asyncio.sleep(0.2)
                     continue
                 store.event_recent(cid, f"Grupo {group['slot']}: sessão {name} aguardando porque {reason}.")
+                return
+            if store.get(cid)['status'] != 'running':
+                store.finish(delivery['id'], 'retry', 'Pausa solicitada antes do envio do convite.')
                 return
             owned_deliveries[delivery['id']] = name
             states[name] = f"processando lead #{delivery['lead_id']}"
