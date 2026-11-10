@@ -390,6 +390,34 @@ class CampaignStore:
                 CREATE TABLE IF NOT EXISTS events (
                     id INTEGER PRIMARY KEY, campaign_id INTEGER NOT NULL, message TEXT NOT NULL, created REAL NOT NULL);
             ''')
+            conn.execute('CREATE TABLE IF NOT EXISTS quota_cycles (campaign_id INTEGER NOT NULL, scope INTEGER NOT NULL, token TEXT NOT NULL, started REAL NOT NULL, expires REAL NOT NULL, PRIMARY KEY(campaign_id,scope))')
+            columns = {row['name'] for row in conn.execute('PRAGMA table_info(deliveries)')}
+            for column in ('resolved_hash', 'session_name'):
+                if column not in columns:
+                    conn.execute(f'ALTER TABLE deliveries ADD COLUMN {column} TEXT')
+
+    def quota_cycle(self, conn, cid, scope, create=False):
+        now = time.time()
+        row = conn.execute('SELECT * FROM quota_cycles WHERE campaign_id=? AND scope=?', (cid, scope)).fetchone()
+        if row and row['expires'] > now:
+            return row['token'], row['expires']
+        legacy = not row and conn.execute('SELECT 1 FROM deliveries WHERE campaign_id=? AND day=?' + (' AND slot=?' if scope else '') + ' LIMIT 1', (cid, day_key(), scope) if scope else (cid, day_key())).fetchone()
+        if not create and not legacy:
+            return '__no_active_cycle__', None
+        token = f'cycle:{cid}:{scope}:{now:.6f}'
+        conn.execute('INSERT OR REPLACE INTO quota_cycles VALUES(?,?,?,?,?)', (cid, scope, token, now, now + 86400))
+        if legacy:
+            conn.execute('UPDATE deliveries SET day=? WHERE campaign_id=? AND day=?' + (' AND slot=?' if scope else ''), (token, cid, day_key(), scope) if scope else (token, cid, day_key()))
+        return token, now + 86400
+
+    def reservation(self, did, name):
+        def reserve(uid):
+            return self.reserve_identity(did, uid)
+        def reference(user):
+            with self.db() as conn:
+                conn.execute('UPDATE deliveries SET resolved_hash=?,session_name=? WHERE id=?', (str(user.access_hash), name, did))
+        reserve.record_reference = reference
+        return reserve
 
     @contextmanager
     def db(self):
@@ -582,8 +610,14 @@ class CampaignStore:
     def groups(self, cid):
         with self.db() as conn:
             groups = [dict(row) for row in conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1 ORDER BY slot', (cid,))]
+            settings = self.get(cid)['settings']
             for group in groups:
-                usage = conn.execute("SELECT count(*),sum(CASE WHEN status='added' THEN 1 ELSE 0 END) FROM deliveries WHERE campaign_id=? AND slot=? AND day=? AND status IN ('added','sending','unknown')", (cid, group['slot'], day_key())).fetchone()
+                cycle, expires = self.quota_cycle(conn, cid, group['slot'] if settings['limit_scope'] == 'group' else 0)
+                group['quota_resets_at'] = expires
+                if expires is None and group['status'] == 'error' and group['error'].startswith('[CONFIRMACAO_PENDENTE]'):
+                    conn.execute("UPDATE groups SET status='ready',error='' WHERE id=?", (group['id'],))
+                    group.update(status='ready', error='')
+                usage = conn.execute("SELECT count(*),sum(CASE WHEN status='added' THEN 1 ELSE 0 END) FROM deliveries WHERE campaign_id=? AND slot=? AND day=? AND status IN ('added','sending','unknown')", (cid, group['slot'], cycle)).fetchone()
                 group['today'] = usage[0]
                 group['today_added'] = usage[1] or 0
                 row = conn.execute('SELECT username,user_id,status,updated FROM ownership_transfers WHERE group_id=?', (group['id'],)).fetchone()
@@ -806,7 +840,7 @@ class CampaignStore:
                 return result(None, 'o grupo não está pronto para receber leads')
             settings = json.loads(campaign['settings'])
             scope = group['slot'] if settings['dedup'] == 'group' else 0
-            day = day_key()
+            day, _ = self.quota_cycle(conn, cid, group['slot'] if settings['limit_scope'] == 'group' else 0, create=True)
             params = [cid, day]
             slot_sql = ''
             limit = settings['daily_limit']
@@ -823,7 +857,7 @@ class CampaignStore:
             # lead and try it with another selected session.
             retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND NOT EXISTS (SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id WHERE e.campaign_id=d.campaign_id AND COALESCE(excluded.canonical_id,excluded.id)=COALESCE(l.canonical_id,l.id)) ORDER BY d.id LIMIT 1", (cid, gid)).fetchone()
             if retry:
-                conn.execute("UPDATE deliveries SET status='sending',error='' WHERE id=?", (retry['id'],))
+                conn.execute("UPDATE deliveries SET status='sending',error='',day=? WHERE id=?", (day, retry['id']))
                 return result({'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])})
             lead = conn.execute('''SELECT * FROM leads l WHERE canonical_id IS NULL AND EXISTS (
                 SELECT 1 FROM campaign_leads cl JOIN leads selected ON selected.id=cl.lead_id
@@ -899,7 +933,6 @@ class CampaignStore:
                 task['events'] = [dict(row) for row in conn.execute('SELECT id,message,created FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 500', (cid,))]
                 task['counts'] = dict(conn.execute('SELECT status,count(*) FROM deliveries WHERE campaign_id=? GROUP BY status', (cid,)))
                 for group in task['groups']:
-                    group['today'] = conn.execute("SELECT count(*) FROM deliveries WHERE campaign_id=? AND slot=? AND day=? AND status IN ('added','sending','unknown')", (cid, group['slot'], day_key())).fetchone()[0]
                     group['added'] = conn.execute("SELECT count(*) FROM deliveries WHERE group_id=? AND status='added'", (group['id'],)).fetchone()[0]
                 result['campaigns'].append(task)
             return result
@@ -1245,6 +1278,7 @@ class TelegramCampaignGateway:
             raise LeadResolutionError('A referência não corresponde a um usuário do Telegram')
         if not reserve_identity(user_id):
             return None
+        getattr(reserve_identity, 'record_reference', lambda user: None)(user)
         from telethon.errors import UserNotParticipantError, ParticipantIdInvalidError
         from telethon.tl.types import ChannelParticipantLeft, ChannelParticipantBanned
 
@@ -1268,6 +1302,7 @@ class TelegramCampaignGateway:
         except ParticipantIdInvalidError:
             audit(f'{prefix}: referência rejeitada na consulta prévia; resolvendo novamente antes de convidar.')
             user = await self.resolve_lead(client, name, payload, refresh=True)
+            getattr(reserve_identity, 'record_reference', lambda user: None)(user)
             if user.user_id != user_id:
                 raise LeadReferenceInvalidError('A identidade mudou durante a atualização. Nenhum convite foi enviado.')
             try:
@@ -1282,6 +1317,7 @@ class TelegramCampaignGateway:
             if type(error).__name__ == 'UserIdInvalidError':
                 audit(f'{prefix}: convite rejeitado por referência inválida; atualizando a identidade uma única vez.')
                 user = await self.resolve_lead(client, name, payload, refresh=True)
+                getattr(reserve_identity, 'record_reference', lambda user: None)(user)
                 if user.user_id != user_id:
                     raise LeadReferenceInvalidError('A identidade mudou durante a atualização; o convite não será reenviado.')
                 result = await client(InviteToChannelRequest(channel=peer, users=[user]))
@@ -1307,6 +1343,36 @@ class TelegramCampaignGateway:
             return await is_member()
         except Exception as error:
             raise InviteConfirmationError('Convite enviado, mas não foi possível confirmar a participação.') from error
+
+    async def check_delivery(self, group, delivery):
+        from telethon.tl.functions.channels import GetParticipantRequest
+        from telethon.tl.types import InputUser, PeerUser, ChannelParticipantLeft, ChannelParticipantBanned
+        from telethon.errors import UserNotParticipantError
+        uid = delivery.get('resolved_id')
+        if not uid:
+            return False  # No identity was reserved, so no invitation was sent.
+        name = delivery.get('session_name')
+        name = name if name in self.sessions else group['creator']
+        client, peer = await self.peer(group, name)
+        try:
+            if name == delivery.get('session_name') and delivery.get('resolved_hash'):
+                user = InputUser(int(uid), int(delivery['resolved_hash']))
+            else:
+                try:
+                    user = await client.get_input_entity(PeerUser(int(uid)))
+                except ValueError:
+                    members = await client.get_participants(peer, limit=None)
+                    for member in members:
+                        if member.id == int(uid):
+                            return True
+                    total = getattr(members, 'total', None)
+                    return False if isinstance(total, int) and len(members) >= total else None
+            result = await client(GetParticipantRequest(peer, user))
+            participant = result.participant
+            return not isinstance(participant, ChannelParticipantLeft) and not (
+                isinstance(participant, ChannelParticipantBanned) and participant.left)
+        except UserNotParticipantError:
+            return False
 
     async def close(self):
         for client in self.clients.values():
@@ -1417,7 +1483,7 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
             store.event(cid, f'{prefix}: iniciando adição simultânea.')
             try:
                 added = await gateway.invite(group, name, delivery['payload'],
-                                             lambda uid: store.reserve_identity(delivery['id'], uid))
+                                             store.reservation(delivery['id'], name))
             except Exception as error:
                 if type(error).__name__ in {'ChatAdminRequiredError', 'ChatWriteForbiddenError', 'ChannelPrivateError', 'UserBannedInChannelError'}:
                     store.finish(delivery['id'], 'retry', str(error))
@@ -1484,6 +1550,7 @@ async def campaign_loop(store, cid, gateway):
         gateway.persist_group = lambda gid, **values: store.group_update(gid, **values)
     turn = 0
     warm_failures = {}
+    next_confirmation_check = {}
     data_dir = os.path.dirname(store.path)
     store.event_recent(cid, f'Executor da tarefa iniciado: {len(names)} sessão(ões) configurada(s). O histórico mostrará cada adição ou motivo de espera.', seconds=30)
 
@@ -1509,8 +1576,28 @@ async def campaign_loop(store, cid, gateway):
                 if group['status'] == 'error':
                     store.event_recent(cid, f"Grupo {group['slot']}: ignorado por erro ({group['error']}). A tarefa seguirá com o próximo grupo disponível.")
                     continue
-                if settings['limit_scope'] == 'group' and group['today'] >= group['daily_limit']:
-                    store.event_recent(cid, f"Grupo {group['slot']}: aguardando confirmação de resultados pendentes; {group['today_added']}/{group['daily_limit']} adições confirmadas. As vagas reservadas atingiram a cota. A sequência não avançará até completar as adições confirmadas.")
+                if (settings['limit_scope'] == 'group' and group['today'] >= group['daily_limit']) or (settings['limit_scope'] == 'task' and group['today'] > group['today_added']):
+                    if time.time() >= next_confirmation_check.get(gid, 0) and hasattr(gateway, 'check_delivery'):
+                        next_confirmation_check[gid] = time.time() + 60
+                        with store.db() as conn:
+                            cycle, _ = store.quota_cycle(conn, cid, group['slot'] if settings['limit_scope'] == 'group' else 0)
+                            pending = [dict(row) for row in conn.execute("SELECT * FROM deliveries WHERE group_id=? AND day=? AND status='unknown'", (gid, cycle))]
+                        unresolved = 0
+                        for delivery in pending:
+                            try:
+                                confirmed = await asyncio.wait_for(gateway.check_delivery(group, delivery), timeout=30)
+                            except Exception as error:
+                                confirmed = None
+                                store.event_recent(cid, f"Grupo {group['slot']}: consulta de confirmação indisponível ({type(error).__name__}).")
+                            if confirmed is None:
+                                unresolved += 1
+                            else:
+                                store.finish(delivery['id'], 'added' if confirmed else 'failed', '' if confirmed else 'Reconciliação: lead não participa do grupo; vaga liberada sem reenviar o convite.')
+                                store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} {'adicionado e confirmado pela reconciliação' if confirmed else 'não localizado no grupo; vaga liberada para outro lead' }.")
+                        if unresolved:
+                            store.group_update(gid, status='error', error=f'[CONFIRMACAO_PENDENTE] {unresolved} resultado(s) pendente(s) sem confirmação verificável. O limite foi preservado; confira os membros no Telegram. O próximo grupo continuará.')
+                            store.event(cid, f"Grupo {group['slot']}: marcado para revisão por confirmação pendente; seguindo para o próximo grupo.")
+                    store.event_recent(cid, f"Grupo {group['slot']}: aguardando reconciliação das vagas reservadas; {group['today_added']}/{group['daily_limit']} confirmados. O ciclo renova após 24 horas, sem reset à meia-noite.")
                     continue
                 try:
                     if group['channel_id'] and hasattr(gateway, 'member_count'):
@@ -1594,7 +1681,7 @@ async def campaign_loop(store, cid, gateway):
                                     used_session = candidate
                                     lead_label = str(delivery['payload'].get('username') or delivery['payload'].get('id') or 'sem username')[:100]
                                     store.event(cid, f"Grupo {group['slot']}: sessão {candidate} iniciando adição do lead #{delivery['lead_id']} ({lead_label}).")
-                                    added = await gateway.invite(group, candidate, delivery['payload'], lambda uid: store.reserve_identity(delivery['id'], uid))
+                                    added = await gateway.invite(group, candidate, delivery['payload'], store.reservation(delivery['id'], candidate))
                                     used_session = candidate
                                     break
                                 except Exception as error:

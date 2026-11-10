@@ -404,7 +404,7 @@ class CampaignStoreTests(unittest.TestCase):
         self.store.group_update(new_group['id'], status='ready')
         self.store.state(cid, 'running')
         self.assertIsNone(self.store.claim(cid, new_group['id']))
-        with patch('group_campaigns.day_key', return_value='2099-01-01'):
+        with patch('group_campaigns.time.time', return_value=__import__('time').time() + 86401):
             second = self.store.claim(cid, new_group['id'])
         self.assertNotEqual(first['lead_id'], second['lead_id'])
         with self.store.db() as conn:
@@ -442,7 +442,7 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(restarted.groups(cid)[1]['status'], 'error')
         self.assertEqual(restarted.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
         restarted.state(cid, 'running')
-        with patch('group_campaigns.day_key', return_value='2099-01-01'):
+        with patch('group_campaigns.time.time', return_value=__import__('time').time() + 86401):
             second = restarted.claim(cid, groups[0]['id'])
         self.assertNotEqual(first['lead_id'], second['lead_id'])
 
@@ -716,6 +716,82 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(store.groups(cid)[0]['today_added'], 2)
 
+    def test_quota_renews_after_24_hours_not_calendar_midnight(self):
+        cid, groups = self.task()
+        self.leads(3)
+        started = 1800000000.0
+        with patch('group_campaigns.time.time', return_value=started), patch('group_campaigns.day_key', return_value='2026-11-09'):
+            first = self.store.claim(cid, groups[0]['id'])
+            self.store.finish(first['id'], 'added')
+            self.assertEqual(self.store.groups(cid)[0]['quota_resets_at'], started + 86400)
+        with patch('group_campaigns.time.time', return_value=started + 1200), patch('group_campaigns.day_key', return_value='2026-11-10'):
+            self.assertIsNone(self.store.claim(cid, groups[0]['id']))
+            self.assertEqual(self.store.groups(cid)[0]['today_added'], 1)
+        with patch('group_campaigns.time.time', return_value=started + 86401):
+            self.assertEqual(self.store.groups(cid)[0]['today'], 0)
+            self.assertIsNotNone(self.store.claim(cid, groups[0]['id']))
+
+    def test_pending_confirmation_releases_or_confirms_last_quota_slot(self):
+        for confirmed in (True, False):
+            with self.subTest(confirmed=confirmed):
+                cid, groups = self.task()
+                self.leads(3)
+                delivery = self.store.claim(cid, groups[0]['id'])
+                self.store.reserve_identity(delivery['id'], 100)
+                self.store.finish(delivery['id'], 'unknown', 'Resposta perdida')
+                store = self.store
+                checks = []
+
+                class Gateway:
+                    async def check_delivery(self, group, delivery):
+                        checks.append(delivery['id'])
+                        store.state(cid, 'paused')
+                        return confirmed
+
+                    async def close(self):
+                        pass
+
+                asyncio.run(campaign_loop(store, cid, Gateway()))
+                self.assertEqual(checks, [delivery['id']])
+                task = next(task for task in store.snapshot()['campaigns'] if task['id'] == cid)
+                self.assertNotIn('unknown', task['counts'])
+                self.assertEqual(task['groups'][0]['today_added'], int(confirmed))
+                self.assertEqual(task['groups'][0]['today'], int(confirmed))
+
+    def test_pending_confirmation_review_resets_after_cycle_expires(self):
+        cid, groups = self.task()
+        self.leads(2)
+        first = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(first['id'], 'unknown')
+        self.store.group_update(groups[0]['id'], status='error', error='[CONFIRMACAO_PENDENTE] Verificação indisponível')
+        self.assertEqual(self.store.groups(cid)[0]['status'], 'error')
+        with patch('group_campaigns.time.time', return_value=__import__('time').time() + 86401):
+            group = self.store.groups(cid)[0]
+            self.assertEqual(group['status'], 'ready')
+            self.assertEqual(group['today'], 0)
+
+    def test_unknown_confirmation_marks_group_for_review_instead_of_waiting_forever(self):
+        cid, groups = self.task()
+        self.leads(2)
+        delivery = self.store.claim(cid, groups[0]['id'])
+        self.store.reserve_identity(delivery['id'], 100)
+        self.store.finish(delivery['id'], 'unknown')
+        store = self.store
+
+        class Gateway:
+            async def check_delivery(self, *args):
+                store.state(cid, 'paused')
+                return None
+
+            async def close(self):
+                pass
+
+        asyncio.run(campaign_loop(store, cid, Gateway()))
+        updated = store.groups(cid)
+        self.assertEqual(updated[0]['status'], 'error')
+        self.assertEqual(updated[0]['today'], 1)
+        self.assertEqual(updated[1]['status'], 'ready')
+
     def test_error_group_is_skipped_but_unknown_quota_still_waits(self):
         for blocked in ('error', 'unknown'):
             with self.subTest(blocked=blocked):
@@ -831,7 +907,7 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
         self.store.state(cid, 'running')
         self.store.group_update(group['id'], status='ready')
-        with patch('group_campaigns.day_key', return_value='2099-01-01'):
+        with patch('group_campaigns.time.time', return_value=__import__('time').time() + 86401):
             self.assertIsNone(self.store.claim(cid, group['id']))
 
 
