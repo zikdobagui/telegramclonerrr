@@ -698,6 +698,70 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertGreater(gateway.session_retry_at['one.session'], 0)
         self.assertEqual(store.groups(cid)[0]['status'], 'ready')
 
+    def test_idle_parallel_session_reuses_slot_freed_by_slow_failure(self):
+        from group_campaigns import parallel_group_additions
+        cid = self.store.create({'name': 'Reuse slots', 'count': 1, 'daily_limit': 2}, ['one.session', 'two.session'])
+        group = self.store.groups(cid)[0]
+        self.store.group_update(group['id'], status='ready')
+        self.store.state(cid, 'running')
+        self.leads(5)
+        calls = []
+        settings = self.store.get(cid)['settings']
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(name)
+                if name == 'two.session':
+                    await asyncio.sleep(0.01)
+                    return False
+                await asyncio.sleep(0)
+                return True
+
+        with patch('group_campaigns.random.randint', side_effect=[0, 60]):
+            asyncio.run(parallel_group_additions(self.store, cid, group, Gateway(), settings['sessions'], settings))
+        self.assertEqual(calls, ['one.session', 'two.session', 'one.session'])
+        self.assertEqual(self.store.groups(cid)[0]['today_added'], 2)
+
+    def test_many_sessions_launch_concurrently_and_reserve_only_remaining_slots(self):
+        from group_campaigns import parallel_group_additions
+        names = [f'account-{index}' for index in range(12)]
+        cid = self.store.create({'name': 'Concurrent start', 'count': 1, 'daily_limit': 5}, names)
+        group = self.store.groups(cid)[0]
+        self.store.group_update(group['id'], status='ready')
+        self.store.state(cid, 'running')
+        self.leads(20)
+        store = self.store
+        calls = []
+        active = peak = 0
+        settings = store.get(cid)['settings']
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                nonlocal active, peak
+                calls.append(name)
+                active += 1
+                peak = max(peak, active)
+                await asyncio.sleep(0)
+                active -= 1
+                return True
+
+        asyncio.run(parallel_group_additions(store, cid, group, Gateway(), names, settings))
+        self.assertEqual(peak, 5)
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(len(set(calls)), 5)
+        self.assertEqual(store.groups(cid)[0]['today_added'], 5)
+
+    def test_start_upgrades_legacy_sequential_multi_session_task(self):
+        cid, groups = self.task()
+        with self.store.db() as conn:
+            settings = self.store.get(cid)['settings']
+            settings['parallel_sessions'] = False
+            conn.execute('UPDATE campaigns SET settings=? WHERE id=?', (json.dumps(settings), cid))
+        self.store.state(cid, 'paused')
+        self.store.prepare_start(cid)
+        self.assertTrue(self.store.get(cid)['settings']['parallel_sessions'])
+        self.assertTrue(all(group['status'] == 'ready' for group in self.store.groups(cid)))
+
     def test_parallel_sessions_overlap_without_exceeding_group_goal(self):
         from group_campaigns import parallel_group_additions
         cid = self.store.create({'name': 'Parallel', 'count': 2, 'daily_limit': 3,
@@ -943,7 +1007,7 @@ class CampaignStoreTests(unittest.TestCase):
         snapshot = store.snapshot()['campaigns'][0]
         self.assertEqual(snapshot['groups'][0]['today_added'], 1)
         self.assertEqual(snapshot['counts'], {'added': 2, 'failed': 1})
-        self.assertTrue(any('sessão one.session iniciando adição' in event['message'] for event in snapshot['events']))
+        self.assertTrue(any('sessão one.session' in event['message'] and 'iniciando adição' in event['message'] for event in snapshot['events']))
 
     def test_unknown_invite_result_is_not_retried(self):
         cid = self.store.create({'name': 'Teste', 'count': 1}, ['one.session'])

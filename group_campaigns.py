@@ -478,6 +478,10 @@ class CampaignStore:
             if not campaign:
                 raise ValueError('Tarefa não encontrada')
             settings = json.loads(campaign['settings'])
+            if len(settings.get('sessions', [])) > 1 and not settings.get('parallel_sessions'):
+                settings['parallel_sessions'] = True
+                conn.execute('UPDATE campaigns SET settings=? WHERE id=?', (json.dumps(settings), cid))
+                conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, 'Multi-sessão ativado: todas as contas disponíveis trabalharão em paralelo no mesmo grupo, com uma tentativa por sessão de cada vez.', time.time()))
             groups = conn.execute('SELECT * FROM groups WHERE campaign_id=? AND current=1', (cid,)).fetchall()
             recovered = 0
             for group in groups:
@@ -554,7 +558,7 @@ class CampaignStore:
             'dedup': 'group' if payload.get('dedup') == 'group' else 'task',
             'limit_scope': 'task' if payload.get('limit_scope') == 'task' else 'group',
             'daily_limit': limit,
-            'parallel_sessions': payload.get('parallel_sessions') is True,
+            'parallel_sessions': len(set(session_names)) > 1,
         }
         return name, count, limit, settings
 
@@ -863,7 +867,7 @@ class CampaignStore:
             # lead and try it with another selected session.
             retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND EXISTS (SELECT 1 FROM campaign_leads cl JOIN leads chosen ON chosen.id=cl.lead_id WHERE cl.campaign_id=d.campaign_id AND COALESCE(chosen.canonical_id,chosen.id)=COALESCE(l.canonical_id,l.id)) AND NOT EXISTS (SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id WHERE e.campaign_id=d.campaign_id AND COALESCE(excluded.canonical_id,excluded.id)=COALESCE(l.canonical_id,l.id)) AND NOT EXISTS (SELECT 1 FROM delivery_reference_failures f WHERE f.delivery_id=d.id AND f.session_name=?) ORDER BY d.id LIMIT 1", (cid, gid, session_name or '')).fetchone()
             if retry:
-                conn.execute("UPDATE deliveries SET status='sending',error='',day=? WHERE id=?", (day, retry['id']))
+                conn.execute("UPDATE deliveries SET status='sending',error='',day=?,session_name=?,resolved_hash=NULL WHERE id=?", (day, session_name, retry['id']))
                 return result({'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])})
             lead = conn.execute('''SELECT * FROM leads l WHERE canonical_id IS NULL AND EXISTS (
                 SELECT 1 FROM campaign_leads cl JOIN leads selected ON selected.id=cl.lead_id
@@ -879,7 +883,7 @@ class CampaignStore:
                 imported = conn.execute('SELECT count(*) FROM campaign_leads WHERE campaign_id=?', (cid,)).fetchone()[0]
                 reason = 'nenhum contato foi importado para esta tarefa' if not imported else 'não há lead elegível; todos já foram processados ou reservados'
                 return result(None, reason)
-            did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status) VALUES(?,?,?,?,?,?,'sending')", (cid, gid, group['slot'], lead['id'], scope, day)).lastrowid
+            did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status,session_name) VALUES(?,?,?,?,?,?,'sending',?)", (cid, gid, group['slot'], lead['id'], scope, day, session_name)).lastrowid
             return result({'id': did, 'lead_id': lead['id'], 'payload': json.loads(lead['payload'])})
 
     def reference_attempts(self, did):
@@ -955,6 +959,7 @@ class CampaignStore:
                 task['session_waits'] = session_wait_details(os.path.dirname(self.path), task['settings'].get('sessions', []))
                 task['events'] = [dict(row) for row in conn.execute('SELECT id,message,created FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 500', (cid,))]
                 task['counts'] = dict(conn.execute('SELECT status,count(*) FROM deliveries WHERE campaign_id=? GROUP BY status', (cid,)))
+                task['active_sessions'] = [row['session_name'] for row in conn.execute("SELECT DISTINCT session_name FROM deliveries WHERE campaign_id=? AND status='sending' AND session_name IS NOT NULL", (cid,))]
                 for group in task['groups']:
                     group['added'] = conn.execute("SELECT count(*) FROM deliveries WHERE group_id=? AND status='added'", (group['id'],)).fetchone()[0]
                 result['campaigns'].append(task)
@@ -1476,11 +1481,23 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
             store.event(cid, f"Sessão {name}: 3 falhas consecutivas; retirada da rodada por 60s. As demais sessões continuam simultaneamente. Depois do prazo, esta sessão será testada novamente.")
 
     def active():
-        if store.get(cid)['status'] != 'running':
-            return False
-        current = next((item for item in store.groups(cid) if item['id'] == gid), None)
-        return current is not None and current['status'] == 'ready' and (
-            settings['limit_scope'] != 'group' or current['today'] < current['daily_limit'])
+        # Full reservations are temporary while other requests are in flight.
+        # Keep workers alive to reuse slots freed by failed attempts.
+        with store.db() as conn:
+            current = conn.execute('SELECT g.status,g.daily_limit,c.status AS campaign_status FROM groups g JOIN campaigns c ON c.id=g.campaign_id WHERE g.id=? AND g.current=1', (gid,)).fetchone()
+            if not current or current['status'] != 'ready' or current['campaign_status'] != 'running':
+                return False
+            scope = group['slot'] if settings['limit_scope'] == 'group' else 0
+            cycle, _ = store.quota_cycle(conn, cid, scope)
+            clause = ' AND slot=?' if scope else ''
+            params = (cid, cycle, scope) if scope else (cid, cycle)
+            usage = conn.execute("SELECT count(*) AS used,sum(status='added') AS added,sum(status='sending') AS sending FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('added','sending','unknown')" + clause, params).fetchone()
+            limit = current['daily_limit'] if scope else settings['daily_limit']
+            return (usage['added'] or 0) < limit and (usage['used'] < limit or (usage['sending'] or 0) > 0)
+
+    def in_flight():
+        with store.db() as conn:
+            return conn.execute("SELECT 1 FROM deliveries WHERE group_id=? AND status='sending' LIMIT 1", (gid,)).fetchone() is not None
 
     async def account(name):
         nonlocal attempts
@@ -1499,6 +1516,11 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                 store.event(cid, f"Grupo {group['slot']}: sessão {name} encerrou a espera e retomará as tentativas neste grupo.")
             delivery, reason = store.claim(cid, gid, diagnose=True, session_name=name)
             if not delivery:
+                if in_flight():
+                    # No global batch barrier: any idle account can take the
+                    # next slot without waiting for a slow account to finish.
+                    await asyncio.sleep(0.2)
+                    continue
                 store.event_recent(cid, f"Grupo {group['slot']}: sessão {name} aguardando porque {reason}.")
                 return
             attempts += 1
