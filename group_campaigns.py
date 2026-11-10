@@ -477,6 +477,11 @@ class CampaignStore:
             campaign = conn.execute('SELECT * FROM campaigns WHERE id=?', (cid,)).fetchone()
             if not campaign:
                 raise ValueError('Tarefa não encontrada')
+            conn.execute("UPDATE deliveries SET status='unknown',error='Tentativa anterior interrompida; aguardando reconciliação, sem reenvio automático.' WHERE campaign_id=? AND status='sending'", (cid,))
+            for row in conn.execute("SELECT d.id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.status='unresolved'", (cid,)).fetchall():
+                if json.loads(row['payload']).get('source_group_link'):
+                    conn.execute('DELETE FROM delivery_reference_failures WHERE delivery_id=?', (row['id'],))
+                    conn.execute("UPDATE deliveries SET status='retry',error='Nova tentativa com consulta de origem retomável.' WHERE id=?", (row['id'],))
             settings = json.loads(campaign['settings'])
             if len(settings.get('sessions', [])) > 1 and not settings.get('parallel_sessions'):
                 settings['parallel_sessions'] = True
@@ -976,6 +981,8 @@ class TelegramCampaignGateway:
         self.invite_locks = {}
         self.source_users = {}
         self.source_locks = {}
+        self.source_scan_state = {}
+        self.source_scan_slots = asyncio.Semaphore(3)
 
     async def client(self, name):
         async with self.client_locks.setdefault(name, asyncio.Lock()):
@@ -1227,6 +1234,60 @@ class TelegramCampaignGateway:
         before_send()
         await client(DeleteChannelRequest(peer))
 
+    async def source_user(self, client, name, source, uid):
+        from telethon.tl.functions.channels import GetParticipantsRequest
+        from telethon.tl.types import ChannelParticipantsSearch
+        key = (name, source)
+        audit = getattr(self, 'audit', lambda message: None)
+        async with self.source_locks.setdefault(key, asyncio.Lock()):
+            users = self.source_users.setdefault(key, {})
+            if uid in users:
+                return users[uid]
+            state = self.source_scan_state.setdefault(key, {'offset': 0, 'complete': False, 'retry_at': 0})
+            if state['complete']:
+                return None
+            remaining = state['retry_at'] - time.time()
+            if remaining > 0:
+                raise SourceLookupPendingError('Consulta ao grupo de origem em espera temporária; o contato foi preservado.', max(1, int(remaining)))
+            if self.source_scan_slots.locked():
+                raise SourceLookupPendingError('Outras sessões estão consultando o grupo de origem; aguardando vaga de consulta.', 2)
+            async with self.source_scan_slots:
+                audit(f'Sessão {name}: retomando consulta paginada do grupo de origem a partir de {state["offset"]} participantes; limite de 3 consultas de origem simultâneas, sem limitar os convites já resolvidos.')
+                try:
+                    async def scan():
+                        if 'peer' not in state:
+                            state['peer'] = await self.resolve(client, source)
+                        for _ in range(3):
+                            page = await client(GetParticipantsRequest(state['peer'], ChannelParticipantsSearch(''), state['offset'], 200, 0))
+                            batch = list(page.users)
+                            from telethon import utils
+                            for entity in batch:
+                                try:
+                                    users[entity.id] = entity if getattr(entity, 'deleted', False) else utils.get_input_user(entity)
+                                except (TypeError, ValueError):
+                                    continue
+                            # Telethon also persists references in its own entity
+                            # cache; bound this in-memory page cache per account.
+                            while len(users) > 2000:
+                                users.pop(next(iter(users)))
+                            state['offset'] += len(batch)
+                            total = getattr(page, 'count', None)
+                            state['complete'] = not batch or (isinstance(total, int) and state['offset'] >= total) or (not isinstance(total, int) and len(batch) < 200)
+                            audit(f'Sessão {name}: grupo de origem, {state["offset"]} participantes consultados; progresso preservado.')
+                            if uid in users or state['complete']:
+                                return users.get(uid)
+                        raise SourceLookupPendingError('Consulta parcial do grupo de origem salva; continuará da próxima página.', 1)
+                    return await asyncio.wait_for(scan(), timeout=45)
+                except SourceLookupPendingError:
+                    raise
+                except Exception as error:
+                    if session_restriction(error):
+                        raise
+                    delay = 60 if transient_request(error) else 300
+                    state['retry_at'] = time.time() + delay
+                    audit(f'Sessão {name}: consulta ao grupo de origem interrompida ({type(error).__name__}); {state["offset"]} participantes preservados. Nova tentativa após {delay}s, sem descartar o contato nem considerar a lista vazia.')
+                    raise SourceLookupPendingError(f'Grupo de origem temporariamente indisponível ({type(error).__name__}); progresso salvo para retomada.', delay) from error
+
     async def resolve_lead(self, client, name, payload, refresh=False):
         from telethon import utils
         from telethon.tl.types import InputUser, PeerUser
@@ -1264,22 +1325,7 @@ class TelegramCampaignGateway:
                     pass
             source = payload.get('source_group_link')
             if source and expected:
-                key = (name, source)
-                async with self.source_locks.setdefault(key, asyncio.Lock()):
-                    if key not in self.source_users:
-                        audit(f'Sessão {name}: consultando o grupo de origem para obter referências válidas desta conta (limite de 45s).')
-                        try:
-                            async def load():
-                                entity = await self.resolve(client, source)
-                                return await client.get_participants(entity, limit=None)
-                            users = await asyncio.wait_for(load(), timeout=45)
-                            self.source_users[key] = {entity.id: entity for entity in users}
-                        except Exception as error:
-                            if session_restriction(error):
-                                raise
-                            self.source_users[key] = {}
-                            audit(f'Sessão {name}: não foi possível carregar o grupo de origem ({type(error).__name__}); a consulta não será repetida para cada lead nesta execução.')
-                    entity = self.source_users[key].get(expected)
+                entity = await self.source_user(client, name, source, expected)
                 if entity is not None:
                     return checked(entity)
             if not refresh and expected and payload.get('access_hash'):
@@ -1415,6 +1461,12 @@ class InviteConfirmationError(ValueError):
     pass
 
 
+class SourceLookupPendingError(Exception):
+    def __init__(self, message, retry_after=60):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class LeadResolutionError(ValueError):
     pass
 
@@ -1457,6 +1509,8 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
     data_dir = os.path.dirname(store.path)
     gid = group['id']
     attempts = 0
+    owned_deliveries = {}
+    states = {name: 'preparando' for name in names}
     if not hasattr(gateway, 'session_failures'):
         gateway.session_failures = {}
         gateway.session_retry_at = {}
@@ -1496,19 +1550,26 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
             return (usage['added'] or 0) < limit and (usage['used'] < limit or (usage['sending'] or 0) > 0)
 
     def in_flight():
-        with store.db() as conn:
-            return conn.execute("SELECT 1 FROM deliveries WHERE group_id=? AND status='sending' LIMIT 1", (gid,)).fetchone() is not None
+        # Only requests owned by this execution can free slots. A database row
+        # left by an interrupted execution is not an active coroutine.
+        return bool(owned_deliveries)
 
     async def account(name):
         nonlocal attempts
         while active():
             if name in rejected:
                 return
+            if time.time() < retry_at.get(name, 0):
+                states[name] = 'pausa temporária'
+                store.event_recent(cid, f"Grupo {group['slot']}: sessão {name} em pausa temporária por mais {max(1, int(retry_at[name] - time.time()))}s. A retomada é automática.", seconds=60)
             while active() and time.time() < retry_at.get(name, 0):
                 await asyncio.sleep(1)
             if not active():
                 return
             if session_wait_until(data_dir, name):
+                states[name] = 'espera Telegram'
+                until = session_wait_until(data_dir, name)
+                store.event_recent(cid, f"Grupo {group['slot']}: sessão {name} aguardando restrição do Telegram até {until.strftime('%d/%m/%Y %H:%M:%S') if until else 'o fim da espera'}.", seconds=60)
                 while active() and session_wait_until(data_dir, name):
                     await asyncio.sleep(1)
                 if not active():
@@ -1517,19 +1578,27 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
             delivery, reason = store.claim(cid, gid, diagnose=True, session_name=name)
             if not delivery:
                 if in_flight():
+                    states[name] = 'aguardando vaga'
                     # No global batch barrier: any idle account can take the
                     # next slot without waiting for a slow account to finish.
                     await asyncio.sleep(0.2)
                     continue
                 store.event_recent(cid, f"Grupo {group['slot']}: sessão {name} aguardando porque {reason}.")
                 return
+            owned_deliveries[delivery['id']] = name
+            states[name] = f"processando lead #{delivery['lead_id']}"
             attempts += 1
             prefix = f"Grupo {group['slot']}: sessão {name} · lead #{delivery['lead_id']}"
             store.event(cid, f'{prefix}: iniciando adição simultânea.')
             try:
-                added = await gateway.invite(group, name, delivery['payload'],
-                                             store.reservation(delivery['id'], name))
+                added = await asyncio.wait_for(gateway.invite(group, name, delivery['payload'],
+                                             store.reservation(delivery['id'], name)), timeout=120)
             except Exception as error:
+                if isinstance(error, SourceLookupPendingError):
+                    store.finish(delivery['id'], 'retry', str(error))
+                    retry_at[name] = time.time() + error.retry_after
+                    store.event_recent(cid, f'{prefix}: {error} Retomada automática; as outras sessões continuam.', seconds=60)
+                    continue
                 if isinstance(error, LeadReferenceInvalidError) or type(error).__name__ == 'UserIdInvalidError':
                     store.reference_failed(delivery['id'], name, settings['sessions'], error)
                     record_failure(name)
@@ -1552,6 +1621,8 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                     until = place_session_on_wait(data_dir, name, error)
                     store.finish(delivery['id'], 'retry', f'{type(error).__name__}: {error}')
                     store.event(cid, f"{prefix}: sessão em espera até {until.strftime('%d/%m/%Y %H:%M:%S')} ({type(error).__name__}). Voltará a ser testada automaticamente após a espera; as outras sessões continuam no mesmo grupo.")
+                    owned_deliveries.pop(delivery['id'], None)
+                    states[name] = 'espera Telegram'
                     while active() and session_wait_until(data_dir, name):
                         await asyncio.sleep(1)
                     if active():
@@ -1573,21 +1644,54 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                     record_failure(name)
                 else:
                     failures[name] = 0
+            finally:
+                owned_deliveries.pop(delivery['id'], None)
             if not active():
                 return
+            states[name] = 'intervalo individual'
             delay = random.randint(settings.get('delay_min', 60), settings.get('delay_max', 60))
             store.event(cid, f'{prefix}: intervalo individual de {delay}s antes da próxima tentativa desta sessão.')
             end = time.monotonic() + delay
             while active() and time.monotonic() < end:
                 await asyncio.sleep(min(1, max(0, end - time.monotonic())))
 
-    store.event_recent(cid, f"Grupo {group['slot']}: execução simultânea iniciada com {len(names)} sessão(ões) disponíveis. A meta é compartilhada e cada sessão respeita seu próprio intervalo.", seconds=30)
+    store.event_recent(cid, f"Grupo {group['slot']}: execução simultânea iniciada com {len(names)} rotina(s) de sessão. As contas em pausa ou flood aguardam o próprio prazo. A meta é compartilhada e cada sessão respeita seu próprio intervalo.", seconds=30)
+    async def run_account(name):
+        try:
+            await account(name)
+        finally:
+            # Any abrupt exit after claim is uncertain, never a safe resend.
+            stranded = [did for did, owner in owned_deliveries.items() if owner == name]
+            if stranded:
+                with store.db() as conn:
+                    for did in stranded:
+                        conn.execute("UPDATE deliveries SET status='unknown',error='Executor interrompido após reservar o lead; resultado será reconciliado.' WHERE id=? AND status='sending'", (did,))
+                        owned_deliveries.pop(did, None)
+            states[name] = 'encerrada nesta rodada'
+
     # Always drain in-flight requests before changing group or closing clients.
-    results = await asyncio.gather(*(account(name) for name in names), return_exceptions=True)
+    batch = asyncio.gather(*(run_account(name) for name in names), return_exceptions=True)
+    try:
+        while not batch.done():
+            done, _ = await asyncio.wait([batch], timeout=10)
+            if not done:
+                counts = {}
+                for state in states.values():
+                    label = 'processando lead' if state.startswith('processando lead') else state
+                    counts[label] = counts.get(label, 0) + 1
+                summary = '; '.join(f'{count} {label}' for label, count in sorted(counts.items()))
+                store.event_recent(cid, f"Grupo {group['slot']}: executor ativo · {len(owned_deliveries)} tentativa(s) em andamento · {summary}. Cada tentativa tem limite de 120s; nenhuma confirmação incerta é reenviada automaticamente.", seconds=30)
+        results = await batch
+    finally:
+        if not batch.done():
+            batch.cancel()
+            await asyncio.gather(batch, return_exceptions=True)
     for name, result in zip(names, results):
         if isinstance(result, BaseException):
             store.event(cid, f"Grupo {group['slot']}: executor da sessão {name} interrompido ({type(result).__name__}). Confira os resultados pendentes antes de reenviar.")
 
+    if not attempts:
+        store.event_recent(cid, f"Grupo {group['slot']}: rodada encerrada sem novos envios. Confira os motivos de espera por sessão e as vagas reservadas; o executor voltará a verificar automaticamente.", seconds=60)
     return attempts
 
 
@@ -1630,6 +1734,7 @@ async def campaign_loop(store, cid, gateway):
                         next_confirmation_check[gid] = time.time() + 60
                         with store.db() as conn:
                             cycle, _ = store.quota_cycle(conn, cid, group['slot'] if settings['limit_scope'] == 'group' else 0)
+                            conn.execute("UPDATE deliveries SET status='unknown',error='Reserva sem executor ativo; aguardando reconciliação sem reenvio.' WHERE group_id=? AND day=? AND status='sending'", (gid, cycle))
                             pending = [dict(row) for row in conn.execute("SELECT * FROM deliveries WHERE group_id=? AND day=? AND status='unknown'", (gid, cycle))]
                         unresolved = 0
                         for delivery in pending:
@@ -1740,6 +1845,11 @@ async def campaign_loop(store, cid, gateway):
                                     used_session = candidate
                                     break
                                 except Exception as error:
+                                    if isinstance(error, SourceLookupPendingError):
+                                        used_session = None
+                                        store.finish(delivery['id'], 'retry', str(error))
+                                        store.event_recent(cid, f"Grupo {group['slot']}: sessão {candidate}: {error} O lead foi preservado para retomada.", seconds=60)
+                                        continue
                                     if isinstance(error, LeadReferenceInvalidError) or type(error).__name__ == 'UserIdInvalidError':
                                         used_session = None
                                         reference_exhausted = store.reference_failed(delivery['id'], candidate, names, error)

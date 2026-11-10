@@ -118,13 +118,62 @@ class InviteResultTests(unittest.IsolatedAsyncioTestCase):
         gateway = TelegramCampaignGateway({}, {}, ())
         client = AsyncMock()
         client.get_input_entity.side_effect = ValueError('not cached')
-        client.get_participants.return_value = [User(id=123, access_hash=789), User(id=124, access_hash=790)]
+        client.return_value = SimpleNamespace(users=[User(id=123, access_hash=789), User(id=124, access_hash=790)], count=2)
         gateway.resolve = AsyncMock(return_value='source')
         source = 'https://t.me/source'
         first = await gateway.resolve_lead(client, 'one', {'id': 123, 'source_group_link': source})
         second = await gateway.resolve_lead(client, 'one', {'id': 124, 'source_group_link': source})
         self.assertEqual((first.access_hash, second.access_hash), (789, 790))
-        self.assertEqual(client.get_participants.await_count, 1)
+        self.assertEqual(client.await_count, 1)
+        self.assertEqual(type(client.await_args.args[0]).__name__, 'GetParticipantsRequest')
+
+    async def test_source_timeout_preserves_pages_and_resumes_from_failed_offset(self):
+        from telethon.tl.types import User
+        from group_campaigns import SourceLookupPendingError
+        gateway = TelegramCampaignGateway({}, {}, ())
+        gateway.resolve = AsyncMock(return_value='source-peer')
+        first_page = [User(id=index, access_hash=1000+index) for index in range(1, 201)]
+        client = AsyncMock(side_effect=[SimpleNamespace(users=first_page, count=1000), TimeoutError(),
+                                       SimpleNamespace(users=[User(id=999, access_hash=12345)], count=201)])
+        source = 'https://t.me/source'
+        with self.assertRaises(SourceLookupPendingError):
+            await gateway.source_user(client, 'one', source, 999)
+        state = gateway.source_scan_state[('one', source)]
+        self.assertEqual(state['offset'], 200)
+        self.assertFalse(state['complete'])
+        self.assertEqual(len(gateway.source_users[('one', source)]), 200)
+        with patch('group_campaigns.time.time', return_value=__import__('time').time() + 61):
+            user = await gateway.source_user(client, 'one', source, 999)
+        self.assertEqual(user.access_hash, 12345)
+        self.assertEqual([call.args[0].offset for call in client.await_args_list], [0, 200, 200])
+        gateway.resolve.assert_awaited_once()
+
+    async def test_source_download_concurrency_is_bounded_without_sharing_account_hashes(self):
+        from telethon.tl.types import User
+        from group_campaigns import SourceLookupPendingError
+        gateway = TelegramCampaignGateway({}, {}, ())
+        gateway.resolve = AsyncMock(return_value='source')
+        gate = asyncio.Event()
+        active = peak = 0
+
+        def client_for(hash_value):
+            async def request(request):
+                nonlocal active, peak
+                active += 1
+                peak = max(peak, active)
+                await gate.wait()
+                active -= 1
+                return SimpleNamespace(users=[User(id=123, access_hash=hash_value)], count=1)
+            return AsyncMock(side_effect=request)
+
+        tasks = [asyncio.create_task(gateway.source_user(client_for(100+i), str(i), 'https://t.me/source', 123)) for i in range(3)]
+        await asyncio.sleep(0)
+        with self.assertRaises(SourceLookupPendingError):
+            await gateway.source_user(client_for(999), 'four', 'https://t.me/source', 123)
+        gate.set()
+        users = await asyncio.gather(*tasks)
+        self.assertEqual(peak, 3)
+        self.assertEqual([user.access_hash for user in users], [100, 101, 102])
 
     async def test_existing_member_is_not_counted_as_new_addition(self):
         from telethon.tl.types import InputUser
@@ -697,6 +746,82 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertGreater(gateway.session_retry_at['one.session'], 0)
         self.assertEqual(store.groups(cid)[0]['status'], 'ready')
+
+    def test_source_temporary_failure_retries_without_discarding_lead(self):
+        from group_campaigns import parallel_group_additions, SourceLookupPendingError
+        cid, groups = self.task()
+        self.leads(1)
+        calls = []
+        settings = self.store.get(cid)['settings']
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(payload['id'])
+                if len(calls) == 1:
+                    raise SourceLookupPendingError('Consulta parcial preservada', retry_after=0)
+                return True
+
+        asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        self.assertEqual(calls, [100, 100])
+        task = next(task for task in self.store.snapshot()['campaigns'] if task['id'] == cid)
+        self.assertEqual(task['counts'], {'added': 1})
+        self.assertEqual(task['excluded_lead_count'], 0)
+        self.assertEqual(len(self.store.export_leads(cid)), 1)
+
+    def test_start_converts_orphaned_sending_to_unknown_without_resending(self):
+        cid, groups = self.task()
+        self.leads(2)
+        delivery = self.store.claim(cid, groups[0]['id'], session_name='one.session')
+        self.store.state(cid, 'paused')
+        self.store.prepare_start(cid)
+        with self.store.db() as conn:
+            row = conn.execute('SELECT status,error FROM deliveries WHERE id=?', (delivery['id'],)).fetchone()
+            self.assertEqual(row['status'], 'unknown')
+            self.assertIn('reconciliação', row['error'])
+        self.assertEqual(self.store.groups(cid)[0]['today'], 1)
+
+    def test_orphaned_sending_at_full_quota_is_reconciled_without_stalling(self):
+        cid, groups = self.task()
+        self.leads(2)
+        delivery = self.store.claim(cid, groups[0]['id'], session_name='one.session')
+        store = self.store
+        checked = []
+
+        class Gateway:
+            async def check_delivery(self, group, row):
+                checked.append(row['id'])
+                store.state(cid, 'paused')
+                return False
+
+            async def close(self):
+                pass
+
+        asyncio.run(campaign_loop(store, cid, Gateway()))
+        self.assertEqual(checked, [delivery['id']])
+        with store.db() as conn:
+            self.assertEqual(conn.execute('SELECT status FROM deliveries WHERE id=?', (delivery['id'],)).fetchone()['status'], 'failed')
+        self.assertEqual(store.groups(cid)[0]['today'], 0)
+
+    def test_parallel_monitor_reports_progress_while_gateway_is_waiting(self):
+        from group_campaigns import parallel_group_additions
+        cid, groups = self.task()
+        self.leads(1)
+        settings = self.store.get(cid)['settings']
+        real_wait = asyncio.wait
+
+        class Gateway:
+            async def invite(self, *args):
+                await asyncio.sleep(0.06)
+                return True
+
+        async def short_monitor(tasks, timeout):
+            return await real_wait(tasks, timeout=0.01)
+
+        with patch('group_campaigns.asyncio.wait', new=short_monitor):
+            asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        task = next(task for task in self.store.snapshot()['campaigns'] if task['id'] == cid)
+        self.assertTrue(any('executor ativo' in event['message'] and 'em andamento' in event['message'] for event in task['events']))
+        self.assertEqual(task['groups'][0]['today_added'], 1)
 
     def test_idle_parallel_session_reuses_slot_freed_by_slow_failure(self):
         from group_campaigns import parallel_group_additions
