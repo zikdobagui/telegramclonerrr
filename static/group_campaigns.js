@@ -139,6 +139,7 @@
     function eventTone(message) {
         const text = String(message || '').toLocaleLowerCase('pt-BR');
         if (/não confirmado|não adicionado|não foi possível|erro|rejeitad|spam|flood|indisponível|falha|inválid|desativad/.test(text)) return 'warning';
+        if (/congelad/.test(text)) return 'warning';
         if (/aguardando|meta diária|intervalo|espera|pendente/.test(text)) return 'waiting';
         if (/adicionado|sucesso|iniciado|confirmad/.test(text)) return 'success';
         return 'info';
@@ -298,7 +299,7 @@
                 const dailyAdded = task.groups.reduce((sum, group) => sum + (group.today_added || 0), 0);
                 const focus = perGroup ? task.groups.find(group => group.status !== 'error' && (group.today_added || 0) < group.daily_limit) : null;
                 const sessionWaits = task.session_waits || [];
-                const spamAlert = sessionWaits.length ? `<div class="gc-alert" role="alert"><strong>⚠️ Sessões limitadas pelo Telegram (spam/flood)</strong><p>Estas contas não serão usadas até o horário indicado. A tarefa não envia leads enquanto todas estiverem limitadas.</p><ul>${sessionWaits.map(wait => `<li><strong>${esc(wait.name)}</strong> — limitada até ${esc(new Date(wait.until * 1000).toLocaleString('pt-BR'))}${wait.kind ? ` · ${esc(wait.kind)}` : ''}${wait.reason ? ` · ${esc(wait.reason)}` : ''}</li>`).join('')}</ul></div>` : `<p class="info gc-note"><strong>Sessões:</strong> nenhuma limitação de spam/flood registrada para as contas desta tarefa.</p>`;
+                const spamAlert = sessionWaits.length ? `<div class="gc-alert" role="alert"><strong>⚠️ Sessões em espera ou bloqueadas pelo Telegram</strong><p>Flood aguarda o prazo informado. Contas congeladas exigem revisão no aplicativo oficial e ficam suspensas sem prazo automático.</p><ul>${sessionWaits.map(wait => `<li><strong>${esc(wait.name)}</strong> — limitada até ${esc(wait.requires_review ? 'revisão manual no Telegram (sem prazo automático)' : new Date(wait.until * 1000).toLocaleString('pt-BR'))}${wait.kind ? ` · ${esc(wait.kind)}` : ''}${wait.reason ? ` · ${esc(wait.reason)}` : ''}</li>`).join('')}</ul></div>` : `<p class="info gc-note"><strong>Sessões:</strong> nenhuma limitação de spam/flood registrada para as contas desta tarefa.</p>`;
                 return `<section class="card task-card-modern gc-task">
                     <div class="gc-task-head"><div><span class="gc-task-id">TAREFA #${task.id}</span><h3>${esc(task.name)}</h3></div><div class="gc-task-actions"><span class="gc-badge ${esc(task.status)}">${esc(labels[task.status] || task.status)}</span>
                     ${task.status === 'running' ? `<button class="btn btn-warning" data-action="pause" data-id="${task.id}">Pausar tarefa</button>` : `<button class="btn btn-primary" data-action="start" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Iniciar tarefa</button>`}

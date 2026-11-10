@@ -166,8 +166,36 @@ def session_restriction(error):
     ))
 
 
+def frozen_account(error):
+    for _ in range(6):
+        if error is None:
+            return False
+        if type(error).__name__ in {'FrozenMethodInvalidError', 'FrozenParticipantMissingError'}:
+            return True
+        error = error.__cause__
+    return False
+
+
+def frozen_sessions(data_dir):
+    try:
+        with open(os.path.join(data_dir, 'session_frozen.json'), encoding='utf-8') as source:
+            value = json.load(source)
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def mark_session_frozen(data_dir, name):
+    from data_store import atomic_write_json
+    saved = frozen_sessions(data_dir)
+    saved[name] = {'detected': time.time(), 'reason': 'Conta congelada pelo Telegram. Requer revisão no aplicativo oficial; não há prazo automático de liberação.'}
+    atomic_write_json(os.path.join(data_dir, 'session_frozen.json'), saved)
+
+
 def session_wait_until(data_dir, session_name):
     """Read the shared session cooldown file without failing a campaign."""
+    if session_name in frozen_sessions(data_dir):
+        return datetime.max
     try:
         with open(os.path.join(data_dir, 'session_floods.json'), encoding='utf-8') as source:
             value = json.load(source).get(session_name)
@@ -198,7 +226,11 @@ def session_wait_details(data_dir, session_names):
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         details = {}
     result = []
+    frozen = frozen_sessions(data_dir)
     for name in session_names:
+        if name in frozen:
+            result.append({'name': name, 'until': None, 'until_text': 'revisão manual no Telegram', 'requires_review': True, 'reason': frozen[name].get('reason', 'Conta congelada'), 'kind': 'FrozenMethodInvalidError'})
+            continue
         raw = saved.get(name)
         value = raw.get('until') if isinstance(raw, dict) else raw
         try:
@@ -1281,7 +1313,7 @@ class TelegramCampaignGateway:
                 except SourceLookupPendingError:
                     raise
                 except Exception as error:
-                    if session_restriction(error):
+                    if session_restriction(error) or frozen_account(error):
                         raise
                     delay = 60 if transient_request(error) else 300
                     state['retry_at'] = time.time() + delay
@@ -1334,7 +1366,7 @@ class TelegramCampaignGateway:
                 entity = await asyncio.wait_for(client.get_entity(InputUser(expected, int(payload['access_hash']))), timeout=30)
                 return checked(entity)
         except TimeoutError as error:
-            raise LeadResolutionError('A consulta da identidade nesta sessão excedeu o limite de tempo. Nenhum convite foi enviado com essa referência.') from error
+            raise SourceLookupPendingError('A consulta de identidade excedeu o prazo; o contato foi preservado e será tentado novamente após 30s.', 30) from error
         except (ValueError, TypeError, KeyError, UserIdInvalidError) as error:
             raise LeadReferenceInvalidError('Não foi possível obter um ID/access_hash válido nesta sessão. O arquivo pode ter sido extraído por outra conta; informe um username válido ou o grupo de origem.') from error
         raise LeadReferenceInvalidError('Lead sem referência válida para esta sessão. É necessário um username válido ou acesso ao grupo de origem; o hash exportado não será reenviado após rejeição.')
@@ -1424,29 +1456,52 @@ class TelegramCampaignGateway:
         from telethon.errors import UserNotParticipantError
         uid = delivery.get('resolved_id')
         if not uid:
-            return False  # No identity was reserved, so no invitation was sent.
-        name = delivery.get('session_name')
-        name = name if name in self.sessions else group['creator']
-        client, peer = await self.peer(group, name)
-        try:
-            if name == delivery.get('session_name') and delivery.get('resolved_hash'):
-                user = InputUser(int(uid), int(delivery['resolved_hash']))
-            else:
-                try:
-                    user = await client.get_input_entity(PeerUser(int(uid)))
-                except ValueError:
-                    members = await client.get_participants(peer, limit=None)
-                    for member in members:
-                        if member.id == int(uid):
-                            return True
-                    total = getattr(members, 'total', None)
-                    return False if isinstance(total, int) and len(members) >= total else None
-            result = await client(GetParticipantRequest(peer, user))
-            participant = result.participant
-            return not isinstance(participant, ChannelParticipantLeft) and not (
-                isinstance(participant, ChannelParticipantBanned) and participant.left)
-        except UserNotParticipantError:
             return False
+        data_dir = self.paths.get('data_dir', '')
+        audit = getattr(self, 'audit', lambda message: None)
+
+        async def inspect(name):
+            client, peer = await self.peer(group, name)
+            try:
+                if name == delivery.get('session_name') and delivery.get('resolved_hash'):
+                    user = InputUser(int(uid), int(delivery['resolved_hash']))
+                else:
+                    try:
+                        user = await client.get_input_entity(PeerUser(int(uid)))
+                    except ValueError:
+                        members = await client.get_participants(peer, limit=None)
+                        for member in members:
+                            if member.id == int(uid):
+                                return True
+                        total = getattr(members, 'total', None)
+                        return False if isinstance(total, int) and len(members) >= total else None
+                result = await client(GetParticipantRequest(peer, user))
+                participant = result.participant
+                return not isinstance(participant, ChannelParticipantLeft) and not (
+                    isinstance(participant, ChannelParticipantBanned) and participant.left)
+            except UserNotParticipantError:
+                return False
+
+        candidates = list(dict.fromkeys([group['creator'], delivery.get('session_name'), *self.sessions]))
+        tried = 0
+        for name in candidates:
+            if not name or name not in self.sessions or name in frozen_sessions(data_dir):
+                continue
+            tried += 1
+            try:
+                result = await asyncio.wait_for(inspect(name), timeout=10)
+                if result is not None:
+                    return result
+            except Exception as error:
+                if frozen_account(error):
+                    if data_dir:
+                        mark_session_frozen(data_dir, name)
+                    audit(f'Sessão {name}: congelada pelo Telegram durante a confirmação; outra sessão verificará o mesmo grupo sem reenviar o convite.')
+                else:
+                    audit(f'Sessão {name}: consulta de confirmação indisponível ({type(error).__name__}); verificando por outra conta disponível.')
+            if tried >= 3:
+                break
+        return None
 
     async def close(self):
         for client in self.clients.values():
@@ -1557,6 +1612,10 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
     async def account(name):
         nonlocal attempts
         while active():
+            if name in frozen_sessions(data_dir):
+                states[name] = 'conta congelada · revisão manual'
+                store.event_recent(cid, f'Sessão {name}: conta congelada pelo Telegram; suspensa até revisão no aplicativo oficial. Não há retomada automática em 24h.', seconds=300)
+                return
             if name in rejected:
                 return
             if time.time() < retry_at.get(name, 0):
@@ -1594,6 +1653,11 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                 added = await asyncio.wait_for(gateway.invite(group, name, delivery['payload'],
                                              store.reservation(delivery['id'], name)), timeout=120)
             except Exception as error:
+                if frozen_account(error):
+                    mark_session_frozen(data_dir, name)
+                    store.finish(delivery['id'], 'unknown' if isinstance(error, InviteConfirmationError) else 'retry', 'Conta congelada pelo Telegram; sessão suspensa para revisão.')
+                    store.event(cid, f'{prefix}: conta congelada pelo Telegram (FROZEN_METHOD_INVALID). Sessão suspensa para revisão no aplicativo oficial; nenhum prazo de liberação foi presumido.')
+                    return
                 if isinstance(error, SourceLookupPendingError):
                     store.finish(delivery['id'], 'retry', str(error))
                     retry_at[name] = time.time() + error.retry_after
@@ -1845,6 +1909,13 @@ async def campaign_loop(store, cid, gateway):
                                     used_session = candidate
                                     break
                                 except Exception as error:
+                                    if frozen_account(error):
+                                        mark_session_frozen(data_dir, candidate)
+                                        store.event(cid, f'Sessão {candidate}: conta congelada pelo Telegram, suspensa até revisão no aplicativo oficial.')
+                                        if isinstance(error, InviteConfirmationError):
+                                            raise
+                                        used_session = None
+                                        continue
                                     if isinstance(error, SourceLookupPendingError):
                                         used_session = None
                                         store.finish(delivery['id'], 'retry', str(error))

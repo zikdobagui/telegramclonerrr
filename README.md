@@ -32,3 +32,7 @@ Acesse: http://localhost:5000
 - `static/` - CSS, JS, imagens
 - `discloud.config` - Configuração do Discloud
 - Arquivos compartilhados (session_manager, extractor, etc.)
+
+## Bot opcional
+
+A aplicação web (`app.py`) usa `requirements.txt`. Para executar `bot.py` separadamente, use Python 3.13 e instale `pip install -r requirements-bot.txt`. O bot e suas dependências não são necessários para hospedar o painel web.

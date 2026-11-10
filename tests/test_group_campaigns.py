@@ -127,6 +127,31 @@ class InviteResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.await_count, 1)
         self.assertEqual(type(client.await_args.args[0]).__name__, 'GetParticipantsRequest')
 
+    async def test_confirmation_uses_healthy_session_when_owner_is_frozen(self):
+        from telethon.errors import FrozenMethodInvalidError
+        from telethon.tl.types import InputUser
+        from group_campaigns import frozen_sessions
+        with tempfile.TemporaryDirectory() as directory:
+            gateway = TelegramCampaignGateway({'data_dir': directory}, {'owner': {}, 'sender': {}}, ())
+            owner = AsyncMock(side_effect=FrozenMethodInvalidError(None))
+            owner.get_input_entity.return_value = InputUser(123, 111)
+            sender = AsyncMock(return_value=SimpleNamespace(participant=SimpleNamespace()))
+            gateway.peer = AsyncMock(side_effect=lambda group, name: (owner if name == 'owner' else sender, 'peer'))
+            delivery = {'resolved_id': '123', 'resolved_hash': '456', 'session_name': 'sender'}
+            self.assertTrue(await gateway.check_delivery({'creator': 'owner'}, delivery))
+            self.assertIn('owner', frozen_sessions(directory))
+            self.assertEqual([call.args[1] for call in gateway.peer.await_args_list], ['owner', 'sender'])
+            self.assertEqual(type(sender.await_args.args[0]).__name__, 'GetParticipantRequest')
+
+    async def test_identity_timeout_is_temporary_not_an_invalid_lead(self):
+        from group_campaigns import SourceLookupPendingError
+        gateway = TelegramCampaignGateway({}, {}, ())
+        client = AsyncMock()
+        client.get_input_entity.side_effect = TimeoutError()
+        with self.assertRaises(SourceLookupPendingError) as error:
+            await gateway.resolve_lead(client, 'one', {'username': 'example'})
+        self.assertEqual(error.exception.retry_after, 30)
+
     async def test_source_timeout_preserves_pages_and_resumes_from_failed_offset(self):
         from telethon.tl.types import User
         from group_campaigns import SourceLookupPendingError
@@ -746,6 +771,30 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertGreater(gateway.session_retry_at['one.session'], 0)
         self.assertEqual(store.groups(cid)[0]['status'], 'ready')
+
+    def test_frozen_session_is_suspended_without_marking_group_error(self):
+        from group_campaigns import parallel_group_additions, frozen_sessions, session_wait_details
+        from telethon.errors import FrozenMethodInvalidError
+        cid, groups = self.task()
+        self.leads(2)
+        settings = self.store.get(cid)['settings']
+        calls = []
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(name)
+                if name == 'one.session':
+                    raise FrozenMethodInvalidError(None)
+                return True
+
+        asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        self.assertEqual(calls, ['one.session', 'two.session'])
+        self.assertIn('one.session', frozen_sessions(self.temp.name))
+        details = session_wait_details(self.temp.name, ['one.session'])
+        self.assertTrue(details[0]['requires_review'])
+        self.assertIsNone(details[0]['until'])
+        self.assertEqual(self.store.groups(cid)[0]['status'], 'ready')
+        self.assertEqual(self.store.groups(cid)[0]['today_added'], 1)
 
     def test_source_temporary_failure_retries_without_discarding_lead(self):
         from group_campaigns import parallel_group_additions, SourceLookupPendingError

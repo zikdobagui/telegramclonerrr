@@ -1,5 +1,4 @@
-# Dependências do Bot de Divulgação
-# Gerado automaticamente
+# Dependências da aplicação web (app.py)
 
 colorama
 requests
@@ -11,5 +10,4 @@ cryptg
 aiohttp
 python-dotenv
 psutil
-aiogram
 tzdata
