@@ -432,6 +432,7 @@ class CampaignStore:
                     id INTEGER PRIMARY KEY, campaign_id INTEGER NOT NULL, message TEXT NOT NULL, created REAL NOT NULL);
             ''')
             conn.execute('CREATE TABLE IF NOT EXISTS quota_cycles (campaign_id INTEGER NOT NULL, scope INTEGER NOT NULL, token TEXT NOT NULL, started REAL NOT NULL, expires REAL NOT NULL, PRIMARY KEY(campaign_id,scope))')
+            conn.execute('CREATE TABLE IF NOT EXISTS log_clears (campaign_id INTEGER PRIMARY KEY, through_id INTEGER NOT NULL)')
             columns = {row['name'] for row in conn.execute('PRAGMA table_info(deliveries)')}
             for column in ('resolved_hash', 'session_name'):
                 if column not in columns:
@@ -476,6 +477,16 @@ class CampaignStore:
         with self.db() as conn:
             conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, message[:1000], time.time()))
             conn.execute('DELETE FROM events WHERE campaign_id=? AND id NOT IN (SELECT id FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 1000)', (cid, cid))
+
+    def clear_events(self, cid):
+        self.get(cid)
+        with self.db() as conn:
+            # Keep a marker above the old global cursor so SSE IDs never rewind.
+            marker = conn.execute("INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)",
+                                  (cid, '', time.time())).lastrowid
+            conn.execute('INSERT OR REPLACE INTO log_clears VALUES(?,?)', (cid, marker))
+            conn.execute('DELETE FROM events WHERE campaign_id=? AND id<?', (cid, marker))
+        return marker
 
     def event_once(self, cid, message):
         """Avoid filling the history with the same cooldown notice every loop."""
@@ -649,7 +660,7 @@ class CampaignStore:
                 raise ValueError('Tarefa não encontrada')
             if task['status'] == 'running':
                 raise ValueError('Pause a tarefa antes de excluir')
-            for table in ('deliveries', 'events', 'groups'):
+            for table in ('deliveries', 'events', 'log_clears', 'groups'):
                 conn.execute(f'DELETE FROM {table} WHERE campaign_id=?', (cid,))
             conn.execute('DELETE FROM campaigns WHERE id=?', (cid,))
 
@@ -1009,7 +1020,9 @@ class CampaignStore:
                 task['excluded_lead_count'] = conn.execute('SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_lead_exclusions e JOIN leads l ON l.id=e.lead_id WHERE e.campaign_id=?', (cid,)).fetchone()[0]
                 task['groups'] = self.groups(cid)
                 task['session_waits'] = session_wait_details(os.path.dirname(self.path), task['settings'].get('sessions', []))
-                task['events'] = [dict(row) for row in conn.execute('SELECT id,message,created FROM events WHERE campaign_id=? ORDER BY id DESC LIMIT 500', (cid,))]
+                cleared = conn.execute('SELECT through_id FROM log_clears WHERE campaign_id=?', (cid,)).fetchone()
+                task['logs_cleared_through'] = cleared['through_id'] if cleared else 0
+                task['events'] = [dict(row) for row in conn.execute('SELECT id,message,created FROM events WHERE campaign_id=? AND id>? ORDER BY id DESC LIMIT 500', (cid, task['logs_cleared_through']))]
                 task['counts'] = dict(conn.execute('SELECT status,count(*) FROM deliveries WHERE campaign_id=? GROUP BY status', (cid,)))
                 task['active_sessions'] = [row['session_name'] for row in conn.execute("SELECT DISTINCT session_name FROM deliveries WHERE campaign_id=? AND status='sending' AND session_name IS NOT NULL", (cid,))]
                 for group in task['groups']:
@@ -2059,7 +2072,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             while True:
                 with store.db() as conn:
                     rows = [dict(row) for row in conn.execute(
-                        'SELECT id,campaign_id,message,created FROM events WHERE id>? ORDER BY id LIMIT 500', (cursor,))]
+                        'SELECT e.id,e.campaign_id,e.message,e.created,COALESCE(c.through_id,0) AS logs_cleared_through FROM events e LEFT JOIN log_clears c ON c.campaign_id=e.campaign_id WHERE e.id>? ORDER BY e.id LIMIT 500', (cursor,))]
                 if rows:
                     cursor = rows[-1]['id']
                     yield f'id: {cursor}\ndata: {json.dumps(rows, ensure_ascii=False)}\n\n'
@@ -2069,6 +2082,11 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
 
         return Response(generate(), mimetype='text/event-stream', headers={
             'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no'})
+
+    @app.route('/api/group-campaigns/<int:cid>/logs/clear', methods=['POST'])
+    @endpoint
+    def campaign_clear_logs(cid):
+        return jsonify(success=True, logs_cleared_through=store_for(session['username']).clear_events(cid))
 
     @app.route('/api/group-campaigns', methods=['GET', 'POST'])
     @endpoint

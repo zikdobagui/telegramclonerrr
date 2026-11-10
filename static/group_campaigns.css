@@ -185,3 +185,25 @@ body[data-design="studio"] #comingSoon .gc-group.gc-focused {border-color:#34d39
 #comingSoon .gc-group.gc-group-error, body[data-design="studio"] #comingSoon .gc-group.gc-group-error {border-color:#f87171!important;background:rgba(239,68,68,.07)!important;}
 #comingSoon .gc-group-error .gc-group-title {color:#fca5a5!important;}
 #comingSoon .gc-group-error-message {display:block;margin-top:8px;color:#fca5a5;font-size:12px;line-height:1.5;overflow-wrap:anywhere;}
+/* Compact task controls: keep progress and activity in view. */
+#comingSoon .gc-task .gc-task-meta {gap:6px;margin:10px 0;}
+#comingSoon .gc-task .gc-daily-overview {padding:14px 18px;gap:18px;margin-bottom:12px;}
+#comingSoon .gc-task .gc-task-stats > div {padding:10px 13px!important;}
+#comingSoon .gc-controls {border-top:1px solid var(--studio-line,#303036);margin-top:12px;}
+#comingSoon .gc-controls > summary {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;cursor:pointer;font-weight:600;}
+#comingSoon .gc-controls > summary::before {content:'›';color:#94a3b8;}
+#comingSoon .gc-controls[open] > summary::before {content:'⌄';}
+#comingSoon .gc-controls > summary > span {margin-left:auto;color:var(--studio-muted,#a1a1aa);font-size:11px;font-weight:400;}
+#comingSoon .gc-controls-body {padding:0 0 12px;}
+#comingSoon .gc-controls-body > small {display:block;margin:7px 0 12px;line-height:1.5;color:var(--studio-muted,#a1a1aa);}
+#comingSoon .gc-session-alert {margin:10px 0;padding:10px 12px!important;}
+#comingSoon .gc-session-alert > summary {cursor:pointer;font-size:12px;font-weight:600;}
+#comingSoon .gc-session-alert > summary > span {float:right;font-size:11px;font-weight:400;}
+#comingSoon .gc-session-alert ul {max-height:180px;overflow:auto;overflow-wrap:anywhere;}
+#comingSoon .gc-task .gc-history > summary {padding:11px 0;}
+#comingSoon .gc-task .gc-log-toolbar {padding:8px;gap:8px;}
+#comingSoon .gc-task .gc-history-help {background:transparent;padding:5px 0;font-size:11px;}
+#comingSoon .gc-task .gc-log-list {max-height:360px;}
+#comingSoon .gc-task .gc-log {padding:9px 10px;}
+#comingSoon .gc-clear-logs {white-space:nowrap;border:1px solid var(--studio-line,#414149);background:transparent;color:var(--studio-text,#e2e8f0);}
+@media(max-width:680px) {#comingSoon .gc-controls > summary {flex-wrap:wrap;}#comingSoon .gc-controls > summary > span {width:100%;margin-left:17px;}#comingSoon .gc-session-alert > summary > span {float:none;margin-left:8px;}}

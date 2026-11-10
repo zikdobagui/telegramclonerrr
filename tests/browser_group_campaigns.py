@@ -131,6 +131,19 @@ def run():
                 page.locator('[data-log-search="1"]').fill('Evento SSE')
                 assert page.locator('.gc-log').count() == 1
                 page.locator('[data-log-search="1"]').fill('')
+                page.get_by_role('button', name='Limpar logs', exact=True).click()
+                page.wait_for_function('document.querySelector(".gc-log-count").textContent === "0"')
+                page.locator('#campaign-refresh').click()
+                page.wait_for_function('document.querySelector(".gc-log-count").textContent === "0"')
+                log_store.event(1, 'Novo evento depois de limpar')
+                page.get_by_text('Novo evento depois de limpar', exact=True).wait_for()
+                assert page.get_by_text('Evento SSE de teste: convite em andamento', exact=True).count() == 0
+                assert not page.locator('.gc-controls').evaluate('(node) => node.open')
+                if os.environ.get('CAMPAIGN_SCREENSHOT_DIR'):
+                    page.locator('.gc-task').screenshot(path=str(output / 'task-compact.png'))
+                page.locator('.gc-controls > summary').click()
+                assert page.locator('button[data-action="import-leads"]').is_visible()
+                page.locator('.gc-controls > summary').click()
                 # Simulate a created group and a confirmed transfer; never contact Telegram.
                 store = CampaignStore(directory)
                 owner_group = store.groups(1)[0]

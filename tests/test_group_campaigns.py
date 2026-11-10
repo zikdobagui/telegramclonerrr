@@ -355,6 +355,27 @@ class CampaignStoreTests(unittest.TestCase):
     def leads(self, count=10):
         return self.store.import_leads('leads.json', json.dumps({'members': [{'id': 100 + n, 'username': f'lead_{n}', 'access_hash': 9000000000000000000 + n} for n in range(count)]}).encode(), cid=next(iter(self.store.snapshot()['campaigns']), {}).get('id'))
 
+    def test_clear_logs_preserves_deliveries_quota_and_other_campaign(self):
+        cid, groups = self.task()
+        self.leads(2)
+        delivery = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(delivery['id'], 'added')
+        other = self.store.create({'name': 'Other'}, ['one.session'])
+        self.store.event(other, 'Keep this')
+        before = next(t for t in self.store.snapshot()['campaigns'] if t['id'] == cid)
+        cutoff = self.store.clear_events(cid)
+        after = next(t for t in self.store.snapshot()['campaigns'] if t['id'] == cid)
+        self.assertEqual(after['events'], [])
+        for key in ('counts', 'groups', 'settings', 'status', 'lead_count'):
+            self.assertEqual(before[key], after[key])
+        self.store.event(cid, 'New event')
+        tasks = {t['id']: t for t in CampaignStore(self.temp.name).snapshot()['campaigns']}
+        self.assertEqual(tasks[cid]['logs_cleared_through'], cutoff)
+        self.assertGreater(tasks[cid]['events'][0]['id'], cutoff)
+        self.assertEqual(tasks[other]['events'][0]['message'], 'Keep this')
+        with self.assertRaises(ValueError):
+            self.store.clear_events(99999)
+
     def test_resume_recovers_invite_error_without_resetting_leads_or_quota(self):
         cid, groups = self.task()
         self.leads(2)
@@ -1339,10 +1360,19 @@ class CampaignApiTests(unittest.TestCase):
             def is_session_flooded(self, name):
                 return False
 
+        self.worker_idle = threading.Event()
+        self.worker_idle.set()
+
+        def set_test_lock(kind, active, **kwargs):
+            if active:
+                self.worker_idle.clear()
+            else:
+                self.worker_idle.set()
+
         register_campaign_routes(app, authenticated,
                                  lambda username: {'data_dir': str(Path(self.temp.name) / username), 'sessions_dir': self.temp.name},
                                  lambda username: Sessions(), lambda: (1, 'test'),
-                                 lambda *args, **kwargs: (True, 'OK'), lambda *args, **kwargs: None,
+                                 lambda *args, **kwargs: (True, 'OK'), set_test_lock,
                                  lambda username: {})
         self.client = app.test_client()
 
@@ -1391,6 +1421,32 @@ class CampaignApiTests(unittest.TestCase):
         result = target.import_leads('export.json', response.data, cid=target_id)
         self.assertEqual(result['task_total'], 1)
         self.assertEqual(target.export_leads(target_id), members)
+
+    def test_clear_logs_auth_isolation_and_stream_reconnect(self):
+        url = '/api/group-campaigns/1/logs/clear'
+        self.assertEqual(self.client.post(url).status_code, 401)
+        self.login('alice')
+        self.client.post('/api/group-campaigns', json={'name': 'Logs', 'sessions': ['one.session']})
+        store = CampaignStore(str(Path(self.temp.name) / 'alice'))
+        store.event(1, 'Old event')
+        self.login('bob')
+        self.assertEqual(self.client.post(url).status_code, 400)
+        self.login('alice')
+        cutoff = self.client.post(url).json['logs_cleared_through']
+        self.assertEqual(self.client.get('/api/group-campaigns').json['campaigns'][0]['events'], [])
+        response = self.client.get('/api/group-campaigns/events/stream', headers={'Last-Event-ID': str(cutoff - 1)}, buffered=False)
+        try:
+            chunk = next(iter(response.response)).decode()
+            self.assertIn('logs_cleared_through', chunk)
+            self.assertNotIn('Old event', chunk)
+        finally:
+            response.close()
+        store.event(1, 'New live event')
+        response = self.client.get('/api/group-campaigns/events/stream', headers={'Last-Event-ID': str(cutoff)}, buffered=False)
+        try:
+            self.assertIn('New live event', next(iter(response.response)).decode())
+        finally:
+            response.close()
 
     def test_event_stream_is_authenticated_isolated_and_resumes(self):
         self.assertEqual(self.client.get('/api/group-campaigns/events/stream').status_code, 401)
@@ -1519,6 +1575,7 @@ class CampaignApiTests(unittest.TestCase):
             finally:
                 self.client.post(f'/api/group-campaigns/{cid}/pause')
                 self.assertTrue(stopped.wait(5))
+                self.assertTrue(self.worker_idle.wait(5))
 
     def test_edit_delete_and_isolation(self):
         self.login('alice')
@@ -1575,6 +1632,7 @@ class CampaignApiTests(unittest.TestCase):
             finally:
                 self.assertTrue(self.client.post(f'/api/group-campaigns/{cid}/pause').json['success'])
                 self.assertTrue(stopped.wait(5))
+                self.assertTrue(self.worker_idle.wait(5))
 
 
 if __name__ == '__main__':
