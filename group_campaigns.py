@@ -387,6 +387,10 @@ class CampaignStore:
                     UNIQUE(campaign_id,lead_id,scope));
                 CREATE UNIQUE INDEX IF NOT EXISTS delivered_identity ON deliveries(campaign_id,scope,resolved_id) WHERE resolved_id IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS delivery_quota ON deliveries(campaign_id,slot,day,status);
+                CREATE TABLE IF NOT EXISTS delivery_reference_failures (
+                    delivery_id INTEGER NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+                    session_name TEXT NOT NULL, error TEXT NOT NULL,
+                    PRIMARY KEY(delivery_id,session_name));
                 CREATE TABLE IF NOT EXISTS events (
                     id INTEGER PRIMARY KEY, campaign_id INTEGER NOT NULL, message TEXT NOT NULL, created REAL NOT NULL);
             ''')
@@ -804,6 +808,8 @@ class CampaignStore:
             if cid is not None:
                 if not selected:
                     raise ValueError('O arquivo não contém contatos válidos. A lista anterior foi mantida.')
+                conn.execute("DELETE FROM delivery_reference_failures WHERE delivery_id IN (SELECT id FROM deliveries WHERE campaign_id=? AND status IN ('retry','unresolved'))", (cid,))
+                conn.execute("UPDATE deliveries SET status='retry' WHERE campaign_id=? AND status='unresolved'", (cid,))
                 conn.execute('DELETE FROM campaign_leads WHERE campaign_id=?', (cid,))
                 conn.executemany('INSERT INTO campaign_leads VALUES(?,?)', [(cid, lead_id) for lead_id in selected])
                 conn.execute('INSERT OR REPLACE INTO campaign_sources VALUES(?,?,?)', (cid, os.path.basename(filename.replace('\\', '/'))[:255], time.time()))
@@ -828,7 +834,7 @@ class CampaignStore:
                    ) ORDER BY canonical.id""", (cid,)).fetchall()
             return [json.loads(row['payload']) for row in rows]
 
-    def claim(self, cid, gid, diagnose=False):
+    def claim(self, cid, gid, diagnose=False, session_name=None):
         """Reserve before network I/O: uncertain results are never resent automatically."""
         def result(delivery, reason=''):
             return (delivery, reason) if diagnose else delivery
@@ -855,7 +861,7 @@ class CampaignStore:
             # A retry is only created when Telegram explicitly rejected the
             # account before accepting an invite. It is safe to retain the
             # lead and try it with another selected session.
-            retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND NOT EXISTS (SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id WHERE e.campaign_id=d.campaign_id AND COALESCE(excluded.canonical_id,excluded.id)=COALESCE(l.canonical_id,l.id)) ORDER BY d.id LIMIT 1", (cid, gid)).fetchone()
+            retry = conn.execute("SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND EXISTS (SELECT 1 FROM campaign_leads cl JOIN leads chosen ON chosen.id=cl.lead_id WHERE cl.campaign_id=d.campaign_id AND COALESCE(chosen.canonical_id,chosen.id)=COALESCE(l.canonical_id,l.id)) AND NOT EXISTS (SELECT 1 FROM campaign_lead_exclusions e JOIN leads excluded ON excluded.id=e.lead_id WHERE e.campaign_id=d.campaign_id AND COALESCE(excluded.canonical_id,excluded.id)=COALESCE(l.canonical_id,l.id)) AND NOT EXISTS (SELECT 1 FROM delivery_reference_failures f WHERE f.delivery_id=d.id AND f.session_name=?) ORDER BY d.id LIMIT 1", (cid, gid, session_name or '')).fetchone()
             if retry:
                 conn.execute("UPDATE deliveries SET status='sending',error='',day=? WHERE id=?", (day, retry['id']))
                 return result({'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])})
@@ -876,6 +882,23 @@ class CampaignStore:
             did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status) VALUES(?,?,?,?,?,?,'sending')", (cid, gid, group['slot'], lead['id'], scope, day)).lastrowid
             return result({'id': did, 'lead_id': lead['id'], 'payload': json.loads(lead['payload'])})
 
+    def reference_attempts(self, did):
+        with self.db() as conn:
+            return {row['session_name'] for row in conn.execute('SELECT session_name FROM delivery_reference_failures WHERE delivery_id=?', (did,))}
+
+    def reference_failed(self, did, name, names, error):
+        with self.db() as conn:
+            conn.execute('INSERT OR REPLACE INTO delivery_reference_failures VALUES(?,?,?)', (did, name, str(error)[:1000]))
+            attempted = {row['session_name'] for row in conn.execute('SELECT session_name FROM delivery_reference_failures WHERE delivery_id=?', (did,))}
+            exhausted = set(names) <= attempted
+            conn.execute('UPDATE deliveries SET status=?,error=? WHERE id=?',
+                         ('unresolved' if exhausted else 'retry', str(error)[:1000], did))
+            delivery = conn.execute('SELECT campaign_id,lead_id FROM deliveries WHERE id=?', (did,)).fetchone()
+            message = 'nenhuma sessão selecionada conseguiu resolver a referência; contato preservado na base e na exportação' if exhausted else 'referência indisponível nesta sessão; outra sessão selecionada poderá tentar. Contato preservado'
+            conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)',
+                         (delivery['campaign_id'], f"Lead #{delivery['lead_id']} · sessão {name}: {message}.", time.time()))
+        return exhausted
+
     def retry_expired_invite_deliveries(self, gid):
         with self.db() as conn:
             rows = conn.execute("SELECT id,error FROM deliveries WHERE group_id=? AND status='unknown'", (gid,)).fetchall()
@@ -886,7 +909,7 @@ class CampaignStore:
     def finish(self, did, status, error='', error_kind=''):
         with self.db() as conn:
             conn.execute('UPDATE deliveries SET status=?,error=? WHERE id=?', (status, error[:1000], did))
-            if status == 'failed' and error_kind in {'UserIdInvalidError', 'InputUserDeactivatedError', 'LeadReferenceInvalidError'}:
+            if status == 'failed' and error_kind == 'InputUserDeactivatedError':
                 delivery = conn.execute('SELECT campaign_id,lead_id FROM deliveries WHERE id=?', (did,)).fetchone()
                 inserted = conn.execute('INSERT OR IGNORE INTO campaign_lead_exclusions VALUES(?,?,?,?)',
                                         (delivery['campaign_id'], delivery['lead_id'], error_kind, time.time())).rowcount
@@ -905,11 +928,11 @@ class CampaignStore:
 
     def recover(self):
         with self.db() as conn:
-            conn.execute('''INSERT OR IGNORE INTO campaign_lead_exclusions(campaign_id,lead_id,reason,created)
-                SELECT campaign_id,lead_id,'UserIdInvalidError',? FROM deliveries
-                WHERE status='failed' AND error LIKE 'Invalid object ID for a user.%'
-                AND error LIKE '%InviteToChannelRequest%'
-                ''', (time.time(),))
+            # Restore references previously discarded on a single account's failure.
+            affected = conn.execute("SELECT campaign_id,lead_id FROM campaign_lead_exclusions WHERE reason IN ('LeadReferenceInvalidError','UserIdInvalidError')").fetchall()
+            for row in affected:
+                conn.execute("UPDATE deliveries SET status='retry' WHERE campaign_id=? AND lead_id=? AND status='failed'", (row['campaign_id'], row['lead_id']))
+            conn.execute("DELETE FROM campaign_lead_exclusions WHERE reason IN ('LeadReferenceInvalidError','UserIdInvalidError')")
             conn.execute("UPDATE campaigns SET status='paused',error='Servidor reiniciado. Clique em Iniciar para continuar.' WHERE status='running'")
             conn.execute("UPDATE deliveries SET status='unknown',error='Resultado não confirmado antes da interrupção' WHERE status='sending'")
             conn.execute("UPDATE groups SET status='error',error='Criação interrompida. Verifique o Telegram e substitua por link para evitar recriar.' WHERE status='creating'")
@@ -1203,13 +1226,13 @@ class TelegramCampaignGateway:
         from telethon import utils
         from telethon.tl.types import InputUser, PeerUser
         from telethon.tl.functions.contacts import ResolveUsernameRequest
-        from telethon.errors import UserIdInvalidError
+        from telethon.errors import UserIdInvalidError, InputUserDeactivatedError
         audit = getattr(self, 'audit', lambda message: None)
         expected = int(payload['id']) if str(payload.get('id') or '').isdigit() else None
 
         def checked(entity):
             if getattr(entity, 'deleted', False) is True:
-                raise LeadReferenceInvalidError('A conta do lead foi desativada.')
+                raise InputUserDeactivatedError(None)
             user = utils.get_input_user(entity)
             if not getattr(user, 'user_id', None) or not getattr(user, 'access_hash', None):
                 raise LeadReferenceInvalidError('A sessão não obteve uma referência válida de usuário.')
@@ -1474,7 +1497,7 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                 if not active():
                     return
                 store.event(cid, f"Grupo {group['slot']}: sessão {name} encerrou a espera e retomará as tentativas neste grupo.")
-            delivery, reason = store.claim(cid, gid, diagnose=True)
+            delivery, reason = store.claim(cid, gid, diagnose=True, session_name=name)
             if not delivery:
                 store.event_recent(cid, f"Grupo {group['slot']}: sessão {name} aguardando porque {reason}.")
                 return
@@ -1485,6 +1508,10 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                 added = await gateway.invite(group, name, delivery['payload'],
                                              store.reservation(delivery['id'], name))
             except Exception as error:
+                if isinstance(error, LeadReferenceInvalidError) or type(error).__name__ == 'UserIdInvalidError':
+                    store.reference_failed(delivery['id'], name, settings['sessions'], error)
+                    record_failure(name)
+                    continue
                 if type(error).__name__ in {'ChatAdminRequiredError', 'ChatWriteForbiddenError', 'ChannelPrivateError', 'UserBannedInChannelError'}:
                     store.finish(delivery['id'], 'retry', str(error))
                     reject_session(name, f'{type(error).__name__}: {error}')
@@ -1671,8 +1698,14 @@ async def campaign_loop(store, cid, gateway):
                             # Rotate immediately when one account is limited.
                             # Do not turn a valid group into an error/review
                             # item merely because one session was spam-limited.
+                            starting_turn = turn
+                            turn += 1
+                            reference_exhausted = False
+                            previous_reference_failures = store.reference_attempts(delivery['id'])
                             for offset in range(len(available_names)):
-                                candidate = available_names[(turn + offset) % len(available_names)]
+                                candidate = available_names[(starting_turn + offset) % len(available_names)]
+                                if candidate in previous_reference_failures:
+                                    continue
                                 # Lightweight test/custom gateways may not
                                 # expose the production ``sessions`` mapping.
                                 if candidate not in loaded:
@@ -1685,6 +1718,10 @@ async def campaign_loop(store, cid, gateway):
                                     used_session = candidate
                                     break
                                 except Exception as error:
+                                    if isinstance(error, LeadReferenceInvalidError) or type(error).__name__ == 'UserIdInvalidError':
+                                        used_session = None
+                                        reference_exhausted = store.reference_failed(delivery['id'], candidate, names, error)
+                                        continue
                                     if not session_restriction(error):
                                         raise
                                     used_session = None
@@ -1695,6 +1732,8 @@ async def campaign_loop(store, cid, gateway):
                                         f"Sessão {candidate} entrou em espera até {until.strftime('%d/%m/%Y %H:%M')}: conta limitada pelo Telegram ({type(error).__name__}: {error}). A tarefa seguirá com as outras sessões."
                                     )
                             if used_session is None:
+                                if reference_exhausted:
+                                    continue
                                 details = '; '.join(f'{name}: {type(error).__name__}' for name, error, _ in restriction_errors)
                                 store.finish(delivery['id'], 'retry', f'Sessões em espera: {details}'[:1000])
                                 store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} aguardará uma sessão disponível; o grupo permanece ativo. {details}")
@@ -1702,7 +1741,6 @@ async def campaign_loop(store, cid, gateway):
                             status = 'skipped' if added is None else ('added' if added else 'failed')
                             store.finish(delivery['id'], status, 'Identidade já utilizada' if added is None else ('' if added else 'Telegram não permitiu adicionar este lead'))
                             store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} {'adicionado' if added else ('ignorado por duplicidade' if added is None else 'não adicionado pelo Telegram')} ({used_session}).")
-                            turn += 1
                         except Exception as error:
                             if isinstance(error, GroupAccessError) or expired_group_invite(error):
                                 store.finish(delivery['id'], 'retry', str(error))

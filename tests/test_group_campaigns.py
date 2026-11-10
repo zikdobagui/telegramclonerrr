@@ -509,14 +509,14 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertTrue(any('@admin_two definido como administrador' in event['message'] for event in events))
         self.assertEqual(store.snapshot()['campaigns'][0]['counts'], {'added': 1})
 
-    def test_invalid_reference_is_excluded_from_all_groups_and_clean_export_only_for_its_task(self):
+    def test_deactivated_account_is_excluded_only_for_its_task(self):
         cid, groups = self.task(dedup='group')
         other, other_groups = self.task(dedup='group')
         self.leads(2)
         source = json.dumps({'members': self.store.export_leads(other)}).encode()
         self.store.import_leads('leads.json', source, cid=cid)
         first = self.store.claim(cid, groups[0]['id'])
-        self.store.finish(first['id'], 'failed', 'Invalid object ID for a user.', error_kind='UserIdInvalidError')
+        self.store.finish(first['id'], 'failed', 'Conta desativada', error_kind='InputUserDeactivatedError')
         next_delivery = self.store.claim(cid, groups[1]['id'])
         self.assertNotEqual(next_delivery['lead_id'], first['lead_id'])
         self.assertEqual(len(self.store.export_leads(cid)), 1)
@@ -545,18 +545,80 @@ class CampaignStoreTests(unittest.TestCase):
             'members': [{'id': 123, 'access_hash': 456}]}).encode(), cid=cid)
         self.assertEqual(self.store.export_leads(cid)[0]['source_group_link'], 'https://t.me/source')
         delivery = self.store.claim(cid, groups[0]['id'])
-        self.store.finish(delivery['id'], 'failed', 'Referência rejeitada', error_kind='LeadReferenceInvalidError')
-        self.assertEqual(self.store.export_leads(cid), [])
+        self.store.reference_failed(delivery['id'], 'one.session', ['one.session'], 'Referência rejeitada')
+        self.assertEqual(len(self.store.export_leads(cid)), 1)
 
-    def test_legacy_invalid_user_failures_are_cleaned_on_recovery(self):
+    def test_legacy_reference_exclusions_are_restored_on_recovery(self):
         cid, groups = self.task(dedup='group')
         self.leads(2)
         first = self.store.claim(cid, groups[0]['id'])
-        self.store.finish(first['id'], 'failed', 'Invalid object ID for a user. Make sure to pass the right types (caused by InviteToChannelRequest)')
-        self.store.recover()
+        self.store.finish(first['id'], 'failed', 'Referência indisponível')
+        with self.store.db() as conn:
+            conn.execute('INSERT INTO campaign_lead_exclusions VALUES(?,?,?,?)', (cid, first['lead_id'], 'LeadReferenceInvalidError', 1))
         self.assertEqual(len(self.store.export_leads(cid)), 1)
         self.store.recover()
+        self.assertEqual(len(self.store.export_leads(cid)), 2)
+        with self.store.db() as conn:
+            self.assertEqual(conn.execute('SELECT status FROM deliveries WHERE id=?', (first['id'],)).fetchone()['status'], 'retry')
+        self.store.recover()
+        self.assertEqual(len(self.store.export_leads(cid)), 2)
+
+    def test_reference_failure_is_retried_only_by_a_different_session(self):
+        cid, groups = self.task()
+        self.leads(1)
+        first = self.store.claim(cid, groups[0]['id'], session_name='one.session')
+        self.assertFalse(self.store.reference_failed(first['id'], 'one.session', ['one.session', 'two.session'], 'hash rejeitado'))
+        self.assertIsNone(self.store.claim(cid, groups[0]['id'], session_name='one.session'))
+        second = self.store.claim(cid, groups[0]['id'], session_name='two.session')
+        self.assertEqual(first['id'], second['id'])
+        self.assertTrue(self.store.reference_failed(second['id'], 'two.session', ['one.session', 'two.session'], 'hash rejeitado'))
+        self.assertIsNone(self.store.claim(cid, groups[0]['id']))
         self.assertEqual(len(self.store.export_leads(cid)), 1)
+        task = next(task for task in self.store.snapshot()['campaigns'] if task['id'] == cid)
+        self.assertEqual(task['counts'], {'unresolved': 1})
+        self.assertEqual(task['excluded_lead_count'], 0)
+
+    def test_parallel_reference_error_allows_another_session_to_add_same_lead(self):
+        from group_campaigns import parallel_group_additions, LeadReferenceInvalidError
+        cid, groups = self.task(parallel_sessions=True)
+        self.leads(1)
+        calls = []
+        settings = {**self.store.get(cid)['settings'], 'delay_min': 0, 'delay_max': 0}
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append((name, payload['id']))
+                if name == 'one.session':
+                    raise LeadReferenceInvalidError('hash inválido nesta conta')
+                return True
+
+        asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        self.assertEqual([name for name, uid in calls], ['one.session', 'two.session'])
+        self.assertEqual(calls[0][1], calls[1][1])
+        self.assertEqual(self.store.groups(cid)[0]['today_added'], 1)
+        self.assertEqual(len(self.store.export_leads(cid)), 1)
+
+    def test_sequential_reference_failure_immediately_rotates_to_other_session(self):
+        from group_campaigns import LeadReferenceInvalidError
+        cid, groups = self.task()
+        self.leads(1)
+        store = self.store
+        calls = []
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(name)
+                if name == 'one.session':
+                    raise LeadReferenceInvalidError('hash indisponível')
+                store.state(cid, 'paused')
+                return True
+
+            async def close(self):
+                pass
+
+        asyncio.run(campaign_loop(store, cid, Gateway()))
+        self.assertEqual(calls, ['one.session', 'two.session'])
+        self.assertEqual(store.groups(cid)[0]['today_added'], 1)
 
     def test_resume_retries_only_proven_pre_invite_expired_link_failures(self):
         cid = self.store.create({'name': 'Recover link', 'count': 1, 'daily_limit': 3}, ['one.session'])
