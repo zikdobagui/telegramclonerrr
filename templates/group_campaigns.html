@@ -7,7 +7,6 @@
     <div class="card task-compact-card">
         <div class="task-toolbar">
             <button class="btn btn-success" id="campaign-new" type="button"><i class="fas fa-plus" aria-hidden="true"></i> Nova tarefa</button>
-            <button class="btn btn-primary" type="button" data-reveal="campaign-bank"><i class="fas fa-upload" aria-hidden="true"></i> Importar leads</button>
             <span>Configure a tarefa e acompanhe os grupos abaixo.</span>
         </div>
     </div>
@@ -16,19 +15,7 @@
         <div><span>Tarefas criadas</span><strong id="campaign-task-total">—</strong><small id="campaign-running-total">Carregando tarefas</small></div>
         <div><span>Leads adicionados</span><strong id="campaign-added-total">—</strong><small>Total confirmado nas tarefas</small></div>
     </div>
-    <details class="card gc-panel" id="campaign-bank">
-        <summary><span class="gc-section-icon"><i class="fas fa-address-book" aria-hidden="true"></i></span><span><strong>Arquivo de contatos por tarefa</strong><small>Selecione a tarefa que usará este arquivo</small></span><span class="gc-expand">Abrir <i class="fas fa-chevron-down" aria-hidden="true"></i></span></summary>
-        <div class="gc-panel-body">
-            <form id="campaign-leads-form" class="gc-upload">
-                <div class="form-group"><label for="campaign-leads-task">Tarefa de destino</label><select id="campaign-leads-task" required><option value="">Selecione uma tarefa</option></select></div>
-                <div class="form-group"><label for="campaign-leads-file">Escolha seu arquivo de contatos</label><input id="campaign-leads-file" type="file" accept=".json,.csv,.txt" required><small>JSON de membros, CSV com id/username/phone ou TXT com um @username por linha. Até 25 MB.</small></div>
-                <button class="btn btn-primary" type="submit">Importar leads</button>
-            </form>
-            <p class="info gc-note">Cada tarefa usa somente seu próprio arquivo. Importar outro arquivo substitui a lista dessa tarefa; o histórico de contatos já processados é preservado. Salve a tarefa antes de importar.</p>
-            <p id="campaign-import-result" role="status"></p>
-        </div>
-    </details>
-    <details class="card gc-panel" id="campaign-builder" open>
+<details class="card gc-panel" id="campaign-builder" open>
         <summary><span class="gc-section-icon"><i class="fas fa-sliders-h" aria-hidden="true"></i></span><span><strong id="campaign-editor-title">Criar uma tarefa</strong><small>Preencha as etapas abaixo e confira o resumo antes de salvar</small></span><span class="gc-expand">Configurar <i class="fas fa-chevron-down" aria-hidden="true"></i></span></summary>
         <form id="campaign-create-form" class="gc-panel-body">
             <p id="campaign-edit-note" class="info" hidden>A quantidade de grupos é mantida. Nome e administradores não alteram grupos já criados no Telegram. Alterar o limite diário aplica o novo valor a todos os grupos; os limites individuais são mantidos se esse valor não mudar. As opções de aquecimento valem para novos grupos; desativar encerra o aquecimento atual. A distribuição fica fixa após a primeira tentativa de adição.</p>
@@ -59,6 +46,12 @@
                     <div class="form-group"><label for="campaign-images">Imagens do aquecimento</label><input id="campaign-images" type="file" accept="image/jpeg,image/png,image/webp" multiple><small>Selecione até 30 imagens (10 MB cada, 30 MB no total). Uma frase ou imagem será enviada por intervalo, na ordem da lista. Selecionar novos arquivos substitui as imagens anteriores.</small><p id="campaign-images-status" role="status"></p><button id="campaign-images-clear" type="button" class="btn">Remover imagens da seleção</button></div>
                     <div class="form-group"><label for="campaign-phrases-file">Carregar frases de um arquivo TXT</label><input id="campaign-phrases-file" type="file" accept=".txt"></div><div class="form-group"><label for="campaign-phrases">Ou escreva suas frases aqui</label><textarea id="campaign-phrases" rows="2" placeholder="Bom dia, pessoal!&#10;Sejam bem-vindos ao grupo."></textarea><small>Uma frase por linha. Você pode editar o texto importado.</small></div>
                 </div>
+            </section>
+            <section class="gc-step gc-leads-step">
+                <div class="gc-step-heading"><span class="factory-step"><i class="fas fa-address-book" aria-hidden="true"></i></span><div><h3>Leads desta tarefa</h3><p>Importe contatos exclusivos para esta tarefa. As outras tarefas mantêm suas próprias listas.</p></div></div>
+                <p id="campaign-current-leads" class="gc-current-leads" role="status">Você pode importar agora ou ao editar a tarefa.</p>
+                <div class="form-group"><label for="campaign-leads-file">Importar leads (JSON, CSV ou TXT)</label><input id="campaign-leads-file" type="file" accept=".json,.csv,.txt"><small>Até 25 MB. JSON de membros, CSV com id/username/phone ou TXT com um @username por linha.</small></div>
+                <fieldset id="campaign-import-options" hidden><legend>Como deseja importar estes leads?</legend><label><input type="radio" name="campaign-import-mode" value="append" checked> Adicionar à lista atual</label><label><input type="radio" name="campaign-import-mode" value="replace"> Substituir a lista atual</label><small>O histórico de contatos já processados é preservado nas duas opções. A importação é aplicada ao salvar.</small></fieldset>
             </section>
             <div class="gc-save"><div><strong>Confira sua tarefa</strong><p id="campaign-preview"></p><small>Salvar não inicia a execução. Depois, clique em Iniciar tarefa.</small></div><button id="campaign-cancel-edit" class="btn" type="button" hidden>Cancelar edição</button><button id="campaign-save-button" class="btn btn-primary" type="submit">Salvar tarefa <i class="fas fa-arrow-right" aria-hidden="true"></i></button></div>
         </form>

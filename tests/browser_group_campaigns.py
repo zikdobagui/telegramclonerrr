@@ -56,7 +56,7 @@ def run():
         thread.start()
         try:
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True)
+                browser = playwright.chromium.launch(headless=True, channel=__import__('os').environ.get('CAMPAIGN_BROWSER_CHANNEL') or None)
                 page = browser.new_page(viewport={'width': 1280, 'height': 900})
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
@@ -78,14 +78,25 @@ def run():
                 page.wait_for_function('document.getElementById("campaign-names").value.includes("Comunidade Especial 9")')
                 assert page.locator('#campaign-count').input_value() == '10'
                 assert page.locator('#campaign-count').is_disabled()
+                page.locator('#campaign-leads-file').set_input_files({'name': 'initial.txt', 'mimeType': 'text/plain', 'buffer': b'@initial_person'})
+                assert not page.locator('#campaign-import-options').is_visible()
                 page.locator('#campaign-save-button').click()
                 page.locator('#campaign-list .gc-task').wait_for()
+                page.wait_for_function('document.getElementById("campaign-lead-total").textContent === "1"')
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 10
                 assert page.locator('.gc-group-title').first.text_content() == 'Comunidade Especial 0', repr(page.locator('.gc-group-title').first.text_content())
-                page.locator('#campaign-bank > summary').click()
-                page.locator('#campaign-leads-task').select_option('1')
+                page.get_by_role('button', name='Editar tarefa', exact=True).click()
+                page.wait_for_function('document.getElementById("campaign-editor-title").textContent.includes("Editar tarefa #")')
                 page.locator('#campaign-leads-file').set_input_files({'name': 'leads.json', 'mimeType': 'application/json', 'buffer': b'{"members":[{"id":123,"username":"lead_test"}]} '})
-                page.locator('#campaign-leads-form button').click()
+                assert page.locator('#campaign-import-options').is_visible()
+                page.locator('[name="campaign-import-mode" ][value="append" ]').check()
+                page.locator('#campaign-save-button').click()
+                page.wait_for_function('document.getElementById("campaign-lead-total").textContent === "2"')
+                page.get_by_role('button', name='Editar tarefa', exact=True).click()
+                page.wait_for_function('document.getElementById("campaign-editor-title").textContent.includes("Editar tarefa #")')
+                page.locator('#campaign-leads-file').set_input_files({'name': 'replacement.txt', 'mimeType': 'text/plain', 'buffer': b'@replacement_person'})
+                page.locator('[name="campaign-import-mode"][value="replace"]').check()
+                page.locator('#campaign-save-button').click()
                 page.wait_for_function('document.getElementById("campaign-lead-total").textContent === "1"')
                 page.locator('.gc-group-list > summary').click()
                 page.locator('details[data-detail="group-1"] > summary').click()

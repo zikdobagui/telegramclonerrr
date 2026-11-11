@@ -438,6 +438,28 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(tasks[first]['lead_source']['filename'], 'first.txt')
         self.assertEqual(tasks[second]['lead_count'], 1)
 
+    def test_append_keeps_existing_contacts_and_other_task_isolated(self):
+        first, groups = self.task()
+        second, _ = self.task()
+        self.store.import_leads('first.txt', b'@first_person', cid=first)
+        self.store.import_leads('other.txt', b'@other_person', cid=second)
+        result = self.store.import_leads('more.txt', b'@FIRST_PERSON\n@new_person\n@new_person', cid=first, mode='append')
+        self.assertEqual(result['task_total'], 2)
+        self.assertEqual(result['added'], 1)
+        self.assertEqual(result['duplicates'], 2)
+        self.assertEqual({row['username'] for row in self.store.export_leads(first)}, {'first_person', 'new_person'})
+        self.assertEqual([row['username'] for row in self.store.export_leads(second)], ['other_person'])
+        delivery = self.store.claim(first, groups[0]['id'])
+        self.store.finish(delivery['id'], 'added')
+        self.store.import_leads('again.txt', b'@first_person\n@new_person', cid=first, mode='append')
+        next_delivery = self.store.claim(first, groups[1]['id'])
+        self.assertNotEqual(next_delivery['payload']['username'], delivery['payload']['username'])
+        with self.assertRaises(ValueError):
+            self.store.import_leads('empty.txt', b'', cid=first, mode='append')
+        self.assertEqual(len(self.store.export_leads(first)), 2)
+        with self.assertRaises(ValueError):
+            self.store.import_leads('file.txt', b'@valid_person', cid=first, mode='invalid')
+
     def test_old_shared_bank_is_not_assigned_to_any_task(self):
         self.store.import_leads('old.txt', b'@old_person')
         cid, groups = self.task()
@@ -1481,6 +1503,18 @@ class CampaignApiTests(unittest.TestCase):
         self.assertTrue(created.json['success'])
         imported = self.client.post('/api/group-campaigns/leads', data={'campaign_id': created.json['id'], 'file': (io.BytesIO(b'@some_lead'), 'leads.txt')})
         self.assertEqual(imported.json['added'], 1)
+        appended = self.client.post('/api/group-campaigns/leads', data={
+            'campaign_id': created.json['id'], 'mode': 'append',
+            'file': (io.BytesIO(b'@some_lead\n@another_lead'), 'more.txt')})
+        self.assertEqual(appended.json['task_total'], 2)
+        replaced = self.client.post('/api/group-campaigns/leads', data={
+            'campaign_id': created.json['id'], 'mode': 'replace',
+            'file': (io.BytesIO(b'@replacement_lead'), 'replacement.txt')})
+        self.assertEqual(replaced.json['task_total'], 1)
+        invalid = self.client.post('/api/group-campaigns/leads', data={
+            'campaign_id': created.json['id'], 'mode': 'invalid',
+            'file': (io.BytesIO(b'@another_lead'), 'more.txt')})
+        self.assertEqual(invalid.status_code, 400)
         snapshot = self.client.get('/api/group-campaigns').json
         self.assertEqual(len(snapshot['campaigns'][0]['groups']), 10)
         self.login('bob')

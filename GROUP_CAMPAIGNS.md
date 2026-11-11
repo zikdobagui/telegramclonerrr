@@ -4,8 +4,8 @@ A aba que antes se chamava **Em breve** agora reúne criação de grupos, aqueci
 
 ## Uso
 
-1. Importe leads em JSON (`members` ou `leads`), CSV com cabeçalhos `id`, `username`, `phone`, `access_hash`, ou TXT com um username por linha. É possível importar novos arquivos enquanto uma tarefa está ativa. A importação soma registros ao banco, sem substituir os anteriores.
-2. Crie a tarefa com nome, quantidade de grupos (1 a 30), sessões e limite diário. Os grupos recebem o nome da tarefa com um número sequencial.
+1. No formulário de criação da tarefa, selecione seu arquivo de leads (JSON, CSV ou TXT, até 25 MB). A importação ocorre ao salvar e a lista pertence somente àquela tarefa. Também é possível criar sem arquivo e importar depois pela edição.
+2. Ao editar uma tarefa, selecione outro arquivo e escolha **Adicionar à lista atual** ou **Substituir a lista atual**. Salve para aplicar. As duas opções preservam o histórico de contatos processados e não alteram as listas das outras tarefas.
 3. Escolha se cada lead pode ser usado apenas uma vez na tarefa ou uma vez por grupo. Na segunda opção, a troca de um grupo conserva o histórico daquela posição da tarefa.
 4. Se habilitar aquecimento, informe os dias, intervalo em minutos e frases (digitadas ou importadas de TXT, uma por linha). Cada grupo começa a receber leads depois do seu aquecimento.
 5. Inicie a tarefa. Sem leads ou após consumir a cota diária, ela aguarda. As cotas renovam à meia-noite de São Paulo; o histórico de deduplicação permanece.

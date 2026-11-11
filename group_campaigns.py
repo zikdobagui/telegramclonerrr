@@ -789,7 +789,9 @@ class CampaignStore:
                 conn.execute('UPDATE groups SET daily_limit=? WHERE id=?', (limit, gid))
         self.event(cid, 'Grupo substituído; histórico de leads e cota diária preservados.' if payload.get('replace') else 'Limite diário atualizado.')
 
-    def import_leads(self, filename, raw, cid=None):
+    def import_leads(self, filename, raw, cid=None, mode='replace'):
+        if mode not in ('append', 'replace'):
+            raise ValueError('Escolha adicionar ou substituir os leads')
         if len(raw) > 25 * 1024 * 1024:
             raise ValueError('O arquivo deve ter até 25 MB')
         text = raw.decode('utf-8-sig')
@@ -811,6 +813,9 @@ class CampaignStore:
             conn.execute('BEGIN IMMEDIATE')
             if cid is not None and not conn.execute('SELECT 1 FROM campaigns WHERE id=?', (cid,)).fetchone():
                 raise ValueError('Tarefa não encontrada')
+            existing = {row['lead_id'] for row in conn.execute(
+                'SELECT DISTINCT COALESCE(l.canonical_id,l.id) AS lead_id FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?',
+                (cid,))} if cid is not None and mode == 'append' else set()
             for row in rows:
                 if not isinstance(row, dict):
                     stats['invalid'] += 1
@@ -849,7 +854,7 @@ class CampaignStore:
                     current = json.loads(conn.execute('SELECT payload FROM leads WHERE id=?', (lead_id,)).fetchone()[0])
                     current.update({key: value for key, value in dict(row, username=username, phone=phone).items() if value not in (None, '')})
                     conn.execute('UPDATE leads SET payload=? WHERE id=?', (json.dumps(current), lead_id))
-                    stats['duplicates' if cid is None or lead_id in selected else 'added'] += 1
+                    stats['duplicates' if cid is None or lead_id in selected or lead_id in existing else 'added'] += 1
                     selected.add(lead_id)
                     continue
                 payload = dict(row, username=username, phone=phone)
@@ -863,8 +868,9 @@ class CampaignStore:
                     raise ValueError('O arquivo não contém contatos válidos. A lista anterior foi mantida.')
                 conn.execute("DELETE FROM delivery_reference_failures WHERE delivery_id IN (SELECT id FROM deliveries WHERE campaign_id=? AND status IN ('retry','unresolved'))", (cid,))
                 conn.execute("UPDATE deliveries SET status='retry' WHERE campaign_id=? AND status='unresolved'", (cid,))
-                conn.execute('DELETE FROM campaign_leads WHERE campaign_id=?', (cid,))
-                conn.executemany('INSERT INTO campaign_leads VALUES(?,?)', [(cid, lead_id) for lead_id in selected])
+                if mode == 'replace':
+                    conn.execute('DELETE FROM campaign_leads WHERE campaign_id=?', (cid,))
+                conn.executemany('INSERT OR IGNORE INTO campaign_leads VALUES(?,?)', [(cid, lead_id) for lead_id in selected])
                 conn.execute('INSERT OR REPLACE INTO campaign_sources VALUES(?,?,?)', (cid, os.path.basename(filename.replace('\\', '/'))[:255], time.time()))
                 stats['task_total'] = conn.execute(
                     'SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?',
@@ -2174,7 +2180,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         if not file or not file.filename:
             raise ValueError('Selecione um arquivo de leads')
         cid = integer(request.form.get('campaign_id'), 'Selecione a tarefa', high=2147483647)
-        stats = store_for(session['username']).import_leads(file.filename, file.stream.read(25 * 1024 * 1024 + 1), cid=cid)
+        stats = store_for(session['username']).import_leads(file.filename, file.stream.read(25 * 1024 * 1024 + 1), cid=cid, mode=request.form.get('mode', 'replace'))
         return jsonify(success=True, **stats)
 
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>', methods=['PUT'])

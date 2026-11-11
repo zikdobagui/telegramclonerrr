@@ -218,6 +218,8 @@
     }
     function resetEditor() {
         editingId = null;
+        el('campaign-import-options').hidden = true;
+        el('campaign-current-leads').textContent = 'Você pode importar agora ou ao editar a tarefa.';
         selectedImages = [];
         selectedGroupImage = '';
         selectedDescriptions = [];
@@ -240,6 +242,10 @@
     async function editTask(task) {
         await loadSessions();
         editingId = task.id;
+        el('campaign-leads-file').value = '';
+        el('campaign-import-options').hidden = true;
+        el('campaign-create-form').querySelector('[name="campaign-import-mode"][value="append"]').checked = true;
+        el('campaign-current-leads').textContent = (task.lead_count || 0).toLocaleString('pt-BR') + ' leads nesta tarefa' + (task.lead_source ? ' · ' + task.lead_source.filename : '');
         el('campaign-names').value = task.groups.map(group => group.title).join('\n');
         el('campaign-names').disabled = true;
         el('campaign-names-file').disabled = true;
@@ -276,12 +282,7 @@
             const data = await api();
             if (current !== version) return;
             snapshot = data;
-            const leadTask = el('campaign-leads-task');
-            const chosenTask = leadTask.value;
-            leadTask.innerHTML = '<option value="">Selecione uma tarefa</option>' + data.campaigns.map(task => `<option value="${task.id}">#${task.id} · ${esc(task.name)}</option>`).join('');
-            leadTask.value = chosenTask;
-
-            if (!viewInitialized) {
+if (!viewInitialized) {
                 el('campaign-builder').open = data.campaigns.length === 0;
                 viewInitialized = true;
             }
@@ -317,7 +318,7 @@
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
                     <details class="gc-controls" data-detail="controls-${task.id}"><summary>Contatos e configurações <span>${task.lead_count || 0} contatos · delay ${task.settings.delay_min ?? task.settings.delay ?? 60}–${task.settings.delay_max ?? task.settings.delay ?? 60}s</span></summary><div class="gc-controls-body">
                     <p class="info">${task.lead_source ? `Arquivo desta tarefa: <strong>${esc(task.lead_source.filename)}</strong> · ${task.lead_count} contatos importados · ${task.excluded_lead_count || 0} retirados por conta desativada` : 'Esta tarefa está sem arquivo próprio. Importe os contatos para habilitar as adições; a lista compartilhada antiga não será usada.'}</p>
-                    <button type="button" class="btn btn-primary" data-action="import-leads" data-id="${task.id}">Importar arquivo desta tarefa</button><a class="btn btn-primary gc-export-leads" href="/api/group-campaigns/${task.id}/leads/export" download="leads-tarefa-${task.id}.json">Exportar base limpa (JSON)</a><small>Importe este JSON em outro login. Contas desativadas são excluídas; referências não resolvidas e o arquivo original são preservados.</small>
+                    <button type="button" class="btn btn-primary" data-action="import-leads" data-id="${task.id}" ${busy ? 'disabled' : ''}>Importar arquivo desta tarefa</button><a class="btn btn-primary gc-export-leads" href="/api/group-campaigns/${task.id}/leads/export" download="leads-tarefa-${task.id}.json">Exportar base limpa (JSON)</a><small>Importe este JSON em outro login. Contas desativadas são excluídas; referências não resolvidas e o arquivo original são preservados.</small>
 
                     ${!task.groups.length ? '<p class="info">Esta tarefa não tem mais grupos. O histórico foi mantido; você pode excluir a tarefa quando quiser.</p>' : ''}
                     ${busy ? '<p class="info gc-note">Para editar, excluir ou substituir grupos, pause a tarefa e aguarde a ação atual terminar.</p>' : ''}
@@ -380,6 +381,9 @@
         });
         el('campaign-session-search').addEventListener('input', renderSessions);
         preview();
+        el('campaign-leads-file').addEventListener('change', () => {
+            el('campaign-import-options').hidden = editingId === null || !el('campaign-leads-file').files.length;
+        });
         el('campaign-images-clear').addEventListener('click', () => {
             selectedImages = [];
             el('campaign-images').value = '';
@@ -464,24 +468,33 @@
                     warm_days:el('campaign-warm-days').value, warm_interval:el('campaign-warm-interval').value,
                     parallel_sessions:el('campaign-parallel').value === 'yes', delay_min:el('campaign-delay-min').value, delay_max:el('campaign-delay-max').value, dedup:el('campaign-dedup').value, limit_scope:el('campaign-limit-scope').value,
                 };
+                const leadFile = el('campaign-leads-file').files[0];
+                if (leadFile && leadFile.size > 25 * 1024 * 1024) throw new Error('O arquivo de leads deve ter até 25 MB.');
                 const result = await api(editingId === null ? '' : `/${editingId}`, json(editingId === null ? 'POST' : 'PUT', payload));
+                if (leadFile) {
+                    // Preserve the saved task on upload failure, allowing a safe retry.
+                    editingId = result.id;
+                    el('campaign-count').disabled = true;
+                    el('campaign-names').disabled = true;
+                    el('campaign-names-file').disabled = true;
+                    el('campaign-editor-title').textContent = 'Editar tarefa #' + result.id;
+                    el('campaign-cancel-edit').hidden = false;
+                    const data = new FormData();
+                    data.append('file', leadFile);
+                    data.append('campaign_id', result.id);
+                    data.append('mode', el('campaign-create-form').querySelector('[name="campaign-import-mode"]:checked').value);
+                    try { await api('/leads', {method:'POST', body:data}); }
+                    catch (error) {
+                        el('campaign-import-options').hidden = false;
+                        await load();
+                        throw new Error('Tarefa salva, mas a importação falhou: ' + error.message + ' Corrija o arquivo e salve novamente.');
+                    }
+                }
                 resetEditor();
                 notice(`Tarefa #${result.id} salva. Clique em Iniciar para executar.`);
                 await load();
                 el('campaign-builder').open = false;
                 reveal('campaign-monitor');
-            });
-        });
-        el('campaign-leads-form').addEventListener('submit', event => {
-            event.preventDefault();
-            submit(event.currentTarget, async () => {
-                const data = new FormData();
-                data.append('file', el('campaign-leads-file').files[0]);
-                data.append('campaign_id', el('campaign-leads-task').value);
-                const result = await api('/leads', {method:'POST', body:data});
-                el('campaign-import-result').textContent = `${result.added} novos · ${result.duplicates} duplicados · ${result.invalid} inválidos`;
-                notice('Importação concluída');
-                await load();
             });
         });
         el('campaign-list').addEventListener('click', async event => {
@@ -500,8 +513,8 @@
                     return;
                 }
                 if (button.dataset.action === 'import-leads') {
-                    el('campaign-leads-task').value = String(id);
-                    reveal('campaign-bank');
+                    await editTask(snapshot.campaigns.find(task => task.id === id));
+                    el('campaign-leads-file').focus();
                     button.disabled = false;
                     return;
                 }
