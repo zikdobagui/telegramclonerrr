@@ -555,7 +555,7 @@ class CampaignStoreTests(unittest.TestCase):
         self.store.group_update(groups[1]['id'], status='creating')
         restarted = CampaignStore(self.temp.name)
         restarted.recover()
-        self.assertEqual(restarted.get(cid)['status'], 'paused')
+        self.assertEqual(restarted.get(cid)['status'], 'running')
         self.assertEqual(restarted.groups(cid)[1]['status'], 'error')
         self.assertEqual(restarted.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
         restarted.state(cid, 'running')

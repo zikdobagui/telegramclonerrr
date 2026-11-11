@@ -6478,15 +6478,29 @@ def verify_session_password():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-register_campaign_routes(
+def get_campaign_background_api(username):
+    """Load this user's saved API without a Flask session or open browser."""
+    paths = get_user_paths(username)
+    data = load_json_file(paths['config_file'], {})
+    credentials = data.get('api_credentials') or []
+    if credentials:
+        api = credentials[int(data.get('current_api_index', 0)) % len(credentials)]
+        return api.get('api_id'), api.get('api_hash')
+    return data.get('api_id'), data.get('api_hash')
+
+
+group_campaign_supervisor = register_campaign_routes(
     app, login_required, get_user_paths, get_session_manager_instance,
-    get_next_api, check_session_lock, set_session_lock, get_user_lock_state
+    get_next_api, check_session_lock, set_session_lock, get_user_lock_state,
+    list_usernames=lambda: [user['username'] for user in user_manager.load_users() if user.get('username')],
+    get_background_api=get_campaign_background_api
 )
 
 
 if __name__ == '__main__':
     # Discloud usa porta 8080
     port = int(os.environ.get('PORT', 8080))
+    group_campaign_supervisor.start()
     restore_saved_reaction_monitors()
     restore_saved_active_tasks()
     socketio.run(app, debug=False, host='0.0.0.0', port=port)

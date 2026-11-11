@@ -8,7 +8,7 @@ A aba que antes se chamava **Em breve** agora reúne criação de grupos, aqueci
 2. Ao editar uma tarefa, selecione outro arquivo e escolha **Adicionar à lista atual** ou **Substituir a lista atual**. Salve para aplicar. As duas opções preservam o histórico de contatos processados e não alteram as listas das outras tarefas.
 3. Escolha se cada lead pode ser usado apenas uma vez na tarefa ou uma vez por grupo. Na segunda opção, a troca de um grupo conserva o histórico daquela posição da tarefa.
 4. Se habilitar aquecimento, informe os dias, intervalo em minutos e frases (digitadas ou importadas de TXT, uma por linha). Cada grupo começa a receber leads depois do seu aquecimento.
-5. Inicie a tarefa. Sem leads ou após consumir a cota diária, ela aguarda. As cotas renovam à meia-noite de São Paulo; o histórico de deduplicação permanece.
+5. Inicie a tarefa. A execução acontece no servidor e continua com o navegador fechado ou o computador desligado. Sem leads ou após consumir a cota, ela aguarda. Cada ciclo dura 24 horas desde a primeira tentativa; o histórico de deduplicação permanece.
 6. Para alterar limites ou substituir um grupo, pause e aguarde a operação em andamento terminar. Informe o link do substituto ou deixe vazio para criar outro ao continuar. O grupo antigo não é apagado do Telegram. Os leads usados e a cota consumida continuam registrados.
 
 ## Persistência e execução
@@ -16,10 +16,12 @@ A aba que antes se chamava **Em breve** agora reúne criação de grupos, aqueci
 - Os dados ficam em `group_campaigns.db` no diretório de dados de cada usuário. Inclua esse banco nos backups. Não remova o banco para reiniciar uma tarefa: ele contém o histórico que impede repetições.
 - Uma tarefa de grupos executa por usuário de cada vez. É possível salvar outras tarefas enquanto uma está ativa. As operações anteriores que verificam o bloqueio de sessões aguardam a pausa desta tarefa.
 - A execução usa o processo único de `python app.py`, conforme o Procfile atual. O registro de workers e os bloqueios de sessões são locais a esse processo; não executar múltiplos processos de aplicação sobre o mesmo banco.
-- Depois de reiniciar o servidor, tarefas ficam pausadas para retomada manual. Criações interrompidas exigem revisar o Telegram e vincular o grupo existente para evitar criar uma cópia.
+- Na inicialização do servidor, o supervisor restaura as tarefas que estavam em execução, sem login ou acesso ao painel. A cada 30 segundos, verifica executores encerrados e tenta retomar tarefas ainda ativas. Pausas feitas pelo usuário são mantidas. Pausas automáticas de versões antigas identificadas pela mensagem de reinício são restauradas.
+- A retomada usa os caminhos, sessões e API salvos de cada usuário. Se a API ou as sessões estiverem indisponíveis, ou outra operação estiver usando as sessões, a tarefa aguarda e registra o motivo no histórico. Ela continua respeitando cotas, intervalos e restrições do Telegram.
+- Criações interrompidas exigem revisar o Telegram e vincular o grupo existente para evitar criar uma cópia. A retomada automática não recria esses grupos e não reenvia convites de resultado incerto.
 - A deduplicação utiliza ID, username e telefone disponíveis na importação, além de uma reserva única pelo ID resolvido no Telegram antes do convite. Os hashes numéricos do JSON são lidos no Python, preservando sua precisão.
 - Resultados sem confirmação ficam reservados e não são reenviados automaticamente. Eles contam na cota do dia como precaução. Falhas definitivas também permanecem no histórico, sem novas tentativas automáticas.
-- Restrições de sessão e FloodWait pausam a tarefa. Erros de acesso a um grupo deixam esse grupo para revisão; os demais podem continuar.
+- Restrições de sessão e FloodWait fazem a execução aguardar a liberação da conta, mantendo as outras sessões disponíveis em uso. Erros de acesso a um grupo deixam esse grupo para revisão; os demais podem continuar.
 - O grupo substituto precisa ser um supergrupo acessível, com permissão para gerar convite e adicionar participantes. As sessões precisam estar autorizadas. O Telegram pode recusar convites conforme as permissões e a privacidade do usuário; a resposta é verificada antes de contabilizar sucesso. Referência: [API de convite do Telegram](https://core.telegram.org/method/channels.inviteToChannel).
 
 ## Validação local

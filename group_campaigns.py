@@ -3,6 +3,7 @@ import asyncio
 import csv
 import io
 import json
+import logging
 import os
 import re
 import random
@@ -1006,7 +1007,9 @@ class CampaignStore:
                 conn.execute("UPDATE deliveries SET status='retry' WHERE campaign_id=? AND lead_id=? AND status='failed'", (row['campaign_id'], row['lead_id']))
             conn.execute("DELETE FROM campaign_lead_exclusions WHERE reason IN ('LeadReferenceInvalidError','UserIdInvalidError')")
             conn.execute("UPDATE deliveries SET status='unresolved' WHERE status='retry' AND id IN (SELECT delivery_id FROM delivery_reference_failures GROUP BY delivery_id HAVING count(*)>=?)", (REFERENCE_SESSION_LIMIT,))
-            conn.execute("UPDATE campaigns SET status='paused',error='Servidor reiniciado. Clique em Iniciar para continuar.' WHERE status='running'")
+            # Older releases paused running tasks on restart. This exact note
+            # distinguishes those automatic pauses from an explicit user pause.
+            conn.execute("UPDATE campaigns SET status='running',error='' WHERE status='paused' AND error='Servidor reiniciado. Clique em Iniciar para continuar.'")
             conn.execute("UPDATE deliveries SET status='unknown',error='Resultado não confirmado antes da interrupção' WHERE status='sending'")
             conn.execute("UPDATE groups SET status='error',error='Criação interrompida. Verifique o Telegram e substitua por link para evitar recriar.' WHERE status='creating'")
             conn.execute("UPDATE ownership_transfers SET status='unknown' WHERE status='pending'")
@@ -2037,10 +2040,51 @@ async def campaign_loop(store, cid, gateway):
         await gateway.close()
 
 
-def register_campaign_routes(app, login_required, get_paths, get_sessions, get_api, check_lock, set_lock, get_locks):
+class CampaignSupervisor:
+    """Restore persisted work independently of HTTP requests and browser sessions.
+
+    One supervisor belongs to the application's single server process. Stopping
+    it leaves persisted running intent intact for the next server startup.
+    """
+
+    def __init__(self, restore, interval=30):
+        self.restore = restore
+        self.interval = interval
+        self._stop = threading.Event()
+        self._guard = threading.Lock()
+        self._thread = None
+
+    def scan(self):
+        try:
+            self.restore()
+        except Exception:
+            logging.getLogger(__name__).exception('Falha na supervisão das tarefas de grupos; nova tentativa no próximo ciclo')
+
+    def start(self):
+        with self._guard:
+            if self._thread and self._thread.is_alive():
+                return
+            self._stop.clear()
+            self.scan()
+            self._thread = threading.Thread(target=self._run, name='group-campaign-supervisor', daemon=True)
+            self._thread.start()
+
+    def _run(self):
+        while not self._stop.wait(self.interval):
+            self.scan()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=5)
+
+
+def register_campaign_routes(app, login_required, get_paths, get_sessions, get_api, check_lock, set_lock, get_locks,
+                             list_usernames=None, get_background_api=None):
     from flask import request, jsonify, session
     workers = {}
     initialized = set()
+    known_users = set()
     guard = threading.RLock()
     group_actions_busy = set()
     runtimes = {}
@@ -2051,10 +2095,114 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     def store_for(username):
         store = CampaignStore(get_paths(username)['data_dir'])
         with guard:
+            known_users.add(username)
             if store.path not in initialized:
                 store.recover()
                 initialized.add(store.path)
         return store
+
+    def start_worker(username, cid, resuming=False):
+        store = store_for(username)
+        task = store.get(cid)
+        with guard:
+            if resuming and store.get(cid)['status'] != 'running':
+                return
+            if worker_busy(username):
+                raise ValueError('Já existe uma tarefa de grupos em execução ou encerrando')
+            allowed, message = check_lock('group_factory', username=username)
+            if not allowed or get_locks(username).get('extraction'):
+                raise ValueError(message if not allowed else 'Aguarde a extração terminar')
+            api = get_background_api(username) if resuming and get_background_api else get_api()
+            if not all(api):
+                raise ValueError('Configure sua API primeiro')
+            manager = get_sessions(username)
+            saved = {row['session_name']: row for row in manager.load_sessions(force_reload=True)}
+            names = task['settings']['sessions']
+            usable = {}
+            for name in names:
+                info = saved.get(name)
+                status = str((info or {}).get('status') or 'active').lower()
+                # ``flood`` is a temporary account wait, not an invalid
+                # session. Keep it in the pool so the task can start and
+                # resume on its own when the cooldown expires.
+                if not info or not info.get('active', True) or status in {'invalid', 'corrupted', 'disconnected', 'banned'}:
+                    store.event(cid, f'Sessão {name} indisponível e ignorada ao iniciar; as demais sessões continuarão a tarefa.')
+                    continue
+                usable[name] = info
+                if manager.is_session_flooded(name):
+                    store.event(cid, f'Sessão {name} já está em espera por limitação/flood; a tarefa iniciará e aguardará a liberação automaticamente.')
+            if not usable:
+                raise ValueError('Nenhuma sessão válida disponível para iniciar a tarefa')
+            paths = get_paths(username)
+            session_data = usable
+            gateway = TelegramCampaignGateway(paths, session_data, api)
+            if resuming:
+                # Do not reset groups that require manual review.
+                store.recover()
+            else:
+                store.prepare_start(cid)
+            if resuming:
+                store.event(cid, 'Execução retomada automaticamente no servidor. Não é necessário manter o navegador ou o computador ligado.')
+            store.event(cid, f'Tarefa iniciada com {len(usable)} sessão(ões) válida(s). O executor está ativo; acompanhe abaixo a próxima ação ou o motivo da espera.')
+            set_lock('group_campaign', True, username=username)
+
+            def run():
+                async def with_runtime():
+                    current_gateway = gateway
+                    while store.get(cid)['status'] == 'running':
+                        with guard:
+                            runtimes[username] = (cid, current_gateway, asyncio.get_running_loop())
+                        try:
+                            await campaign_loop(store, cid, current_gateway)
+                        finally:
+                            with guard:
+                                runtimes.pop(username, None)
+                        if store.get(cid)['status'] == 'running':
+                            store.event(cid, 'Executor reiniciado automaticamente após um erro.')
+                            await asyncio.sleep(5)
+                            current_gateway = TelegramCampaignGateway(paths, session_data, api)
+                try:
+                    asyncio.run(with_runtime())
+                except Exception as error:
+                    store.event(cid, f'Erro ao reiniciar o executor: {error}. A tarefa continua marcada como ativa.')
+                finally:
+                    set_lock('group_campaign', False, username=username)
+
+            worker = threading.Thread(target=run, daemon=True)
+            workers[username] = worker
+            try:
+                worker.start()
+            except Exception:
+                if not resuming:
+                    store.state(cid, 'paused', 'Não foi possível iniciar o processo')
+                set_lock('group_campaign', False, username=username)
+                raise
+
+    def restore_saved_campaigns():
+        usernames = set(list_usernames()) if list_usernames else set()
+        with guard:
+            usernames.update(known_users)
+        for username in sorted(usernames):
+            try:
+                with guard:
+                    if worker_busy(username):
+                        continue
+                    paths = get_paths(username)
+                    if not paths or not os.path.isfile(os.path.join(paths['data_dir'], 'group_campaigns.db')):
+                        continue
+                    store = store_for(username)
+                    with store.db() as conn:
+                        pending = [row[0] for row in conn.execute("SELECT id FROM campaigns WHERE status='running' ORDER BY id")]
+                    if not pending:
+                        continue
+                    cid = pending[0]
+                    try:
+                        # Same guard as manual starts: never launch duplicate workers.
+                        start_worker(username, cid, resuming=True)
+                    except Exception as error:
+                        store.event_recent(cid, f'Retomada automática aguardando: {error}. Nova verificação em 30 segundos.', seconds=300)
+            except Exception:
+                logging.getLogger(__name__).exception('Não foi possível restaurar tarefas de grupos de %s', username)
 
     def endpoint(function):
         from functools import wraps
@@ -2522,72 +2670,14 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         store = store_for(username)
         task = store.get(cid)
         if action == 'pause':
-            store.state(cid, 'paused')
+            with guard:
+                store.state(cid, 'paused')
             return jsonify(success=True)
         if action != 'start':
             raise ValueError('Ação inválida')
-        with guard:
-            if worker_busy(username):
-                raise ValueError('Já existe uma tarefa de grupos em execução ou encerrando')
-            allowed, message = check_lock('group_factory', username=username)
-            if not allowed or get_locks(username).get('extraction'):
-                raise ValueError(message if not allowed else 'Aguarde a extração terminar')
-            api = get_api()
-            if not all(api):
-                raise ValueError('Configure sua API primeiro')
-            manager = get_sessions(username)
-            saved = {row['session_name']: row for row in manager.load_sessions(force_reload=True)}
-            names = task['settings']['sessions']
-            usable = {}
-            for name in names:
-                info = saved.get(name)
-                status = str((info or {}).get('status') or 'active').lower()
-                # ``flood`` is a temporary account wait, not an invalid
-                # session. Keep it in the pool so the task can start and
-                # resume on its own when the cooldown expires.
-                if not info or not info.get('active', True) or status in {'invalid', 'corrupted', 'disconnected', 'banned'}:
-                    store.event(cid, f'Sessão {name} indisponível e ignorada ao iniciar; as demais sessões continuarão a tarefa.')
-                    continue
-                usable[name] = info
-                if manager.is_session_flooded(name):
-                    store.event(cid, f'Sessão {name} já está em espera por limitação/flood; a tarefa iniciará e aguardará a liberação automaticamente.')
-            if not usable:
-                raise ValueError('Nenhuma sessão válida disponível para iniciar a tarefa')
-            paths = get_paths(username)
-            session_data = usable
-            gateway = TelegramCampaignGateway(paths, session_data, api)
-            store.prepare_start(cid)
-            store.event(cid, f'Tarefa iniciada com {len(usable)} sessão(ões) válida(s). O executor está ativo; acompanhe abaixo a próxima ação ou o motivo da espera.')
-            set_lock('group_campaign', True, username=username)
-
-            def run():
-                async def with_runtime():
-                    current_gateway = gateway
-                    while store.get(cid)['status'] == 'running':
-                        with guard:
-                            runtimes[username] = (cid, current_gateway, asyncio.get_running_loop())
-                        try:
-                            await campaign_loop(store, cid, current_gateway)
-                        finally:
-                            with guard:
-                                runtimes.pop(username, None)
-                        if store.get(cid)['status'] == 'running':
-                            store.event(cid, 'Executor reiniciado automaticamente após um erro.')
-                            await asyncio.sleep(5)
-                            current_gateway = TelegramCampaignGateway(paths, session_data, api)
-                try:
-                    asyncio.run(with_runtime())
-                except Exception as error:
-                    store.event(cid, f'Erro ao reiniciar o executor: {error}. A tarefa continua marcada como ativa.')
-                finally:
-                    set_lock('group_campaign', False, username=username)
-
-            worker = threading.Thread(target=run, daemon=True)
-            workers[username] = worker
-            try:
-                worker.start()
-            except Exception:
-                store.state(cid, 'paused', 'Não foi possível iniciar o processo')
-                set_lock('group_campaign', False, username=username)
-                raise
+        start_worker(username, cid)
         return jsonify(success=True)
+
+    supervisor = CampaignSupervisor(restore_saved_campaigns)
+    app.extensions['group_campaigns'] = supervisor
+    return supervisor
