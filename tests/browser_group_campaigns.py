@@ -63,6 +63,9 @@ def run():
                 page.goto(f'http://127.0.0.1:{server.server_port}')
                 page.locator('[data-tab="comingSoon"]').click()
                 page.locator('#campaign-sessions option').wait_for(state='attached')
+                assert page.locator('#campaign-lead-total').count() == 0
+                page.locator('#campaign-monitor').wait_for(state='hidden')
+                assert page.locator('#campaign-builder').is_visible()
                 assert page.locator('.gc-session-identity strong').inner_text() == 'Sessão de teste'
                 assert page.locator('.gc-session-identity small').inner_text() == '+5500000000000'
                 page.locator('#campaign-name').fill('Tarefa de teste')
@@ -82,7 +85,7 @@ def run():
                 assert not page.locator('#campaign-import-options').is_visible()
                 page.locator('#campaign-save-button').click()
                 page.locator('#campaign-list .gc-task').wait_for()
-                page.wait_for_function('document.getElementById("campaign-lead-total").textContent === "1"')
+                page.wait_for_function('document.querySelector(".gc-task-lead-count").textContent === "1"')
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 10
                 assert page.locator('.gc-group-title').first.text_content() == 'Comunidade Especial 0', repr(page.locator('.gc-group-title').first.text_content())
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
@@ -91,13 +94,13 @@ def run():
                 assert page.locator('#campaign-import-options').is_visible()
                 page.locator('[name="campaign-import-mode" ][value="append" ]').check()
                 page.locator('#campaign-save-button').click()
-                page.wait_for_function('document.getElementById("campaign-lead-total").textContent === "2"')
+                page.wait_for_function('document.querySelector(".gc-task-lead-count").textContent === "2"')
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-editor-title").textContent.includes("Editar tarefa #")')
                 page.locator('#campaign-leads-file').set_input_files({'name': 'replacement.txt', 'mimeType': 'text/plain', 'buffer': b'@replacement_person'})
                 page.locator('[name="campaign-import-mode"][value="replace"]').check()
                 page.locator('#campaign-save-button').click()
-                page.wait_for_function('document.getElementById("campaign-lead-total").textContent === "1"')
+                page.wait_for_function('document.querySelector(".gc-task-lead-count").textContent === "1"')
                 page.locator('.gc-group-list > summary').click()
                 page.locator('details[data-detail="group-1"] > summary').click()
                 group = page.locator('form[data-group="1"]')
@@ -121,6 +124,7 @@ def run():
                     page.screenshot(path=str(output / 'campaign-desktop.png'), full_page=True)
                     page.evaluate('document.body.dataset.theme = "dark"')
                     page.screenshot(path=str(output / 'campaign-dark.png'), full_page=True)
+                page.locator('#campaign-view-list').click()
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-name").value === "Tarefa de teste"')
                 assert page.locator('#campaign-count').is_disabled()
@@ -130,10 +134,31 @@ def run():
                 page.locator('#campaign-limit').fill('37')
                 page.locator('#campaign-save-button').click()
                 page.wait_for_function('document.querySelector(".gc-task h3").textContent === "Tarefa editada"')
-                assert page.locator('#campaign-task-total').inner_text() == '1'
+                assert page.locator('.gc-task').count() == 1
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-limit").value === "37"')
                 page.locator('#campaign-cancel-edit').click()
+                assert page.locator('#campaign-builder').is_hidden()
+                assert page.locator('#campaign-monitor').is_visible()
+                page.locator('#campaign-task-search').fill('no-match')
+                assert page.locator('.gc-task').is_hidden()
+                assert page.locator('#campaign-filter-empty').is_visible()
+                page.locator('#campaign-task-search').fill('editada')
+                assert page.locator('.gc-task').is_visible()
+                page.locator('#campaign-task-filter').select_option('running')
+                assert page.locator('.gc-task').is_hidden()
+                page.locator('#campaign-task-filter').select_option('paused')
+                assert page.locator('.gc-task').is_visible()
+                page.locator('#campaign-task-search').fill('')
+                page.locator('#campaign-task-filter').select_option('')
+                if os.environ.get('CAMPAIGN_SCREENSHOT_DIR'):
+                    page.locator('.gc-group-list').evaluate('(node) => node.open = false')
+                    page.set_viewport_size({'width': 1440, 'height': 1000})
+                    page.wait_for_function('document.querySelector(".main-content").getBoundingClientRect().width > 900')
+                    page.screenshot(path=str(output / 'workspace-tasks-desktop.png'), full_page=True)
+                    page.set_viewport_size({'width': 390, 'height': 844})
+                    page.wait_for_function('document.querySelector(".main-content").getBoundingClientRect().width >= 350')
+                    page.screenshot(path=str(output / 'workspace-tasks-mobile.png'), full_page=True)
                 # New server events must appear without refreshing the task.
                 log_store = CampaignStore(directory)
                 log_store.event(1, 'Evento SSE de teste: convite em andamento')
@@ -225,14 +250,14 @@ def run():
                 page.wait_for_function('(gid) => !document.querySelector(`[data-detail="group-${gid}"]`)', arg=delete_gid)
                 assert len(store.groups(1)) == 9
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 9
-                assert page.locator('#campaign-lead-total').inner_text() == '1'
+                assert page.locator('.gc-task-lead-count').inner_text() == '1'
                 page.once('dialog', lambda dialog: dialog.dismiss())
                 page.get_by_role('button', name='Excluir tarefa', exact=True).click()
                 assert page.locator('.gc-task').count() == 1
                 page.once('dialog', lambda dialog: dialog.accept())
                 page.get_by_role('button', name='Excluir tarefa', exact=True).click()
                 page.wait_for_function('document.querySelectorAll(".gc-task").length === 0')
-                assert page.locator('#campaign-lead-total').inner_text() == '0'
+                assert page.locator('.gc-task-lead-count').count() == 0
                 assert not errors, errors
                 browser.close()
                 print('Browser smoke passed: create, phrases, import, edit, replace, ownership, deletion cancel/confirm, mobile viewport.')

@@ -156,9 +156,24 @@
     }
     function reveal(id) {
         const target = el(id);
-        if (id === 'campaign-builder') viewInitialized = true;
+        if (id === 'campaign-builder' || id === 'campaign-monitor') {
+            viewInitialized = true;
+            const editor = id === 'campaign-builder';
+            el('campaign-builder').hidden = !editor;
+            el('campaign-monitor').hidden = editor;
+            el('campaign-view-list').toggleAttribute('aria-current', !editor);
+            el('campaign-view-editor').toggleAttribute('aria-current', editor);
+            (editor ? el('campaign-view-editor') : el('campaign-view-list')).setAttribute('aria-current', 'page');
+        }
         if (target.tagName === 'DETAILS') target.open = true;
         target.scrollIntoView({behavior:'smooth', block:'start'});
+    }
+    function filterTasks() {
+        const query = el('campaign-task-search').value.trim().toLocaleLowerCase('pt-BR');
+        const status = el('campaign-task-filter').value;
+        const tasks = [...el('campaign-list').querySelectorAll('.gc-task')];
+        tasks.forEach(task => { task.hidden = !task.dataset.search.includes(query) || Boolean(status && task.dataset.status !== status); });
+        el('campaign-filter-empty').hidden = !tasks.length || tasks.some(task => !task.hidden);
     }
     function customGroupNames() {
         return el('campaign-names').value.split(/\r?\n/).map(name => name.trim()).filter(Boolean);
@@ -282,14 +297,10 @@
             const data = await api();
             if (current !== version) return;
             snapshot = data;
-if (!viewInitialized) {
-                el('campaign-builder').open = data.campaigns.length === 0;
-                viewInitialized = true;
+            if (!viewInitialized) {
+                reveal(data.campaigns.length ? 'campaign-monitor' : 'campaign-builder');
             }
-            el('campaign-lead-total').textContent = (data.assigned_leads || 0).toLocaleString('pt-BR');
-            el('campaign-task-total').textContent = data.campaigns.length;
-            el('campaign-running-total').textContent = `${data.campaigns.filter(task => task.status === 'running').length} em execução`;
-            el('campaign-added-total').textContent = data.campaigns.reduce((total, task) => total + (task.counts.added || 0), 0).toLocaleString('pt-BR');
+            el('campaign-task-summary').textContent = `${data.campaigns.length} tarefa(s) · ${data.campaigns.filter(task => task.status === 'running').length} em execução`;
             // Preserve forms while the user is editing a group.
             if (groupActionSubmitting || (el('campaign-list').contains(document.activeElement) && document.activeElement.matches('input')) || [...el('campaign-list').querySelectorAll('input[name="password"]')].some(input => input.value)) return;
             const openDetails = new Set([...el('campaign-list').querySelectorAll('details[open][data-detail]')].map(detail => detail.dataset.detail));
@@ -304,14 +315,14 @@ if (!viewInitialized) {
                 const focus = perGroup ? task.groups.find(group => group.status !== 'error' && (group.today_added || 0) < group.daily_limit) : null;
                 const sessionWaits = task.session_waits || [];
                 const spamAlert = sessionWaits.length ? `<details class="gc-alert gc-session-alert" data-detail="waits-${task.id}"><summary>⚠️ ${sessionWaits.length} sessão(ões) em espera ou bloqueadas <span>Ver motivos</span></summary><p>Flood aguarda o prazo informado. Contas congeladas exigem revisão no aplicativo oficial e ficam suspensas sem prazo automático.</p><ul>${sessionWaits.map(wait => `<li><strong>${esc(wait.name)}</strong> — limitada até ${esc(wait.requires_review ? 'revisão manual no Telegram (sem prazo automático)' : new Date(wait.until * 1000).toLocaleString('pt-BR'))}${wait.kind ? ` · ${esc(wait.kind)}` : ''}${wait.reason ? ` · ${esc(wait.reason)}` : ''}</li>`).join('')}</ul></details>` : '';
-                return `<section class="card task-card-modern gc-task">
+                return `<section class="card task-card-modern gc-task" data-status="${esc(task.status)}" data-search="${esc((task.name + ' #' + task.id).toLocaleLowerCase('pt-BR'))}">
                     <div class="gc-task-head"><div><span class="gc-task-id">TAREFA #${task.id}</span><h3>${esc(task.name)}</h3></div><div class="gc-task-actions"><span class="gc-badge ${esc(task.status)}">${esc(labels[task.status] || task.status)}</span>
                     ${task.status === 'running' ? `<button class="btn btn-warning" data-action="pause" data-id="${task.id}">Pausar tarefa</button>` : `<button class="btn btn-primary" data-action="start" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Iniciar tarefa</button>`}
                     <button class="btn btn-primary" data-action="edit" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Editar tarefa</button>
                     <button type="button" class="btn btn-primary" data-action="copy-links" data-id="${task.id}" ${task.groups.some(group => groupShareLink(group)) ? '' : 'disabled'} title="Copiar nomes e links dos grupos desta tarefa">Copiar nomes e links</button>
                     <button class="btn btn-danger" data-action="delete" data-id="${task.id}" ${busy ? 'disabled' : ''}>Excluir tarefa</button></div></div>
                     <div class="gc-task-body">
-                    <div class="gc-task-meta"><span>${task.groups.length} grupos</span><span>${task.settings.sessions.length} sessões · ${task.settings.sessions.length > 1 ? 'simultâneo' : 'individual'}</span><span title="${esc((task.active_sessions || []).join(', '))}">${(task.active_sessions || []).length} em andamento</span></div>
+                    <div class="gc-task-meta"><span><i class="fas fa-users" aria-hidden="true"></i> ${task.groups.length} grupos</span><span><i class="fas fa-address-book" aria-hidden="true"></i> <strong class="gc-task-lead-count">${(task.lead_count || 0).toLocaleString('pt-BR')}</strong> leads desta tarefa</span><span>${task.settings.sessions.length} sessões · ${task.settings.sessions.length > 1 ? 'simultâneo' : 'individual'}</span><span title="${esc((task.active_sessions || []).join(', '))}">${(task.active_sessions || []).length} em andamento</span></div>
                     <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta da tarefa · 24 horas')}<div class="gc-focus"><span class="gc-eyebrow">${task.status === 'running' ? 'Destino prioritário' : 'Próximo destino'}</span><strong>${focus ? esc(focus.title) : perGroup ? 'Sem grupo elegível agora' : 'Distribuição entre grupos'}</strong><small>${focus ? focus.status === 'error' ? 'Sequência bloqueada: revise o erro deste grupo e reinicie a tarefa. Os próximos grupos aguardam.' : focus.today >= focus.daily_limit ? 'Aguardando confirmação das vagas reservadas. Os próximos grupos aguardam.' : 'As sessões trabalham neste grupo até a meta. Grupos com erro são sinalizados e ignorados.' : 'Confira as cotas e os estados dos grupos abaixo.'}</small></div></div>
                     ${spamAlert}
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
@@ -346,6 +357,7 @@ if (!viewInitialized) {
                     </div>
                 </section>`;
             }).join('') || '<div class="gc-empty"><i class="fas fa-layer-group" aria-hidden="true"></i><h3>Sua primeira tarefa começa aqui</h3><p>Escolha os grupos e as sessões. Depois de salvar, ela aparecerá neste espaço.</p><button class="btn btn-primary" type="button" data-reveal="campaign-builder">Criar minha primeira tarefa</button></div>';
+            filterTasks();
             el('campaign-list').querySelectorAll('details[data-detail]').forEach(detail => detail.open = openDetails.has(detail.dataset.detail));
             el('campaign-list').querySelectorAll('.gc-history').forEach(history => {
                 const list = history.querySelector('.gc-log-list');
@@ -371,7 +383,9 @@ if (!viewInitialized) {
             reveal('campaign-builder');
             try { await loadSessions(); } catch (error) { notice(error.message, true); }
         });
-        el('campaign-cancel-edit').addEventListener('click', () => { resetEditor(); el('campaign-builder').open = false; });
+        el('campaign-task-search').addEventListener('input', filterTasks);
+        el('campaign-task-filter').addEventListener('change', filterTasks);
+        el('campaign-cancel-edit').addEventListener('click', () => { resetEditor(); reveal('campaign-monitor'); });
         el('campaign-create-form').addEventListener('input', preview);
         el('campaign-create-form').addEventListener('change', preview);
         el('campaign-session-options').addEventListener('change', event => {
@@ -493,7 +507,6 @@ if (!viewInitialized) {
                 resetEditor();
                 notice(`Tarefa #${result.id} salva. Clique em Iniciar para executar.`);
                 await load();
-                el('campaign-builder').open = false;
                 reveal('campaign-monitor');
             });
         });
@@ -566,7 +579,7 @@ if (!viewInitialized) {
                         return;
                     }
                     await api(`/${id}`, {method:'DELETE'});
-                    if (editingId === id) { resetEditor(); el('campaign-builder').open = false; }
+                    if (editingId === id) { resetEditor(); reveal('campaign-monitor'); }
                     notice('Tarefa excluída');
                     await load();
                     return;
