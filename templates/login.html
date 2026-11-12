@@ -1,950 +1,135 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-type="software" data-radius="soft" data-buttons="solid" data-motion>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Automation - Plataforma de Operação</title>
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-    <link rel="alternate icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='icon-32.png') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        :root {
-            --bg: #020617;
-            --panel: rgba(7, 15, 29, 0.78);
-            --panel-strong: rgba(8, 16, 31, 0.9);
-            --line: rgba(125, 211, 252, 0.17);
-            --muted: #9fb0c4;
-            --text: #f8fafc;
-            --red: #7c3aed;
-            --red-dark: #1d4ed8;
-            --cyan: #22d3ee;
-            --green: #22c55e;
-            --blue: #38bdf8;
-            --violet: #a78bfa;
-        }
-
-        body {
-            min-height: 100vh;
-            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            overflow-x: hidden;
-        }
-
-        .page {
-            min-height: 100vh;
-            background:
-                radial-gradient(circle at 82% 14%, rgba(34, 211, 238, 0.2), transparent 28%),
-                radial-gradient(circle at 18% 84%, rgba(124, 58, 237, 0.2), transparent 34%),
-                linear-gradient(115deg, rgba(2, 6, 23, .98), rgba(8, 13, 34, .9)),
-                url("{{ url_for('static', filename='landing-hero-dashboard.png') }}") right top / min(68vw, 1100px) auto no-repeat;
-            position: relative;
-            isolation: isolate;
-        }
-
-        .page::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background:
-                linear-gradient(90deg, rgba(125, 211, 252, 0.055) 1px, transparent 1px),
-                linear-gradient(rgba(125, 211, 252, 0.04) 1px, transparent 1px);
-            background-size: 58px 58px;
-            mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.88), transparent 82%);
-            pointer-events: none;
-            z-index: -1;
-        }
-
-        .page::after {
-            content: "";
-            position: absolute;
-            inset: auto 0 0 0;
-            height: 34%;
-            background: linear-gradient(180deg, rgba(7, 9, 13, 0), #07090d 72%);
-            pointer-events: none;
-            z-index: -1;
-        }
-
-        .neon-field {
-            position: absolute;
-            inset: 0;
-            overflow: hidden;
-            pointer-events: none;
-            z-index: -1;
-        }
-
-        .scan-line {
-            position: absolute;
-            left: -12%;
-            right: -12%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.58), transparent);
-            box-shadow: 0 0 28px rgba(34, 211, 238, 0.36);
-            animation: scanMove 8s linear infinite;
-        }
-
-        .scan-line.one { top: 26%; }
-        .scan-line.two { top: 64%; animation-delay: -3s; opacity: 0.56; }
-
-        .orbit {
-            position: absolute;
-            width: 430px;
-            height: 430px;
-            right: clamp(18px, 7vw, 120px);
-            top: 118px;
-            border: 1px solid rgba(34, 211, 238, 0.18);
-            border-radius: 50%;
-            box-shadow: inset 0 0 44px rgba(34, 211, 238, 0.04), 0 0 54px rgba(34, 211, 238, 0.08);
-            animation: orbitPulse 5s ease-in-out infinite;
-        }
-
-        .orbit::before,
-        .orbit::after {
-            content: "";
-            position: absolute;
-            inset: 42px;
-            border: 1px dashed rgba(167, 139, 250, 0.22);
-            border-radius: 50%;
-        }
-
-        .orbit::after {
-            inset: 118px;
-            border-style: solid;
-            border-color: rgba(34, 197, 94, 0.14);
-        }
-
-        @keyframes scanMove {
-            from { transform: translateY(-80px); opacity: 0; }
-            14% { opacity: 1; }
-            86% { opacity: 1; }
-            to { transform: translateY(220px); opacity: 0; }
-        }
-
-        @keyframes orbitPulse {
-            0%, 100% { transform: scale(1); opacity: 0.72; }
-            50% { transform: scale(1.035); opacity: 1; }
-        }
-
-        .shell {
-            width: min(1180px, calc(100% - 40px));
-            margin: 0 auto;
-        }
-
-        .nav {
-            min-height: 74px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 18px;
-        }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-weight: 900;
-            letter-spacing: 0;
-        }
-
-        .brand-mark {
-            width: 42px;
-            height: 42px;
-            display: grid;
-            place-items: center;
-            border-radius: 8px;
-            background: linear-gradient(135deg, var(--blue), var(--red));
-            box-shadow: 0 14px 34px rgba(56, 189, 248, 0.28), inset 0 1px 0 rgba(255,255,255,.28);
-        }
-
-        .nav-links {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: var(--muted);
-            font-size: 14px;
-        }
-
-        .nav-links a {
-            color: inherit;
-            text-decoration: none;
-            padding: 9px 12px;
-            border-radius: 8px;
-        }
-
-        .nav-links a:hover {
-            background: rgba(255, 255, 255, 0.06);
-            color: var(--text);
-        }
-
-        .hero {
-            display: grid;
-            grid-template-columns: minmax(0, 1.12fr) 420px;
-            gap: 46px;
-            align-items: center;
-            min-height: calc(100vh - 74px);
-            padding: 42px 0 70px;
-        }
-
-        .hero-copy {
-            max-width: 690px;
-        }
-
-        .eyebrow {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            min-height: 34px;
-            padding: 7px 11px;
-            border-radius: 8px;
-            color: #bae6fd;
-            background: rgba(14, 165, 233, 0.12);
-            border: 1px solid rgba(34, 211, 238, 0.28);
-            font-size: 13px;
-            font-weight: 800;
-            margin-bottom: 22px;
-            box-shadow: 0 0 28px rgba(34, 211, 238, 0.1);
-        }
-
-        h1 {
-            font-size: clamp(42px, 6vw, 78px);
-            line-height: 0.98;
-            letter-spacing: 0;
-            max-width: 760px;
-            text-shadow: 0 0 42px rgba(34, 211, 238, 0.12);
-        }
-
-        .title-accent {
-            color: var(--cyan);
-            text-shadow: 0 0 28px rgba(34, 211, 238, .35), 0 0 68px rgba(124, 58, 237, .2);
-        }
-
-        .hero-copy > p {
-            margin-top: 22px;
-            max-width: 620px;
-            color: #b9c4d2;
-            font-size: clamp(17px, 2vw, 21px);
-            line-height: 1.58;
-        }
-
-        .hero-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-top: 28px;
-        }
-
-        .hero-button {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            min-height: 46px;
-            padding: 12px 16px;
-            border-radius: 8px;
-            border: 1px solid transparent;
-            font-weight: 900;
-            color: var(--text);
-            text-decoration: none;
-            cursor: pointer;
-        }
-
-        .hero-button.primary {
-            background: linear-gradient(135deg, #0ea5e9, #7c3aed);
-            box-shadow: 0 16px 38px rgba(14, 165, 233, 0.26), 0 0 24px rgba(124, 58, 237, 0.18);
-        }
-
-        .hero-button.secondary {
-            background: rgba(15, 23, 42, 0.72);
-            border-color: rgba(148, 163, 184, 0.22);
-        }
-
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 12px;
-            max-width: 650px;
-            margin-top: 32px;
-        }
-
-        .metric {
-            padding: 15px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: rgba(8, 16, 31, 0.64);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-        }
-
-        .metric strong {
-            display: block;
-            color: #ffffff;
-            font-size: 22px;
-            margin-bottom: 4px;
-        }
-
-        .metric span {
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.35;
-        }
-
-        .auth-card {
-            background:
-                linear-gradient(145deg, rgba(34, 211, 238, 0.12), rgba(124, 58, 237, 0.06) 38%, rgba(255, 255, 255, 0.025)),
-                var(--panel-strong);
-            border: 1px solid rgba(125, 211, 252, 0.24);
-            border-radius: 8px;
-            padding: 28px;
-            box-shadow: 0 30px 95px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(34, 211, 238, 0.08), 0 0 58px rgba(34, 211, 238, 0.12);
-            backdrop-filter: blur(18px);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .auth-card::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            border-top: 3px solid rgba(34, 211, 238, 0.9);
-            background:
-                linear-gradient(90deg, rgba(34, 211, 238, 0.14), transparent 28%, rgba(124, 58, 237, 0.1) 72%, transparent),
-                linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 42%);
-            pointer-events: none;
-        }
-
-        .auth-card::after {
-            content: "";
-            position: absolute;
-            inset: -80px -120px auto auto;
-            width: 220px;
-            height: 220px;
-            background: radial-gradient(circle, rgba(34, 211, 238, 0.26), rgba(34, 211, 238, 0));
-            pointer-events: none;
-        }
-
-        .auth-card-glow {
-            position: absolute;
-            inset: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        .auth-card-glow::before,
-        .auth-card-glow::after {
-            content: "";
-            position: absolute;
-            width: 54px;
-            height: 54px;
-            border-color: rgba(34, 211, 238, 0.62);
-            border-style: solid;
-        }
-
-        .auth-card-glow::before {
-            top: -1px;
-            left: -1px;
-            border-width: 1px 0 0 1px;
-        }
-
-        .auth-card-glow::after {
-            right: -1px;
-            bottom: -1px;
-            border-width: 0 1px 1px 0;
-        }
-
-        .auth-header {
-            margin-bottom: 22px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .auth-header span {
-            color: var(--cyan);
-            font-size: 12px;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: 0;
-        }
-
-        .auth-header h2 {
-            margin-top: 8px;
-            font-size: 28px;
-        }
-
-        .auth-header p {
-            margin-top: 8px;
-            color: var(--muted);
-            line-height: 1.45;
-        }
-
-        .auth-tabs {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            padding: 5px;
-            border: 1px solid rgba(148, 163, 184, 0.16);
-            border-radius: 8px;
-            background: rgba(3, 7, 18, 0.58);
-            margin-bottom: 18px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .auth-tab {
-            min-height: 38px;
-            border: 0;
-            border-radius: 7px;
-            background: transparent;
-            color: #8ea0b8;
-            font: inherit;
-            font-size: 13px;
-            font-weight: 900;
-            cursor: pointer;
-        }
-
-        .auth-tab.active {
-            color: #fff;
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.9), rgba(124, 58, 237, 0.9));
-            box-shadow: 0 10px 25px rgba(14, 165, 233, 0.18);
-        }
-
-        .message {
-            display: none;
-            padding: 12px 13px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            font-size: 14px;
-            line-height: 1.4;
-            position: relative;
-            z-index: 1;
-        }
-
-        .message.error {
-            color: #fecaca;
-            background: rgba(239, 68, 68, 0.14);
-            border: 1px solid rgba(239, 68, 68, 0.35);
-        }
-
-        .message.success {
-            color: #bbf7d0;
-            background: rgba(34, 197, 94, 0.13);
-            border: 1px solid rgba(34, 197, 94, 0.34);
-        }
-
-        .form-group {
-            margin-bottom: 15px;
-        }
-
-        form {
-            position: relative;
-            z-index: 1;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #d9e2ef;
-            font-size: 13px;
-            font-weight: 800;
-        }
-
-        .input-shell {
-            position: relative;
-        }
-
-        .input-shell i {
-            position: absolute;
-            left: 13px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #718096;
-            font-size: 14px;
-        }
-
-        input {
-            width: 100%;
-            min-height: 46px;
-            padding: 12px 13px 12px 39px;
-            border: 1px solid rgba(148, 163, 184, 0.22);
-            border-radius: 8px;
-            background: rgba(2, 6, 23, 0.72);
-            color: var(--text);
-            font: inherit;
-            outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-        }
-
-        input:focus {
-            border-color: rgba(34, 211, 238, 0.7);
-            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
-            background: rgba(3, 7, 18, 0.94);
-        }
-
-        .btn {
-            width: 100%;
-            min-height: 46px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            border: 0;
-            border-radius: 8px;
-            font: inherit;
-            font-weight: 900;
-            cursor: pointer;
-            transition: transform 0.2s, border-color 0.2s, background 0.2s;
-        }
-
-        .btn:hover {
-            transform: translateY(-1px);
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #0ea5e9, #7c3aed);
-            color: #fff;
-            box-shadow: 0 16px 34px rgba(14, 165, 233, 0.22);
-            margin-top: 5px;
-        }
-
-        .btn-primary:hover {
-            box-shadow: 0 18px 42px rgba(14, 165, 233, 0.34);
-        }
-
-        .btn-secondary {
-            margin-top: 10px;
-            background: transparent;
-            color: #dbeafe;
-            border: 1px solid rgba(148, 163, 184, 0.24);
-        }
-
-        .trust-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-top: 14px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .trust-pill {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            min-height: 36px;
-            padding: 8px 10px;
-            border-radius: 8px;
-            color: #b7c5d8;
-            background: rgba(148, 163, 184, 0.08);
-            border: 1px solid rgba(148, 163, 184, 0.15);
-            font-size: 12px;
-            font-weight: 800;
-        }
-
-        .trust-pill i {
-            color: var(--cyan);
-        }
-
-        #registerForm {
-            display: none;
-        }
-
-        .loading {
-            opacity: 0.65;
-            pointer-events: none;
-        }
-
-        .section {
-            padding: 54px 0;
-            border-top: 1px solid rgba(148, 163, 184, 0.12);
-            background: rgba(7, 9, 13, 0.92);
-        }
-
-        .section-head {
-            display: flex;
-            justify-content: space-between;
-            align-items: end;
-            gap: 24px;
-            margin-bottom: 22px;
-        }
-
-        .section-head h2 {
-            max-width: 620px;
-            font-size: clamp(28px, 3vw, 42px);
-        }
-
-        .section-head p {
-            max-width: 430px;
-            color: var(--muted);
-            line-height: 1.55;
-        }
-
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 14px;
-        }
-
-        .feature {
-            min-height: 178px;
-            padding: 20px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: rgba(14, 18, 25, 0.82);
-        }
-
-        .feature i {
-            width: 38px;
-            height: 38px;
-            display: grid;
-            place-items: center;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            color: #fff;
-            background: rgba(14, 165, 233, 0.16);
-            border: 1px solid rgba(34, 211, 238, 0.26);
-        }
-
-        .auth-status-strip {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            margin: 0 0 18px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .auth-status-strip span {
-            min-height: 30px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            border: 1px solid rgba(125, 211, 252, 0.17);
-            border-radius: 8px;
-            background: rgba(2, 6, 23, 0.46);
-            color: #b7c5d8;
-            font-size: 11px;
-            font-weight: 900;
-        }
-
-        .auth-status-strip i {
-            color: var(--green);
-            font-size: 8px;
-        }
-
-        .feature h3 {
-            font-size: 17px;
-            margin-bottom: 9px;
-        }
-
-        .feature p {
-            color: var(--muted);
-            line-height: 1.48;
-            font-size: 14px;
-        }
-
-        .workflow {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            align-items: stretch;
-        }
-
-        .workflow-panel {
-            padding: 24px;
-            border-radius: 8px;
-            border: 1px solid var(--line);
-            background: linear-gradient(180deg, rgba(18, 24, 34, 0.96), rgba(12, 15, 21, 0.96));
-        }
-
-        .workflow-list {
-            display: grid;
-            gap: 10px;
-            margin-top: 18px;
-        }
-
-        .workflow-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            min-height: 48px;
-            padding: 11px 12px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.045);
-            color: #cbd5e1;
-        }
-
-        .workflow-item i {
-            color: var(--green);
-        }
-
-        footer {
-            padding: 28px 0 38px;
-            color: #78869a;
-            background: #07090d;
-            border-top: 1px solid rgba(148, 163, 184, 0.12);
-        }
-
-        @media (max-width: 980px) {
-            .page {
-                background:
-                    linear-gradient(180deg, rgba(7, 9, 13, 0.85), rgba(7, 9, 13, 0.98)),
-                    url("{{ url_for('static', filename='landing-hero-dashboard.png') }}") center top / 980px auto no-repeat;
-            }
-
-            .hero {
-                grid-template-columns: 1fr;
-                padding-top: 34px;
-            }
-
-            .auth-card {
-                max-width: 520px;
-            }
-
-            .orbit {
-                opacity: 0.35;
-                right: -120px;
-            }
-
-            .feature-grid,
-            .workflow {
-                grid-template-columns: 1fr 1fr;
-            }
-        }
-
-        @media (max-width: 640px) {
-            .shell {
-                width: min(100% - 28px, 1180px);
-            }
-
-            .nav {
-                align-items: flex-start;
-                flex-direction: column;
-                padding: 18px 0;
-            }
-
-            .nav-links {
-                flex-wrap: wrap;
-            }
-
-            .hero {
-                min-height: auto;
-                padding: 28px 0 44px;
-            }
-
-            .metrics,
-            .feature-grid,
-            .workflow {
-                grid-template-columns: 1fr;
-            }
-
-            .section-head {
-                display: block;
-            }
-
-            .section-head p {
-                margin-top: 12px;
-            }
-
-            .auth-status-strip {
-                grid-template-columns: 1fr;
-            }
-
-            .orbit {
-                display: none;
-            }
-        }
-    </style>
-<link rel="stylesheet" href="{{ url_for('static', filename='studio.css') }}?v={{ app_version|default('2') }}">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="page-type" content="software"><meta name="site-kind" content="software">
+<meta name="theme-color" content="#f7f9f8">
+<meta name="description" content="Organize sessões, grupos e tarefas do Telegram. Acompanhe suas operações em um painel com relatórios e registros por conta.">
+<meta property="og:title" content="TG Auto · Automação para Telegram">
+<meta property="og:description" content="Sessões, grupos e tarefas do Telegram reunidos em um painel.">
+<meta property="og:type" content="website">
+<title>TG Auto · Automação para Telegram</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='taste/system.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='taste/layout/layout.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='taste/motion/motion.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='experience.css') }}?v=20261112-2">
+<script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),1500)</script>
 </head>
-<body data-design="studio">
-    <div class="page">
-        <div class="neon-field" aria-hidden="true">
-            <div class="orbit"></div>
-            <div class="scan-line one"></div>
-            <div class="scan-line two"></div>
-        </div>
-        <header class="shell nav">
-            <div class="brand">
-                <div class="brand-mark"><i class="fas fa-bolt"></i></div>
-                <span>Telegram Automation</span>
-            </div>
-            <nav class="nav-links">
-                <a href="#recursos">Recursos</a>
-                <a href="#fluxo">Fluxo</a>
-                <a href="#acesso">Acesso</a>
-            </nav>
-        </header>
+<body class="marketing">
+<!-- software; teal-on-paper, Familjen Grotesk, centred hero; word-highlight in #fluxo.
+     Practical existing app: retain its authentication, APIs and account data. -->
+<header class="nav"><div class="wrap nav__bar">
+<a class="skip-link" href="#top">Pular para o conteúdo</a>
+<a class="nav__logo" href="#top" translate="no"><span class="brand-symbol" aria-hidden="true"><img src="{{ url_for('static', filename='taste/icons/telegram.svg') }}" width="32" height="32" alt=""></span>TG Auto<span class="brand-caption">Telegram Automation</span></a>
+<nav class="nav__links" aria-label="Navegação principal"><div class="nav__item"><a class="nav__link" href="#recursos">Recursos</a></div><div class="nav__item"><a class="nav__link" href="#fluxo">Como funciona</a></div></nav>
+<div class="nav__actions"><a class="btn btn--primary" href="#acesso">Acessar painel <span aria-hidden="true">↗</span></a></div>
+</div></header>
+<main id="top" tabindex="-1">
+<section class="hero hero--centred" data-enter aria-labelledby="hero-title">
+ <div class="wrap"><div class="hero-text"><div class="hero__c">
+  <p class="t-label hero-kicker"><span aria-hidden="true">↗</span> 3 etapas: contas, tarefas e resultados</p>
+  <h1 id="hero-title">Automação para<br>seu Telegram.</h1>
+  <p class="hero__lead">Organize suas sessões, prepare tarefas e acompanhe os resultados.<br class="desktop-break"> Seu trabalho no Telegram, reunido em um painel.</p>
+  <div class="btn-row"><a class="btn btn--primary" href="#acesso">Acessar painel <span aria-hidden="true">↗</span></a><a class="btn btn--secondary" href="#recursos">Ver recursos</a></div>
+ </div>
+ <div class="hero__window product-ground" data-visual>
+  <div class="product-window app-frame">
+   <div class="product-bar"><span translate="no"><img src="{{ url_for('static', filename='taste/icons/telegram.svg') }}" width="20" height="20" alt=""> TG Auto</span><span>Seu espaço de trabalho</span><span class="window-dots" aria-hidden="true">● ● ●</span></div>
+   <div class="product-body"><div class="product-sidebar"><span class="product-nav selected"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m12 14l4-4M3.34 19a10 10 0 1 1 17.32 0"/></svg> Visão geral</span><span class="product-nav"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3.128a4 4 0 0 1 0 7.744M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></g></svg> Sessões</span><span class="product-nav"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5h8m-8 7h8m-8 7h8M3 17l2 2l4-4M3 7l2 2l4-4"/></svg> Tarefas</span><span class="product-nav"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v5m4-7v7m4-11v11m2-18l-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15m2 3v3m4-7v7"/></svg> Estatísticas</span></div>
+   <div class="product-main"><div class="product-title"><div><span class="t-label">Visão geral</span><p class="product-heading">Sua central de operações.</p></div><span class="preview-badge"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></g></svg> Tudo conectado</span></div>
+   <div class="product-steps"><div class="preview-step"><span class="step-icon"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></g></svg></span><strong>Conecte suas sessões</strong><span>Contas organizadas por status</span><span class="step-arrow" aria-hidden="true">↗</span></div><div class="preview-step"><span class="step-icon"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5h8m-8 7h8m-8 7h8M3 17l2 2l4-4M3 7l2 2l4-4"/></svg></span><strong>Prepare suas tarefas</strong><span>Metas e limites por operação</span><span class="step-arrow" aria-hidden="true">↗</span></div><div class="preview-step"><span class="step-icon"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v5m4-7v7m4-11v11m2-18l-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15m2 3v3m4-7v7"/></svg></span><strong>Acompanhe resultados</strong><span>Progresso e registros reunidos</span><span class="step-arrow" aria-hidden="true">↗</span></div></div>
+   </div></div>
+  </div>
+ </div></div></div>
+</section>
+<section class="section resources" id="recursos" aria-labelledby="resources-title"><div class="wrap">
+ <div class="section-intro"><p class="t-label">As ferramentas da sua rotina</p><h2 id="resources-title">Recursos para<br>sua rotina.</h2><p>Da organização das contas ao acompanhamento das tarefas, mantenha cada etapa à vista.</p></div>
+ <div class="resource-grid">
+  <article class="resource-card"><span class="resource-icon"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3.128a4 4 0 0 1 0 7.744M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></g></svg></span><h3>Organize suas sessões</h3><p>Encontre contas ativas, pausadas ou em uso. Consulte o status antes de iniciar uma tarefa.</p><div class="resource-tags"><span>Ativas</span><span>Pausadas</span><span>Em uso</span></div></article>
+  <article class="resource-card"><span class="resource-icon"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5h8m-8 7h8m-8 7h8M3 17l2 2l4-4M3 7l2 2l4-4"/></svg></span><h3>Acompanhe suas tarefas</h3><p>Defina metas, escolha as sessões e acompanhe o andamento de cada operação.</p><div class="resource-tags"><span>Metas</span><span>Limites</span><span>Progresso</span></div></article>
+  <article class="resource-card"><span class="resource-icon"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg></span><h3>Extraia com filtros</h3><p>Filtre membros por atividade e dados disponíveis. Organize os arquivos em lotes.</p><div class="resource-tags"><span>Filtros</span><span>Arquivos</span><span>Lotes</span></div></article>
+  <article class="resource-card"><span class="resource-icon"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v5m4-7v7m4-11v11m2-18l-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15m2 3v3m4-7v7"/></svg></span><h3>Consulte os resultados</h3><p>Veja relatórios e registros da sua conta para entender o que aconteceu em cada operação.</p><div class="resource-tags"><span>Relatórios</span><span>Registros</span><span>Por conta</span></div></article>
+ </div>
+</div></section>
+<section class="section workflow-section" id="fluxo" data-moment="word-highlight" aria-labelledby="flow-title"><div class="wrap">
+ <p class="t-label">Como funciona</p><h2 id="flow-title" class="mo-wh__text">Conecte suas contas.<br>Prepare suas tarefas.<br><strong>Acompanhe cada etapa.</strong></h2>
+ <ol class="flow-steps"><li><span>01</span><div><h3>Configure as sessões</h3><p>Cadastre suas APIs e conecte as contas que você vai usar.</p></div></li><li><span>02</span><div><h3>Defina a operação</h3><p>Escolha os grupos, as metas e os limites da tarefa.</p></div></li><li><span>03</span><div><h3>Veja o andamento</h3><p>Consulte o progresso e os registros no seu painel.</p></div></li></ol>
+</div></section>
+<section class="section access-section" id="acesso" aria-labelledby="access-title"><div class="wrap access-grid"><div class="access-copy"><p class="t-label">Seu espaço de trabalho</p><h2 id="access-title">Tudo pronto para<br>sua próxima tarefa.</h2><p>Entre na sua conta ou crie um acesso. Suas sessões, configurações e registros ficam no seu espaço.</p><div class="access-note"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88m4.29-.98c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M2 16h.01m19.79 0c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2m2.31 12c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2"/></g></svg><span>Dados e operações separados por usuário.</span></div></div>
+<aside class="auth-card login-card" id="login-card">
 
-        <main class="shell hero">
-            <section class="hero-copy">
-                <div class="eyebrow"><i class="fas fa-sparkles"></i> SUA CENTRAL DE OPERAÇÕES</div>
-                <h1>Sua operação.<br><span class="title-accent">Sob controle.</span></h1>
-                <p>
-                    Contas, grupos e tarefas em um só lugar. Organize sua rotina no Telegram e acompanhe cada resultado.
-                </p>
-                <div class="hero-actions">
-                    <a class="hero-button primary" href="#acesso"><i class="fas fa-right-to-bracket"></i> Entrar no sistema</a>
-                    <a class="hero-button secondary" href="#recursos"><i class="fas fa-chart-line"></i> Ver recursos</a>
-                </div>
-                <div class="metrics">
-                    <div class="metric">
-                        <strong>Organização</strong>
-                        <span>Extracao, tarefas, sessoes, configuracoes e relatorios.</span>
-                    </div>
-                    <div class="metric">
-                        <strong>Multiusuario</strong>
-                        <span>Dados e operacoes isolados por conta.</span>
-                    </div>
-                    <div class="metric">
-                        <strong>Tempo real</strong>
-                        <span>Logs, progresso e status direto no painel.</span>
-                    </div>
-                </div>
-            </section>
-
-            <aside class="auth-card" id="acesso">
-                <div class="auth-card-glow" aria-hidden="true"></div>
                 <div class="auth-header">
                     <span id="authModeLabel">Acesso seguro</span>
-                    <h2 id="authTitle">Entrar na plataforma</h2>
-                    <p id="authDescription">Use seu usuario para acessar o painel operacional.</p>
+                    <h3 id="authTitle">Acessar seu painel</h3>
+                    <p id="authDescription">Entre na sua conta para continuar de onde parou.</p>
                 </div>
 
-                <div class="auth-status-strip" aria-label="Status do sistema">
-                    <span><i class="fas fa-circle"></i> Online</span>
-                    <span><i class="fas fa-circle"></i> Seguro</span>
-                    <span><i class="fas fa-circle"></i> Isolado</span>
+
+
+                <div class="auth-tabs" role="tablist" aria-label="Tipo de acesso">
+                    <button type="button" class="auth-tab active" id="loginTab" role="tab" aria-selected="true" aria-controls="loginForm" onclick="showLogin()">Entrar</button>
+                    <button type="button" class="auth-tab" id="registerTab" role="tab" aria-selected="false" aria-controls="registerForm" tabindex="-1" onclick="showRegister()">Criar conta</button>
                 </div>
 
-                <div class="auth-tabs">
-                    <button type="button" class="auth-tab active" id="loginTab" onclick="showLogin()">Entrar</button>
-                    <button type="button" class="auth-tab" id="registerTab" onclick="showRegister()">Criar conta</button>
-                </div>
+                <div id="errorMessage" role="alert" tabindex="-1" class="message error"></div>
+                <div id="successMessage" role="status" aria-live="polite" class="message success"></div>
 
-                <div id="errorMessage" class="message error"></div>
-                <div id="successMessage" class="message success"></div>
-
-                <form id="loginForm">
+                <form id="loginForm" role="tabpanel" aria-labelledby="loginTab">
                     <div class="form-group">
-                        <label for="loginUsername">Usuario</label>
+                        <label for="loginUsername">Usuário</label>
                         <div class="input-shell">
-                            <i class="fas fa-user"></i>
-                            <input type="text" id="loginUsername" placeholder="Digite seu usuario" autocomplete="username" required>
+                            <svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></g></svg>
+                            <input type="text" id="loginUsername" name="username" spellcheck="false" autocapitalize="none" placeholder="Digite seu usuário" autocomplete="username" required>
                         </div>
                     </div>
                     <div class="form-group">
                         <label for="loginPassword">Senha</label>
                         <div class="input-shell">
-                            <i class="fas fa-lock"></i>
-                            <input type="password" id="loginPassword" placeholder="Digite sua senha" autocomplete="current-password" required>
+                            <svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="16" r="1"/><rect width="18" height="12" x="3" y="10" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></g></svg>
+                            <input type="password" id="loginPassword" name="loginPassword" placeholder="Digite sua senha" autocomplete="current-password" required><button class="password-toggle" type="button" data-password-toggle="loginPassword" aria-label="Mostrar senha" aria-pressed="false"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M2.062 12.348a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 19.876 0a1 1 0 0 1 0 .696a10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></g></svg></button>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-arrow-right"></i> Entrar</button>
-                    <button type="button" class="btn btn-secondary" onclick="showRegister()"><i class="fas fa-user-plus"></i> Criar nova conta</button>
+                    <button type="submit" class="btn btn--primary btn-primary"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-7-7l7 7l-7 7"/></svg> Entrar</button>
+                    <button type="button" class="btn btn--secondary btn-secondary" onclick="showRegister()"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6m3-3h-6"/></g></svg> Criar nova conta</button>
                     <div class="trust-row">
-                        <div class="trust-pill"><i class="fas fa-lock"></i> Acesso isolado</div>
-                        <div class="trust-pill"><i class="fas fa-clock"></i> Painel em tempo real</div>
+                        <div class="trust-pill"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="16" r="1"/><rect width="18" height="12" x="3" y="10" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></g></svg> Acesso isolado</div>
+                        <div class="trust-pill"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></g></svg> Painel em tempo real</div>
                     </div>
                 </form>
 
-                <form id="registerForm">
+                <form id="registerForm" role="tabpanel" aria-labelledby="registerTab">
                     <div class="form-group">
-                        <label for="registerUsername">Novo usuario</label>
+                        <label for="registerUsername">Novo usuário</label>
                         <div class="input-shell">
-                            <i class="fas fa-user"></i>
-                            <input type="text" id="registerUsername" placeholder="Escolha um nome de usuario" autocomplete="username" required>
+                            <svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></g></svg>
+                            <input type="text" id="registerUsername" name="username" spellcheck="false" autocapitalize="none" placeholder="Escolha um nome de usuário" autocomplete="username" required>
                         </div>
                     </div>
                     <div class="form-group">
                         <label for="registerPassword">Senha</label>
                         <div class="input-shell">
-                            <i class="fas fa-lock"></i>
-                            <input type="password" id="registerPassword" placeholder="Minimo de 6 caracteres" autocomplete="new-password" required>
+                            <svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="16" r="1"/><rect width="18" height="12" x="3" y="10" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></g></svg>
+                            <input type="password" id="registerPassword" name="registerPassword" minlength="6" placeholder="Mínimo de 6 caracteres" autocomplete="new-password" required><button class="password-toggle" type="button" data-password-toggle="registerPassword" aria-label="Mostrar senha" aria-pressed="false"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M2.062 12.348a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 19.876 0a1 1 0 0 1 0 .696a10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></g></svg></button>
                         </div>
                     </div>
                     <div class="form-group">
                         <label for="registerConfirm">Confirmar senha</label>
                         <div class="input-shell">
-                            <i class="fas fa-check"></i>
-                            <input type="password" id="registerConfirm" placeholder="Repita a senha" autocomplete="new-password" required>
+                            <svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 6L9 17l-5-5"/></svg>
+                            <input type="password" id="registerConfirm" name="registerConfirm" minlength="6" placeholder="Repita a senha" autocomplete="new-password" required><button class="password-toggle" type="button" data-password-toggle="registerConfirm" aria-label="Mostrar senha" aria-pressed="false"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M2.062 12.348a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 19.876 0a1 1 0 0 1 0 .696a10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></g></svg></button>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-user-check"></i> Criar conta</button>
-                    <button type="button" class="btn btn-secondary" onclick="showLogin()"><i class="fas fa-arrow-left"></i> Voltar ao login</button>
+                    <button type="submit" class="btn btn--primary btn-primary"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m9 12l2 2l4-4"/></g></svg> Criar conta</button>
+                    <button type="button" class="btn btn--secondary btn-secondary" onclick="showLogin()"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m12 19l-7-7l7-7m7 7H5"/></svg> Voltar ao login</button>
                 </form>
-            </aside>
-        </main>
-    </div>
-
-    <section class="section" id="recursos">
-        <div class="shell">
-            <div class="section-head">
-                <h2>Feito para operar sem se perder.</h2>
-                <p>O painel organiza o trabalho em areas claras, com status visivel e controles diretos para acompanhar cada etapa.</p>
-            </div>
-            <div class="feature-grid">
-                <article class="feature">
-                    <i class="fas fa-download"></i>
-                    <h3>Extracao com filtros</h3>
-                    <p>Filtre por atividade, username, foto, telefone disponivel e divida os arquivos em lotes.</p>
-                </article>
-                <article class="feature">
-                    <i class="fas fa-tasks"></i>
-                    <h3>Tarefas acompanhadas</h3>
-                    <p>Defina metas, sessoes usadas, limites diarios e acompanhe o progresso em tempo real.</p>
-                </article>
-                <article class="feature">
-                    <i class="fas fa-users-cog"></i>
-                    <h3>Sessoes organizadas</h3>
-                    <p>Veja ativas, em uso, pausadas, flood, banidas e aquecendo em abas separadas.</p>
-                </article>
-                <article class="feature">
-                    <i class="fas fa-chart-pie"></i>
-                    <h3>Relatorios e logs</h3>
-                    <p>Entenda o que aconteceu em cada operacao com logs por usuario e por modulo.</p>
-                </article>
-            </div>
-        </div>
-    </section>
-
-    <section class="section" id="fluxo">
-        <div class="shell workflow">
-            <div class="workflow-panel">
-                <div class="section-head">
-                    <h2>Fluxo simples para o operador.</h2>
-                </div>
-                <div class="workflow-list">
-                    <div class="workflow-item"><i class="fas fa-circle-check"></i> Configura APIs e sessoes.</div>
-                    <div class="workflow-item"><i class="fas fa-circle-check"></i> Importa ou extrai membros autorizados.</div>
-                    <div class="workflow-item"><i class="fas fa-circle-check"></i> Cria tarefas com metas e limites.</div>
-                    <div class="workflow-item"><i class="fas fa-circle-check"></i> Acompanha progresso, erros e relatorios.</div>
-                </div>
-            </div>
-            <div class="workflow-panel">
-                <div class="section-head">
-                    <h2>Controle por usuario.</h2>
-                </div>
-                <div class="workflow-list">
-                    <div class="workflow-item"><i class="fas fa-lock"></i> Cada conta possui sessoes e dados proprios.</div>
-                    <div class="workflow-item"><i class="fas fa-lock"></i> Logs de uma conta nao aparecem para outra.</div>
-                    <div class="workflow-item"><i class="fas fa-lock"></i> Tarefas e bloqueios ficam isolados.</div>
-                    <div class="workflow-item"><i class="fas fa-lock"></i> Configuracoes ficam salvas no espaco do usuario.</div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <footer>
-        <div class="shell">Telegram Automation System - painel operacional multiusuario.</div>
-    </footer>
-
+            </aside></div></section></main><footer class="marketing-footer"><div class="wrap"><a href="#top" translate="no">TG Auto</a><span>Telegram Automation</span><a href="#recursos">Ver recursos <span aria-hidden="true">↑</span></a></div></footer>
+<script type="module" src="{{ url_for('static', filename='taste/motion/motion.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='taste/moments/moments.js') }}"></script>
+<script src="{{ url_for('static', filename='experience.js') }}?v=20261112-2" defer></script>
     <script>
         const loginForm = document.getElementById('loginForm');
         const registerForm = document.getElementById('registerForm');
@@ -959,6 +144,7 @@
         function showError(message) {
             errorMessage.textContent = message;
             errorMessage.style.display = 'block';
+            errorMessage.focus();
             successMessage.style.display = 'none';
         }
 
@@ -978,9 +164,10 @@
             registerForm.style.display = 'block';
             loginTab.classList.remove('active');
             registerTab.classList.add('active');
+            syncAuthTabs(true);
             authModeLabel.textContent = 'Nova conta';
             authTitle.textContent = 'Criar acesso';
-            authDescription.textContent = 'Crie um usuario para acessar seu ambiente isolado.';
+            authDescription.textContent = 'Crie sua conta e organize suas operações em um só lugar.';
             hideMessages();
         }
 
@@ -989,9 +176,10 @@
             loginForm.style.display = 'block';
             registerTab.classList.remove('active');
             loginTab.classList.add('active');
+            syncAuthTabs(false);
             authModeLabel.textContent = 'Acesso seguro';
-            authTitle.textContent = 'Entrar na plataforma';
-            authDescription.textContent = 'Use seu usuario para acessar o painel operacional.';
+            authTitle.textContent = 'Acessar seu painel';
+            authDescription.textContent = 'Entre na sua conta para continuar de onde parou.';
             hideMessages();
         }
 
@@ -1007,7 +195,7 @@
                 return;
             }
 
-            loginForm.classList.add('loading');
+            setAuthBusy(loginForm, true);
 
             try {
                 const response = await fetch('/api/auth/login', {
@@ -1019,17 +207,17 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    showSuccess('Login confirmado. Abrindo painel...');
+                    showSuccess('Login confirmado. Abrindo painel…');
                     setTimeout(() => {
                         window.location.href = '/';
                     }, 700);
                 } else {
-                    showError(data.error || 'Nao foi possivel fazer login.');
-                    loginForm.classList.remove('loading');
+                    showError(data.error || 'Não foi possivel fazer login.');
+                    setAuthBusy(loginForm, false);
                 }
             } catch (error) {
-                showError('Nao consegui conectar ao servidor.');
-                loginForm.classList.remove('loading');
+                showError('Não consegui conectar ao servidor.');
+                setAuthBusy(loginForm, false);
             }
         });
 
@@ -1047,16 +235,16 @@
             }
 
             if (password !== confirm) {
-                showError('As senhas nao coincidem.');
+                showError('As senhas não coincidem.');
                 return;
             }
 
             if (password.length < 6) {
-                showError('A senha precisa ter no minimo 6 caracteres.');
+                showError('A senha precisa ter no mínimo 6 caracteres.');
                 return;
             }
 
-            registerForm.classList.add('loading');
+            setAuthBusy(registerForm, true);
 
             try {
                 const response = await fetch('/api/auth/register', {
@@ -1068,19 +256,55 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    showSuccess('Conta criada. Abrindo seu painel...');
+                    showSuccess('Conta criada. Abrindo seu painel…');
                     setTimeout(() => {
                         window.location.href = '/';
                     }, 700);
                 } else {
-                    showError(data.error || 'Nao foi possivel criar a conta.');
-                    registerForm.classList.remove('loading');
+                    showError(data.error || 'Não foi possivel criar a conta.');
+                    setAuthBusy(registerForm, false);
                 }
             } catch (error) {
-                showError('Nao consegui conectar ao servidor.');
-                registerForm.classList.remove('loading');
+                showError('Não consegui conectar ao servidor.');
+                setAuthBusy(registerForm, false);
             }
         });
     </script>
+
+<script>
+function setAuthBusy(form, busy) {
+    form.setAttribute('aria-busy', String(busy));
+    const button = form.querySelector('[type="submit"]');
+    if (!button.dataset.label) button.dataset.label = button.innerHTML;
+    button.disabled = busy;
+    button.innerHTML = busy ? "<svg class=\"local-ui-icon loading-spinner\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M21 12a9 9 0 1 1-6.219-8.56\"/></svg> Aguarde\u2026" : button.dataset.label;
+    document.querySelectorAll('.auth-tab').forEach(tab => tab.disabled = busy);
+    form.querySelectorAll('button[type="button"]:not([data-password-toggle])').forEach(control => control.disabled = busy);
+}
+function syncAuthTabs(register) {
+    [document.getElementById('loginTab'), document.getElementById('registerTab')].forEach((tab, index) => {
+        const selected = Boolean(index) === register;
+        tab.setAttribute('aria-selected', String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+    });
+}
+document.querySelector('.auth-tabs').addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const register = event.key === 'End' || (event.key !== 'Home' && document.getElementById('loginTab').getAttribute('aria-selected') === 'true');
+    register ? showRegister() : showLogin();
+    document.getElementById(register ? 'registerTab' : 'loginTab').focus();
+});
+document.querySelectorAll('[data-password-toggle]').forEach(button => {
+    button.addEventListener('click', () => {
+        const input = document.getElementById(button.dataset.passwordToggle);
+        const visible = input.type === 'password';
+        input.type = visible ? 'text' : 'password';
+        button.setAttribute('aria-label', visible ? 'Ocultar senha' : 'Mostrar senha');
+        button.setAttribute('aria-pressed', String(visible));
+        button.innerHTML = visible ? "<svg class=\"local-ui-icon\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"><path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575a1 1 0 0 1 0 .696a10.8 10.8 0 0 1-1.444 2.49m-6.41-.679a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 4.446-5.143M2 2l20 20\"/></g></svg>" : "<svg class=\"local-ui-icon\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"><path d=\"M2.062 12.348a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 19.876 0a1 1 0 0 1 0 .696a10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></g></svg>";
+    });
+});
+</script>
 </body>
 </html>

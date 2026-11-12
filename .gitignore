@@ -35,3 +35,6 @@ templates/index.backup-*.html
 venv/
 env/
 node_modules/
+
+# Verificações locais de design, perfis temporários e capturas
+.taste-skill/

@@ -158,6 +158,10 @@ socket.on('process_update', (data) => {
 function showNotification(message, type = 'info', duration = 5000) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
+    notification.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    notification.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+    notification.setAttribute('aria-atomic', 'true');
+    const notificationTitle = {success: 'Concluído', error: 'Erro', warning: 'Atenção', info: 'Informação'}[type] || 'Informação';
     
     const icon = {
         'success': '✅',
@@ -168,12 +172,12 @@ function showNotification(message, type = 'info', duration = 5000) {
     
     notification.innerHTML = `
         <div style="display: flex; align-items: start; gap: 12px;">
-            <div style="font-size: 24px;">${icon}</div>
+            <div style="font-size: 24px;" aria-hidden="true">${icon}</div>
             <div style="flex: 1;">
-                <div style="font-weight: 700; margin-bottom: 4px; color: #f1f5f9;">${type.toUpperCase()}</div>
+                <div style="font-weight: 700; margin-bottom: 4px; color: #f1f5f9;">${notificationTitle}</div>
                 <div style="color: #cbd5e1; font-size: 14px;">${message}</div>
             </div>
-            <button onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 20px; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;">
+            <button type="button" aria-label="Fechar notificação" onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: #b3c5cb; cursor: pointer; font-size: 20px; padding: 0; width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; transition: background-color 0.2s;">
                 ×
             </button>
         </div>
@@ -1773,7 +1777,7 @@ function renderStatsTaskBreakdown(tasks) {
 let dashboardLoadVersion = 0;
 
 function renderDashboardCharts(sessions, tasks, campaigns, members, campaignAdded, assignedLeads) {
-    const colors = ['#e95863', '#61a9df', '#dfa75e', '#888b9c', '#a58bd4'];
+    const colors = ['#72c6b2', '#e3b86a', '#92a6af', '#71b5cc', '#a3c9ba'];
     const number = value => Math.max(0, Number(value) || 0);
     const format = value => number(value).toLocaleString('pt-BR');
     const bars = (id, entries) => {
