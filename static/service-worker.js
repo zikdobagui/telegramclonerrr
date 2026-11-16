@@ -1,4 +1,4 @@
-const CACHE_NAME = 'telegram-automation-v2.2.9';
+const CACHE_NAME = 'telegram-automation-dark-20261115';
 const urlsToCache = [
   '/',
   '/static/style.css',

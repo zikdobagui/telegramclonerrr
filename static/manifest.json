@@ -4,8 +4,8 @@
   "description": "Sistema profissional de automação para Telegram",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0e27",
-  "theme_color": "#3b82f6",
+  "background_color": "#090b10",
+  "theme_color": "#090b10",
   "orientation": "portrait-primary",
   "icons": [
     {

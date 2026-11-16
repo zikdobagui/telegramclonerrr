@@ -1,0 +1,96 @@
+/* TG Auto — graphite workspace. Shared by landing, authentication and tools. */
+:root {
+ color-scheme:dark;
+ --p-bg:#090b10;--p-surface:#11151e;--p-ink:#f2f5fc;--p-muted:#a4adbf;
+ --p-accent:#6b9bff;--p-action:#3975ef;--p-action-ink:#fff;--p-accent-ink:#090b10;
+ --p-inv-bg:#101724;--p-inv-ink:#f2f5fc;--p-inv-muted:#a4adbf;
+ --bg:#090b10;--surface:#11151e;--ink:#f2f5fc;--muted:#a4adbf;--action:#3975ef;--action-ink:#fff;
+}
+html {color-scheme:dark;}
+body.marketing {background:#090b10;color:#f2f5fc;}
+.marketing .nav {background:#090b10ed;border-bottom:1px solid #ffffff12;backdrop-filter:blur(16px);}
+.marketing .nav__logo {color:#f2f5fc;}
+.marketing .brand-caption {color:#8894ab;border-color:#ffffff20;}
+.marketing .nav__link {color:#b2bdd0;}
+.marketing .hero {background:radial-gradient(ellipse at 50% 30%,#1c376345,transparent 60%),#090b10;}
+.marketing .hero h1 {font-weight:600;letter-spacing:-.055em;color:#f2f5fc;}
+.marketing .hero h1 span {color:#79a7ff;}
+.marketing .hero-kicker {color:#a8b9d6;font-size:12px;letter-spacing:.08em;}
+.marketing .hero-kicker>span {border-color:#42649b;color:#80adff;}
+.marketing :is(.hero__lead,.section-intro>p:last-child,.resource-card p,.access-copy>p:not(.t-label),.auth-header p) {color:#a4adbf;}
+.marketing .btn--primary {background:#3975ef;color:#fff;border:1px solid #6293f6;box-shadow:0 4px 20px #2257bc26;}
+.marketing .btn--secondary {background:#141b28;color:#dde7fc;border:1px solid #303b50;}
+.marketing .btn {border-radius:8px;transition:background .18s,translate .18s,box-shadow .18s;}
+.marketing .btn:hover {translate:0 -2px;box-shadow:0 6px 24px #3975ef25;}
+.marketing .btn:active {translate:0 1px;}
+.marketing .product-ground {padding:24px 24px 0;background:linear-gradient(145deg,#192a45,#0f1623 65%);border-color:#2a3c58;border-radius:16px;box-shadow:0 0 80px #3277ee12;}
+.marketing .product-window {background:#10151f;border-color:#33405a;color:#eff4ff;box-shadow:0 24px 60px #0006;}
+.marketing .product-bar {background:#151b26;border-color:#263044;color:#8e9bb3;}
+.marketing .product-bar>span:first-child {color:#e1eaff;}
+.marketing .window-dots {color:#52617b;}
+.marketing .product-sidebar {background:#0e131c;border-color:#253045;}
+.marketing .product-nav {color:#9daac0;}
+.marketing .product-nav.selected {background:#1a2a48;color:#9bbdff;}
+.marketing :is(.product-heading,.product-steps>.preview-step) {color:#edf3ff;}
+.marketing .product-steps>.preview-step {background:#161e2b;border-color:#2b374b;}
+.marketing .product-steps .preview-step>span:not(.step-icon):not(.step-arrow) {color:#9eacc2;}
+.marketing :is(.step-icon,.resource-icon) {background:#1b2b48;color:#83adff;border-radius:8px;}
+.marketing .resource-icon {display:grid;place-items:center;width:48px;height:48px;}
+.marketing .preview-badge {border-color:#344664;color:#a5bfeb;background:#18243a;}
+.marketing .step-arrow {color:#7d9bc7;}
+.marketing .resources {background:#0d1017;}
+.marketing .resource-grid {gap:16px;}
+.marketing .resource-card {background:#131822;border:1px solid #283143;border-radius:12px;padding:28px;}
+.marketing .resource-card h3 {font-weight:500;}
+.marketing .resource-tags span {border-color:#303d53;color:#a6b6d0;background:#192232;}
+.marketing .workflow-section {background:#101724;--bg:#101724;--ink:#f2f5fc;--muted:#a4adbf;--accent:#79a7ff;}
+.marketing .workflow-section.mo-wh .mo-w {color:#91a3c2;}
+.marketing .workflow-section.mo-wh .mo-w.is-on {color:#f2f5fc;}
+.marketing .workflow-section>.wrap>.t-label,.marketing .flow-steps li>span {color:#82aaff;}
+.marketing .flow-steps p {color:#a4adbf;}
+.marketing .flow-steps li {border-color:#2d3950;}
+.marketing .access-section {background:#090b10;}
+.marketing .access-note {border-color:#293246;color:#a4adbf;}
+.marketing .login-card {background:#121722;border-color:#303b50;box-shadow:0 24px 80px #0004;border-radius:14px;}
+.marketing :is(.auth-header>span,.trust-pill,.password-toggle) {color:#a7b8d5;}
+.marketing .auth-tabs {background:#090e17;border-color:#283349;}
+.marketing .auth-tab {color:#9caac0;}
+.marketing .auth-tab.active {background:#233554;color:#e7efff;box-shadow:none;}
+.marketing .auth-tab:hover,.marketing .password-toggle:hover {background:#1b2940;}
+.marketing .form-group label {color:#d2dcef;}
+.marketing .input-shell input {background:#0c111b;color:#f2f5fc;border-color:#34415a;}
+.marketing .input-shell input::placeholder {color:#8392ab;}
+.marketing .input-shell input:focus {border-color:#79a7ff;box-shadow:0 0 0 3px #3975ef25;}
+.marketing .input-shell>.local-ui-icon {color:#8297b8;}
+.marketing .trust-row,.marketing-footer {border-color:#283246;}
+.marketing .message.error {background:#321c25;border-color:#794052;color:#ffc1ce;}
+.marketing .message.success {background:#152c27;border-color:#356b58;color:#b1e5cf;}
+.marketing :is(a,button,input):focus-visible {outline:2px solid #8cb4ff;outline-offset:4px;}
+body[data-design="studio"],body[data-design="studio"][data-theme="dark"] {
+ --studio-bg:#090b10;--studio-panel:#121722;--studio-raised:#1a2231;--studio-line:#293348;
+ --studio-text:#edf2fc;--studio-muted:#a0acc1;--studio-accent:#3975ef;--studio-soft:#192b4b;
+ --ui-bg:var(--studio-bg);--ui-sidebar:#0d1119;--ui-accent:var(--studio-accent);
+ accent-color:var(--studio-accent);
+}
+body[data-design="studio"][data-theme="ocean"] {--studio-bg:#080f18;--studio-panel:#101e2d;--studio-raised:#182b40;--studio-line:#2a405a;--studio-accent:#478dff;--studio-soft:#193654;--studio-muted:#a4b9d1;}
+body[data-design="studio"] .sidebar {background:#0d1119!important;}
+body[data-design="studio"] :is(.sidebar-brand-mark,.brand-mark) {background:#3975ef!important;box-shadow:0 4px 20px #3975ef26!important;}
+body[data-design="studio"] .sidebar-brand-copy strong {font-size:22px!important;font-weight:600!important;}
+body[data-design="studio"] .sidebar .menu-item.active {background:var(--studio-soft)!important;color:#abc9ff!important;box-shadow:inset 3px 0 #6b9fff!important;}
+body[data-design="studio"] .sidebar .menu-item:hover {background:#192335!important;color:#e0eaff!important;}
+body[data-design="studio"] .profile-avatar {background:var(--studio-soft)!important;color:#a6c5ff!important;}
+body[data-design="studio"] #dashboard .dashboard-welcome {background:radial-gradient(ellipse at 100% 0%,#2858a33d,transparent 70%),#111c30!important;border-color:#2c4265!important;position:relative;overflow:hidden;}
+body[data-design="studio"] :is(.content-header h2,.dashboard-welcome h2) {font-weight:600!important;letter-spacing:-1px!important;}
+body[data-design="studio"] .health-pill {color:#8fb5ff!important;}
+body[data-design="studio"] #dashboard .dashboard-card {position:relative;border-color:var(--studio-line)!important;}
+body[data-design="studio"] #dashboard .dashboard-card:nth-child(n) .icon {background:#1b2b48!important;color:#8ab3ff!important;border:1px solid #30476c!important;}
+body[data-design="studio"] #dashboard .dashboard-card strong {font-weight:500!important;}
+body[data-design="studio"] :is(.btn-primary,.btn-success,.dash-action.primary) {background:var(--studio-accent)!important;border-color:#6696f3!important;color:#fff!important;}
+body[data-design="studio"] :is(.factory-step,.gc-section-icon) {background:var(--studio-soft)!important;color:#9dc0ff!important;}
+body[data-design="studio"] :is(input:not([type=checkbox]):not([type=radio]),select,textarea) {background:#0c121e!important;border-color:#34415a!important;color:var(--studio-text)!important;}
+body[data-design="studio"] :is(input,select,textarea):focus {border-color:#82acff!important;outline-color:#3975ef33!important;}
+body[data-design="studio"] input::placeholder,body[data-design="studio"] textarea::placeholder {color:#8d9cb5!important;}
+body[data-design="studio"] :is(a,button,input,select,textarea,summary):focus-visible {outline:2px solid #8cb4ff!important;outline-offset:4px!important;}
+@media(min-width:1101px) {body[data-design="studio"] #dashboard .dashboard-hero {grid-template-columns:minmax(0,1.8fr) minmax(280px,1fr)!important;}}
+@media(max-width:639px) {.marketing .resource-card {padding:24px;}.marketing .hero h1 {font-size:44px;}.marketing .product-ground {padding:12px 12px 0!important;}}
+@media(prefers-reduced-motion:reduce) {.marketing .btn {translate:none!important;}}
