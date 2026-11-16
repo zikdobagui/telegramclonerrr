@@ -2,10 +2,6 @@
 body[data-design="studio"] .tab-content.active {animation:panel-arrive .45s cubic-bezier(.2,.8,.2,1) both!important;}
 @keyframes panel-arrive {from{opacity:.35;translate:0 12px}to{opacity:1;translate:0 0}}
 .marketing .product-ground,body[data-design="studio"] #dashboard .dashboard-welcome {position:relative;isolation:isolate;}
-.marketing .product-ground::after,body[data-design="studio"] #dashboard .dashboard-welcome::after {content:"";display:block!important;position:absolute;top:0;left:0;width:35%;height:2px;background:linear-gradient(90deg,transparent,#89b6ff,transparent);pointer-events:none;animation:signal-pass 3.6s ease-in-out infinite;}
-@keyframes signal-pass {0%{transform:translateX(-110%);opacity:0}20%,70%{opacity:1}100%{transform:translateX(390%);opacity:0}}
-.motion-toggle {display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:8px 12px;border:1px solid #34415a;border-radius:8px;background:#141d2b;color:#bdd0ef;font:500 13px "Familjen Grotesk","Segoe UI",sans-serif;cursor:pointer;}
-.marketing .motion-toggle {margin:20px auto 0;}
 body[data-design="studio"] .sidebar .menu-item {transition:background .2s,color .2s,box-shadow .2s!important;}
 body[data-design="studio"] .sidebar .menu-item i {transition:translate .2s,color .2s!important;}
 body[data-design="studio"] :is(.dash-action,.btn,.mini-btn,.profile-logout) {transition:background .2s,border-color .2s,translate .2s,box-shadow .2s!important;}
@@ -34,11 +30,6 @@ body[data-design="studio"] :is(.dash-action,.btn,.mini-btn):active:not(:disabled
 .plans-note {display:flex;gap:16px;align-items:start;margin-top:24px;padding:20px 24px;border:1px solid var(--studio-line);border-radius:10px;color:var(--studio-muted);font-size:14px;line-height:1.7;}
 .plans-note i {color:#8fb5ff;margin-top:5px;}
 .plans-note p {margin:0;}
-.motion-toggle:focus-visible,.plan-card button:focus-visible {outline:2px solid #8cb4ff;outline-offset:4px;}
-@media(hover:hover) {.plan-card:hover {border-color:#5577ac;box-shadow:0 12px 32px #0002;}body[data-design="studio"] .sidebar .menu-item:hover i {translate:2px 0!important;}.motion-toggle:hover {background:#20324d;}}
 @media(max-width:1100px) {.plans-grid {gap:12px;}.plan-card {padding:24px;}.plan-description {min-height:104px;}}
 @media(max-width:800px) {.plans-intro {flex-direction:column;gap:16px;}.plans-grid {grid-template-columns:1fr;gap:16px;}.plan-description {min-height:0;}.plans-intro h2 {font-size:32px;}.plan-index {margin-bottom:20px;}.plans-note {padding:20px;}}
-html[data-motion-paused] .marketing .product-ground::after,html[data-motion-paused] body[data-design="studio"] #dashboard .dashboard-welcome::after {animation-play-state:paused!important;}
-html[data-motion-paused] body[data-design="studio"] .tab-content.active {animation:none!important;}
-html[data-motion-paused] *,html[data-motion-paused] *::before,html[data-motion-paused] *::after {animation-play-state:paused!important;}
-@media(prefers-reduced-motion:reduce) {*,*::before,*::after {animation:none!important;transition:none!important;scroll-behavior:auto!important;}.motion-toggle {display:none;}}
+@media(prefers-reduced-motion:reduce) {*,*::before,*::after {animation:none!important;transition:none!important;scroll-behavior:auto!important;}}

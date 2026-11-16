@@ -1,5 +1,15 @@
 # Animações e planos — 15/11/2026
 
+## Revisão 3D solicitada
+
+Esta revisão substitui o controle de pausa descrito abaixo: o botão e a leitura da preferência de pausa foram removidos a pedido do usuário. Apenas a preferência de movimento reduzido do sistema permanece. O pedido explícito também orienta a inclinação 3D dos cartões e as animações contínuas sem controle visível, em lugar das restrições padrão da skill.
+
+Adicionada uma cena CSS 3D compartilhada com cubo de seis faces, órbitas e cartões flutuantes na apresentação, no resumo do painel e na aba de planos. Cards de recursos, indicadores e planos respondem ao ponteiro com inclinação limitada e iluminação localizada. Não há bibliotecas novas ou modelos externos. O movimento reduzido mostra uma composição estática.
+
+Verificados novamente: sintaxe JavaScript com Node, CSS com tinycss2, HTTP 200, recursos locais, IDs únicos, inclusão das cenas e ausência do botão. A inspeção visual continua pendente pela indisponibilidade do navegador; estes checks não comprovam a aparência final em dispositivos reais.
+
+## Registro da revisão anterior
+
 GATE: ERROR — conferência visual pendente; o host do navegador não está disponível nesta sessão.
 
 Skill aplicada: design-taste-frontend, com referências de movimento e cartões. Mantidos o tema grafite/azul, a tipografia e a estrutura operacional existentes.

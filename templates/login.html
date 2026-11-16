@@ -19,7 +19,8 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='experience.css') }}?v=20261112-2">
 <script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),1500)</script>
 <link rel="stylesheet" href="{{ url_for('static', filename='dark.css') }}?v=20261115-1">
-<link rel="stylesheet" href="{{ url_for('static', filename='motion-plans.css') }}?v=20261115-1">
+<link rel="stylesheet" href="{{ url_for('static', filename='motion-plans.css') }}?v=20261115-2">
+<link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-1">
 </head>
 <body class="marketing">
 <!-- software; teal-on-paper, Familjen Grotesk, centred hero; word-highlight in #fluxo.
@@ -39,6 +40,7 @@
   <div class="btn-row"><a class="btn btn--primary" href="#acesso">Acessar painel <span aria-hidden="true">↗</span></a><a class="btn btn--secondary" href="#recursos">Ver recursos</a></div>
  </div>
  <div class="hero__window product-ground" data-visual>
+  {% include 'spatial_scene.html' %}
   <div class="product-window app-frame">
    <div class="product-bar"><span translate="no"><img src="{{ url_for('static', filename='taste/icons/telegram.svg') }}" width="20" height="20" alt=""> TG Auto</span><span>Seu espaço de trabalho</span><span class="window-dots" aria-hidden="true">● ● ●</span></div>
    <div class="product-body"><div class="product-sidebar"><span class="product-nav selected"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m12 14l4-4M3.34 19a10 10 0 1 1 17.32 0"/></svg> Visão geral</span><span class="product-nav"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3.128a4 4 0 0 1 0 7.744M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></g></svg> Sessões</span><span class="product-nav"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5h8m-8 7h8m-8 7h8M3 17l2 2l4-4M3 7l2 2l4-4"/></svg> Tarefas</span><span class="product-nav"><svg class="local-ui-icon" width="24" height="24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v5m4-7v7m4-11v11m2-18l-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15m2 3v3m4-7v7"/></svg> Estatísticas</span></div>
@@ -308,6 +310,6 @@ document.querySelectorAll('[data-password-toggle]').forEach(button => {
     });
 });
 </script>
-<script src="{{ url_for('static', filename='motion-plans.js') }}?v=20261115-1"></script>
+<script src="{{ url_for('static', filename='motion-plans.js') }}?v=20261115-2"></script>
 </body>
 </html>

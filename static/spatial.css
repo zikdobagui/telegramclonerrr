@@ -1,0 +1,52 @@
+/* Spatial product scene. CSS 3D, no libraries, no external assets. */
+.spatial-scene {position:relative;width:100%;height:340px;perspective:900px;isolation:isolate;overflow:hidden;pointer-events:none;contain:layout paint;}
+.spatial-scene::before {content:"";position:absolute;inset:4%;background:radial-gradient(ellipse,#2867ef38,transparent 66%);filter:blur(18px);}
+.spatial-world {position:absolute;inset:0;transform-style:preserve-3d;animation:world-drift 14s ease-in-out infinite alternate;}
+.spatial-orbit {position:absolute;left:50%;top:50%;width:290px;height:290px;margin:-145px;border:1px solid #73a7ff55;border-radius:50%;transform:rotateX(66deg) rotateZ(-24deg);box-shadow:0 0 24px #3e80ff18,inset 0 0 24px #3e80ff18;}
+.spatial-orbit--outer {width:390px;height:390px;margin:-195px;border-style:dashed;border-color:#6197ed30;transform:rotateX(66deg) rotateZ(35deg);}
+.spatial-core {position:absolute;left:50%;top:50%;width:90px;height:90px;margin:-45px;transform-style:preserve-3d;animation:core-turn 18s linear infinite;}
+.spatial-face {position:absolute;inset:0;display:grid;place-items:center;border:1px solid #9bc4ff99;background:linear-gradient(135deg,#3273eedd,#102c64e8);box-shadow:inset 0 0 24px #8dbbff40;backface-visibility:visible;color:#d9eaff;font:500 24px "IBM Plex Mono",monospace;}
+.spatial-face:nth-child(1){transform:translateZ(45px)}
+.spatial-face:nth-child(2){transform:rotateY(180deg) translateZ(45px)}
+.spatial-face:nth-child(3){transform:rotateY(90deg) translateZ(45px)}
+.spatial-face:nth-child(4){transform:rotateY(-90deg) translateZ(45px)}
+.spatial-face:nth-child(5){transform:rotateX(90deg) translateZ(45px)}
+.spatial-face:nth-child(6){transform:rotateX(-90deg) translateZ(45px)}
+.spatial-tile {position:absolute;width:145px;padding:16px;border:1px solid #699ce986;border-radius:12px;background:linear-gradient(140deg,#263e64f5,#101b2df5);box-shadow:0 20px 32px #0005,inset 0 1px #ffffff20;transform-style:preserve-3d;}
+.spatial-tile b {display:block;font-size:14px;color:#e8f1ff;letter-spacing:0;font-weight:500;}
+.spatial-tile span {display:block;font:10px "IBM Plex Mono",monospace;color:#8fafd9;margin-top:7px;letter-spacing:.1em;}
+.spatial-tile::before {content:"";display:block;width:28px;height:4px;border-radius:2px;background:#82b6ff;box-shadow:0 0 12px #5a9cff;margin-bottom:12px;}
+.spatial-tile--one {left:7%;top:14%;animation:tile-one 6s ease-in-out infinite;}
+.spatial-tile--two {right:3%;top:36%;animation:tile-two 7s ease-in-out infinite;}
+.spatial-tile--three {left:15%;bottom:8%;animation:tile-three 8s ease-in-out infinite;}
+@keyframes world-drift {from{transform:rotateY(-9deg) rotateX(3deg)}to{transform:rotateY(9deg) rotateX(-3deg)}}
+@keyframes core-turn {from{transform:rotateX(-22deg) rotateY(0)}to{transform:rotateX(-22deg) rotateY(360deg)}}
+@keyframes tile-one {0%,100%{transform:translate3d(0,0,30px) rotateY(-12deg) rotateZ(-5deg)}50%{transform:translate3d(4px,-18px,55px) rotateY(-5deg) rotateZ(-2deg)}}
+@keyframes tile-two {0%,100%{transform:translate3d(0,0,55px) rotateY(15deg) rotateZ(5deg)}50%{transform:translate3d(-6px,20px,25px) rotateY(8deg) rotateZ(2deg)}}
+@keyframes tile-three {0%,100%{transform:translate3d(0,0,70px) rotateY(-8deg) rotateZ(3deg)}50%{transform:translate3d(8px,-12px,40px) rotateY(-15deg) rotateZ(0)}}
+body[data-design="studio"] #dashboard .dashboard-welcome {min-height:365px!important;padding:32px!important;}
+body[data-design="studio"] #dashboard .dashboard-welcome>.spatial-scene {position:absolute;right:0;top:0;width:48%;height:100%;z-index:-1;}
+body[data-design="studio"] #dashboard .dashboard-welcome>:not(.spatial-scene) {position:relative;max-width:53%;}
+body[data-design="studio"] #dashboard .dashboard-welcome::after {display:none!important;}
+.marketing .product-ground {display:grid;grid-template-columns:minmax(260px,.7fr) minmax(0,1.3fr);align-items:center;padding:24px!important;}
+.marketing .product-ground>.spatial-scene {height:360px;}
+.marketing .product-ground .product-sidebar {display:none;}
+.marketing .product-ground .product-body {grid-template-columns:1fr;}
+.marketing .product-ground .product-title {display:block;}
+.marketing .product-ground .preview-badge {display:none;}
+.marketing .hero__window {height:auto!important;max-height:none!important;overflow:hidden;}
+.marketing .hero {height:auto!important;min-height:100svh;}
+.marketing .hero>.wrap,.marketing .hero>.wrap>.hero-text {height:auto!important;}
+.marketing .hero__window {flex:0 0 auto!important;}
+.plans-spatial {display:grid;grid-template-columns:1fr 1fr;align-items:center;border:1px solid #30486d;border-radius:16px;background:radial-gradient(ellipse at 80% 50%,#1d3d704d,transparent 65%),#101927;margin-bottom:32px;padding:16px 32px;overflow:hidden;}
+.plans-spatial-copy {max-width:36ch;}
+.plans-spatial-copy h3 {font-size:30px;line-height:1.2;letter-spacing:-.8px;margin:0 0 16px;}
+.plans-spatial-copy p {font-size:16px;line-height:1.7;color:#a8b9d2;}
+.plans-grid {perspective:1200px;}
+.plan-card,.marketing .resource-card,body[data-design="studio"] #dashboard .dashboard-card {--rx:0deg;--ry:0deg;--light-x:50%;--light-y:0%;transform:perspective(1000px) rotateX(var(--rx)) rotateY(var(--ry))!important;transition:transform .3s ease,border-color .25s,box-shadow .25s!important;will-change:auto;}
+.plan-card::after {content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;background:radial-gradient(circle at var(--light-x) var(--light-y),#90baff1c,transparent 65%);}
+@media(hover:hover) and (pointer:fine) {.plan-card:hover,.marketing .resource-card:hover,body[data-design="studio"] #dashboard .dashboard-card:hover {border-color:#75a6f0!important;box-shadow:0 24px 48px #0005,0 0 24px #2e70d51a!important;}}
+@media(min-width:1101px) {body[data-design="studio"] #dashboard .dashboard-hero {grid-template-columns:minmax(0,2.8fr) minmax(235px,1fr)!important;}}
+@media(max-width:1100px) {.marketing .product-ground {grid-template-columns:1fr!important;}.marketing .product-ground>.spatial-scene {height:300px;}.marketing .product-window {width:100%;}}
+@media(max-width:800px) {.plans-spatial {grid-template-columns:1fr;padding:24px;}.plans-spatial .spatial-scene {height:300px;}.plans-spatial-copy h3 {font-size:26px;}body[data-design="studio"] #dashboard .dashboard-welcome>.spatial-scene {position:relative;width:100%;height:300px;z-index:auto;}body[data-design="studio"] #dashboard .dashboard-welcome>:not(.spatial-scene) {max-width:100%;}.spatial-tile {width:130px;padding:14px;}.spatial-tile--one {left:2%;}.spatial-tile--two {right:1%;}.spatial-tile--three {left:8%;}}
+@media(prefers-reduced-motion:reduce) {.spatial-scene * {animation:none!important;}.spatial-core {transform:rotateX(-22deg) rotateY(35deg);}.spatial-tile--one {transform:rotateZ(-5deg);}.spatial-tile--two {transform:rotateZ(5deg);}.plan-card,.marketing .resource-card,body[data-design="studio"] #dashboard .dashboard-card {transform:none!important;transition:none!important;}}
