@@ -16,10 +16,10 @@ O destino Telegram continua obrigatório. O conteúdo modificado pela clonagem e
 - [Biblioteca e código](https://github.com/krypton-byte/neonize), [autenticação e reconexão](https://github.com/krypton-byte/neonize/blob/master/docs/getting-started/authentication.md), [plataformas e instalação](https://github.com/krypton-byte/neonize/blob/master/docs/getting-started/installation.md).
 - Integração não oficial: alterações do WhatsApp, restrições e revogação do aparelho podem exigir novo QR. Não há garantia de conexão permanente ou de ausência de bloqueios.
 - Discloud: Python 3.13 mantido; `APT=tools, ffmpeg` e `BUILD` explícito para instalar os requisitos e a biblioteca de reconhecimento de mídia isolada. [APT na Discloud](https://docs.discloud.com/en/configurations/discloud.config/apt).
-- `python-magic-standalone==0.4.29` é instalado em `.runtime/libmagic`, fora dos requisitos globais. É usado apenas se `python-magic` não conseguir encontrar o libmagic do sistema. A instalação isolada evita sobreposição de arquivos entre os dois pacotes. `.runtime/` fica fora do Git. [Pacote de compatibilidade](https://pypi.org/project/python-magic-standalone/).
+- O pareamento não depende mais do libmagic do sistema nem de instalação em `.runtime`. Quando `python-magic` não carrega, `whatsapp_mime.py` oferece as duas funções usadas pela Neonize (`from_buffer` e `from_file`). A identificação usa `filetype==1.2.0`, biblioteca Python sem dependência nativa, com assinaturas básicas de mídia como fallback. O import do detector é tardio: sua ausência não impede gerar o QR. O build voltou à instalação normal de `requirements.txt`.
 - A resolução de dependências para Linux x86-64 / Python 3.13 / glibc 2.28 foi conferida, exigindo wheels dos componentes binários principais; pyaes permanece como dependência Python construída a partir de fonte, como no projeto existente. Isso não equivale a um teste executado dentro do container Discloud.
 
-O deploy precisa executar o novo BUILD e instalar o APT de FFmpeg. Se a atualização de arquivos não refizer o ambiente, execute o rebuild no painel da Discloud. Não apague os dados nem recrie a aplicação para isso.
+O deploy instala `requirements.txt` e usa o APT de FFmpeg para mídia. Não é necessário instalar um libmagic à parte para conectar a conta. Não apague os dados nem recrie a aplicação. O workflow valida a importação real da Neonize em Linux/Python 3.13, simulando ausência total de libmagic, antes de enviar o pacote à Discloud.
 
 ## Persistência e reconexão
 
@@ -51,7 +51,7 @@ Revisão do progresso: **170 testes aprovados**, incluindo **27 específicos** d
 
 - Testes específicos sem conexões reais: autenticação, isolamento, QR, contrato da Neonize, destinos na criação/edição, fotos, limites de mídia, deduplicação, concorrência, persistência, estados ambíguos e limpeza de arquivos compartilhados.
 - Sintaxe Python, JavaScript e CSS, renderização Jinja, IDs únicos, labels e navegação conferidos. JavaScript inline da página renderizada também passa na checagem de sintaxe.
-- Fallback de libmagic exercitado em subprocesso isolado no Windows, simulando ausência da biblioteca de sistema e um loader antigo em cache; MIME e importação da Neonize confirmados sem conectar ao WhatsApp.
+- Compatibilidade sem libmagic exercitada em subprocesso limpo com o núcleo real da Neonize; PNG e JPEG reconhecidos sem biblioteca nativa e sem usar `.runtime`. O mesmo teste faz parte do workflow Linux.
 - Na revisão do progresso, uma sessão temporária sem conta vinculada recebeu um QR real do WhatsApp no Windows. O fluxo completo de status e rota autenticada de PNG foi exercitado, a imagem foi validada e a conexão encerrada. Nenhum QR foi lido, aparelho vinculado ou post enviado a grupos reais. Validação visual em navegador e teste real de reconexão na Discloud continuam pendentes.
 
 ## Revisão do QR e progresso
@@ -63,3 +63,9 @@ Requisições HTTP têm timeout de 12 segundos. Tentativas nativas que permanece
 `GET /api/whatsapp/qr` serve PNG somente ao usuário autenticado dono da sessão, com cache desabilitado. A imagem usa a própria origem do site, evitando depender de permissão a imagens `data:` no navegador. O POST de conectar retorna a fase atual; respostas antigas de polling não podem sobrescrever uma nova tentativa. Erros de rede, dependência, armazenamento, versão obsoleta e recusa do WhatsApp recebem códigos específicos, sem expor caminhos internos ou tokens.
 
 Verificação frontend em DOM simulado com o JavaScript real: carregamento imediato, etapas, imagem PNG, erro/timeout, corrida de polling e cancelamento de HTTP lento. Isso não substitui revisão visual no navegador nem comprova a causa específica da falha no servidor da Discloud.
+
+## Correção após rebuild
+
+A mensagem anterior `WA_DEPENDENCY_MISSING` agrupava causas diferentes e recomendava rebuild sem evidência de que isso resolveria. Removida a instalação especial de libmagic da inicialização; o caminho de fallback foi testado sem biblioteca nativa, sem diretório `.runtime` e também sem o detector opcional instalado.
+
+Falhas de import agora identificam o nome do módulo ausente quando disponível. Incompatibilidade GLIBC recebe `WA_NATIVE_ABI`, com as versões exigida e existente, em vez da recomendação de reinstalar o mesmo pacote. O binário Linux da wheel Neonize 0.10.0 foi inspecionado e referencia símbolos até GLIBC 2.34, apesar da tag manylinux2014; a resolução do pip por si só não comprova compatibilidade com servidores mais antigos. A versão do Linux efetivamente usada pelo servidor Discloud não foi acessada diretamente.

@@ -20,6 +20,17 @@ jobs:
       - name: Baixar o projeto
         uses: actions/checkout@v4
 
+      - name: Preparar Python usado na Discloud
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Instalar dependencias e validar WhatsApp no Linux
+        run: |
+          python -m pip install -r requirements.txt
+          python tests/verify_whatsapp_without_libmagic.py
+
       - name: Criar pacote somente com arquivos versionados
         run: git archive --format=zip --output=deploy.zip HEAD
 

@@ -12,3 +12,4 @@ python-dotenv
 psutil
 tzdata
 neonize==0.10.0
+filetype==1.2.0

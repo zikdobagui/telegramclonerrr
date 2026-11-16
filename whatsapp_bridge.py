@@ -13,6 +13,8 @@ import time
 from contextlib import contextmanager
 import sys
 import uuid
+import platform
+import logging
 
 from flask import jsonify, request, session, Response
 from data_store import atomic_write_json, load_json_file
@@ -23,24 +25,17 @@ _neonize_import_lock = threading.Lock()
 
 
 def load_neonize_client():
-    # A separate install target avoids conflicting files between Neonize's
-    # python-magic dependency and the self-contained Linux fallback.
+    # QR pairing must not depend on an OS-level MIME library or a custom BUILD.
     with _neonize_import_lock:
         try:
             import magic  # noqa: F401
         except (ImportError, OSError):
-            bundled = Path(__file__).resolve().parent / '.runtime' / 'libmagic'
-            if not (bundled / 'magic').is_dir():
-                raise ImportError('Execute o BUILD da Discloud para instalar o libmagic isolado.')
-            # A failed system import can leave its incompatible loader cached.
+            import whatsapp_mime
+            # A failed system import can leave a partial loader in the cache.
             for name in list(sys.modules):
                 if name == 'magic' or name.startswith('magic.'):
                     sys.modules.pop(name, None)
-            sys.path.insert(0, str(bundled))
-            try:
-                import magic  # noqa: F401
-            finally:
-                sys.path.remove(str(bundled))
+            sys.modules['magic'] = whatsapp_mime
         from neonize.client import NewClient
         return NewClient
 
@@ -51,8 +46,17 @@ class WhatsAppError(ValueError):
 
 def connection_failure(error):
     message = str(error).lower()
+    glibc = re.search(r'glibc_([0-9.]+)', message)
+    if glibc:
+        current = platform.libc_ver()[1] or 'não identificada'
+        return 'WA_NATIVE_ABI', f'O núcleo WhatsApp exige GLIBC {glibc.group(1)}; o servidor possui {current}. Reinstalar o mesmo pacote não resolve essa incompatibilidade do Linux.'
     if isinstance(error, (ImportError, ModuleNotFoundError)) or any(word in message for word in ('libmagic', 'shared object', 'glibc', 'dll load')):
-        return 'WA_DEPENDENCY_MISSING', 'A biblioteca do WhatsApp não carregou no servidor. Execute o rebuild das dependências na Discloud.'
+        module = getattr(error, 'name', None)
+        if module and re.fullmatch(r'[A-Za-z0-9_.-]+', module):
+            return 'WA_DEPENDENCY_MISSING', f'O componente {module} não foi instalado no ambiente Python usado pelo aplicativo.'
+        return 'WA_DEPENDENCY_MISSING', 'Um componente da biblioteca WhatsApp não carregou. O servidor registrou a etapa e o tipo da falha para diagnóstico.'
+    if isinstance(error, OSError) and ('elf' in message or 'wrong architecture' in message):
+        return 'WA_NATIVE_PLATFORM', 'O binário WhatsApp instalado não corresponde à arquitetura Linux deste servidor.'
     if isinstance(error, sqlite3.Error) or any(word in message for word in ('sqlite', 'database is locked', 'unable to open database', 'permission denied')):
         return 'WA_SESSION_STORAGE', 'Não foi possível abrir a sessão salva. Verifique a permissão e a disponibilidade da pasta de dados no servidor.'
     if isinstance(error, (ConnectionError, TimeoutError)) or any(word in message for word in ('timeout', 'dial tcp', 'websocket', 'handshake', 'no such host', 'connection refused')):
@@ -292,6 +296,7 @@ class NeonizeDevice:
                 self.change('disconnected', 'Conexão encerrada. Uma nova tentativa será feita automaticamente.')
         except Exception as error:
             code, message = connection_failure(error)
+            logging.getLogger(__name__).error('WhatsApp startup failure: phase=%s code=%s exception=%s module=%s', self.phase, code, type(error).__name__, getattr(error, 'name', None))
             self.change('error', message, error_code=code)
 
     def stop(self):

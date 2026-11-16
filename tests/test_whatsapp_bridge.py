@@ -17,6 +17,26 @@ from channel_cloner import ChannelCloner
 GROUP = '120363000001@g.us'
 
 
+class MimeCompatibilityTests(unittest.TestCase):
+    def test_known_media_without_any_native_library_or_optional_detector(self):
+        import whatsapp_mime
+        with patch.dict('sys.modules',{'filetype':None}):
+            for content,mime in [(b'\x89PNG\r\n\x1a\n','image/png'),(b'\xff\xd8\xff\xe0','image/jpeg'),
+                                 (b'GIF89a','image/gif'),(b'%PDF-1.4','application/pdf'),
+                                 (b'\x00\x00\x00\x18ftypmp42','video/mp4')]:
+                self.assertEqual(whatsapp_mime.from_buffer(content,mime=True),mime)
+
+    def test_unknown_content_is_not_falsely_identified(self):
+        import whatsapp_mime
+        self.assertEqual(whatsapp_mime.from_buffer(b'unknown binary contents',mime=True),'application/octet-stream')
+
+    def test_file_api_matches_neonize_contract(self):
+        import whatsapp_mime
+        with tempfile.TemporaryDirectory() as directory:
+            file=Path(directory)/'media.bin';file.write_bytes(b'%PDF-1.4\n')
+            self.assertEqual(whatsapp_mime.from_file(str(file),mime=True),'application/pdf')
+
+
 class OutboxTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
@@ -187,6 +207,17 @@ class DeviceContractTests(unittest.TestCase):
         code,message=connection_failure(ImportError('secret local path'))
         self.assertEqual(code,'WA_DEPENDENCY_MISSING');self.assertNotIn('secret',message)
         self.assertEqual(connection_failure(TimeoutError())[0],'WA_NETWORK_ERROR')
+
+    def test_abi_incompatibility_does_not_recommend_rebuild(self):
+        with patch('whatsapp_bridge.platform.libc_ver',return_value=('glibc','2.31')):
+            code,message=connection_failure(OSError("version `GLIBC_2.34' not found"))
+        self.assertEqual(code,'WA_NATIVE_ABI');self.assertIn('2.31',message);self.assertIn('2.34',message)
+
+    def test_missing_module_identified_without_leaking_path(self):
+        error=ModuleNotFoundError('private path',name='google.protobuf')
+        code,message=connection_failure(error)
+        self.assertEqual(code,'WA_DEPENDENCY_MISSING');self.assertIn('google.protobuf',message)
+        self.assertNotIn('private path',message)
 
 
 class ApiTests(unittest.TestCase):
