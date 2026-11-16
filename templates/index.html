@@ -7352,6 +7352,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='motion-plans.css') }}?v=20261115-2">
 <link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-3">
 <link rel="stylesheet" href="{{ url_for('static', filename='group_visibility.css') }}?v=20261115-1">
+<link rel="stylesheet" href="{{ url_for('static', filename='whatsapp.css') }}?v=20261115-1">
 </head>
 <body data-design="studio">
 <a class="workspace-skip" href="#workspace-main">Pular para o conteúdo</a>
@@ -7417,6 +7418,7 @@
                         <span>Tarefas</span>
                         <span class="badge" id="tasks-badge" style="display:none;">0</span>
                     </a>
+                    <a href="#whatsapp" class="menu-item" data-tab="whatsapp"><i class="fab fa-whatsapp" aria-hidden="true"></i><span>WhatsApp</span></a>
                     <a href="#clones" class="menu-item" data-tab="clones">
                         <i class="fas fa-clone"></i>
                         <span>Clonagem</span>
@@ -7496,6 +7498,7 @@
             </header>
             {% include 'plans.html' %}
             {% include 'group_visibility.html' %}
+            {% include 'whatsapp.html' %}
             <!-- Tab: Dashboard -->
             <div class="tab-content active" id="dashboard">
                 <div class="dashboard-hero">
@@ -8348,6 +8351,8 @@
                 </div>
             </div>
 
+            {% with wa_scope='clone' %}{% include 'whatsapp_destinations.html' %}{% endwith %}
+
             <!-- Seção: Filtros -->
             <div style="background: rgba(236, 72, 153, 0.1); border-left: 4px solid #EC4899; padding: 20px; border-radius: 10px; margin-bottom: 25px;">
                 <h4 style="margin: 0 0 15px 0; color: #F9A8D4; font-size: 16px;">
@@ -8482,6 +8487,8 @@
                            style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.8); border: 2px solid rgba(71, 85, 105, 0.5); border-radius: 8px; color: #fff; font-size: 14px;">
                 </div>
             </div>
+
+            {% with wa_scope='editClone' %}{% include 'whatsapp_destinations.html' %}{% endwith %}
 
             <!-- Seção: Filtros -->
             <div style="background: rgba(236, 72, 153, 0.1); border-left: 4px solid #EC4899; padding: 20px; border-radius: 10px; margin-bottom: 25px;">
@@ -9952,6 +9959,7 @@
 
                             <!-- Tags de Configuração -->
                             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                ${(clone.whatsapp_groups || []).length ? '<span class="badge">WhatsApp: ' + clone.whatsapp_groups.length + ' grupo(s)</span>' : ''}
                                 ${clone.remove_links ? '<span class="badge" style="background: linear-gradient(135deg, #3B82F6, #2563EB); font-size: 11px;">🔗 Remove Links</span>' : ''}
                                 ${clone.remove_mentions ? '<span class="badge" style="background: linear-gradient(135deg, #8B5CF6, #7C3AED); font-size: 11px;">@ Remove Menções</span>' : ''}
                                 ${clone.prefix ? '<span class="badge" style="background: linear-gradient(135deg, #EC4899, #DB2777); font-size: 11px;">📌 Com Prefixo</span>' : ''}
@@ -10005,6 +10013,7 @@
                 });
 
             setCloneReplacementRows('cloneReplacementRows', {});
+            window.WhatsAppUI?.setDestinations('clone', []);
             document.getElementById('addCloneModal').style.display = 'flex';
         }
 
@@ -10020,6 +10029,7 @@
             document.getElementById('clonePrefix').value = '';
             document.getElementById('cloneFooter').value = '';
             setCloneReplacementRows('cloneReplacementRows', {});
+            window.WhatsAppUI?.setDestinations('clone', []);
         }
 
         function addCloneReplacementRow(containerId, oldText = '', newText = '') {
@@ -10157,7 +10167,8 @@
                         remove_mentions: removeMentions,
                         prefix,
                         footer,
-                        text_replacements: replacements
+                        text_replacements: replacements,
+                        whatsapp_groups: window.WhatsAppUI?.getDestinations('clone') || []
                     })
                 });
 
@@ -10266,6 +10277,7 @@
                 document.getElementById('editClonePrefix').value = clone.prefix || '';
                 document.getElementById('editCloneFooter').value = clone.footer || '';
                 setCloneReplacementRows('editCloneReplacementRows', clone.text_replacements || {});
+                window.WhatsAppUI?.setDestinations('editClone', clone.whatsapp_groups || []);
 
                 // Mostra o modal
                 document.getElementById('editCloneModal').style.display = 'flex';
@@ -10307,7 +10319,8 @@
                         remove_mentions: removeMentions,
                         prefix,
                         footer,
-                        text_replacements: replacements
+                        text_replacements: replacements,
+                        whatsapp_groups: window.WhatsAppUI?.getDestinations('editClone') || []
                     })
                 });
 
@@ -10867,5 +10880,6 @@
 <script src="{{ url_for('static', filename='experience.js') }}?v=20261112-2" defer></script>
 <script src="{{ url_for('static', filename='motion-plans.js') }}?v=20261115-3"></script>
 <script src="{{ url_for('static', filename='group_visibility.js') }}?v=20261115-2"></script>
+<script src="{{ url_for('static', filename='whatsapp.js') }}?v=20261115-1"></script>
 </body>
 </html>

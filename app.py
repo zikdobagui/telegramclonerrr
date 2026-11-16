@@ -26,6 +26,7 @@ from data_store import atomic_write_json, load_json_file
 from operations_store import OperationsStore
 from group_campaigns import register_campaign_routes
 from group_visibility import register_visibility_routes
+from whatsapp_bridge import WhatsAppService, WhatsAppError, register_whatsapp_routes
 
 for stream in (sys.stdout, sys.stderr):
     try:
@@ -6129,6 +6130,10 @@ def manage_clones():
             'footer': data.get('footer', ''),
             'text_replacements': data.get('text_replacements', {})
         }
+        try:
+            clone_config['whatsapp_groups'] = whatsapp_service.validate_destinations(session['username'], data.get('whatsapp_groups', []))
+        except WhatsAppError as error:
+            return jsonify(success=False, error=str(error)), 400
         
         clone_id = clone_manager.add_clone(clone_config)
         
@@ -6160,6 +6165,10 @@ def clone_operations(clone_id):
         data = request.get_json()
         
         # Atualiza configurações
+        try:
+            whatsapp_groups = whatsapp_service.validate_destinations(session['username'], data.get('whatsapp_groups', clone.get('whatsapp_groups', [])))
+        except WhatsAppError as error:
+            return jsonify(success=False, error=str(error)), 400
         clones = clone_manager.load_clones()
         for c in clones:
             if c['id'] == clone_id:
@@ -6171,6 +6180,7 @@ def clone_operations(clone_id):
                 c['prefix'] = data.get('prefix', c.get('prefix', ''))
                 c['footer'] = data.get('footer', c.get('footer', ''))
                 c['text_replacements'] = data.get('text_replacements', c.get('text_replacements', {}))
+                c['whatsapp_groups'] = whatsapp_groups
                 break
         
         clone_manager.save_clones(clones)
@@ -6217,12 +6227,17 @@ def start_clone(clone_id):
         )
         
         # Prepara config de modificações
+        username = session['username']
+        whatsapp_service.validate_destinations(username, clone.get('whatsapp_groups', []))
+        cloner.whatsapp_sink = lambda cid, message, text, groups: whatsapp_service.enqueue_clone(username, cid, message, text, groups, cloner.client)
+        cloner.whatsapp_error_sink = lambda cid, detail: whatsapp_service.record_error(username, cid, detail)
         mod_config = {
             'remove_links': clone.get('remove_links', False),
             'remove_mentions': clone.get('remove_mentions', False),
             'prefix': clone.get('prefix', ''),
             'footer': clone.get('footer', ''),
-            'text_replacements': clone.get('text_replacements', {})
+            'text_replacements': clone.get('text_replacements', {}),
+            'whatsapp_groups': clone.get('whatsapp_groups', [])
         }
         
         # Inicia clonagem em thread separada com loop persistente
@@ -6266,6 +6281,8 @@ def start_clone(clone_id):
         
         return jsonify({'success': True, 'message': 'Clonagem iniciada'})
         
+    except WhatsAppError as error:
+        return jsonify(success=False, error=str(error)), 400
     except Exception as e:
         log_error(f"Erro ao iniciar clonagem: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -6510,11 +6527,18 @@ register_visibility_routes(
     get_next_api, check_session_lock, set_session_lock
 )
 
+whatsapp_service = WhatsAppService(
+    get_user_paths,
+    lambda: [user['username'] for user in user_manager.load_users() if user.get('username')]
+)
+register_whatsapp_routes(app, login_required, whatsapp_service)
+
 
 if __name__ == '__main__':
     # Discloud usa porta 8080
     port = int(os.environ.get('PORT', 8080))
     group_campaign_supervisor.start()
+    whatsapp_service.start()
     restore_saved_reaction_monitors()
     restore_saved_active_tasks()
     socketio.run(app, debug=False, host='0.0.0.0', port=port)

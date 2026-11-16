@@ -24,6 +24,8 @@ class ChannelCloner:
         self.clone_configs = {}  # {clone_id: config}
         self.cloned_messages = {}  # {clone_id: set(message_ids)} - Anti-duplicação
         self.clones_file = None
+        self.whatsapp_sink = None
+        self.whatsapp_error_sink = None
         
     async def connect(self):
         """Conecta ao Telegram com retentativas de SQLite lock"""
@@ -289,7 +291,8 @@ class ChannelCloner:
                 'remove_mentions': latest.get('remove_mentions', fallback_config.get('remove_mentions', False)),
                 'prefix': latest.get('prefix', fallback_config.get('prefix', '')),
                 'footer': latest.get('footer', fallback_config.get('footer', '')),
-                'text_replacements': latest.get('text_replacements', fallback_config.get('text_replacements', {}))
+                'text_replacements': latest.get('text_replacements', fallback_config.get('text_replacements', {})),
+                'whatsapp_groups': latest.get('whatsapp_groups', fallback_config.get('whatsapp_groups', []))
             }
         except Exception as e:
             log_warning(f"⚠️ Não consegui recarregar config da clonagem {clone_id}: {e}")
@@ -350,6 +353,17 @@ class ChannelCloner:
                 self.cloned_messages[clone_id].add(message.id)
                 log_info(f"✔️ Mensagem ID {message.id} marcada como clonada ({len(self.cloned_messages[clone_id])} total)")
             
+            if effective_config.get('whatsapp_groups') and self.whatsapp_sink:
+                try:
+                    await self.whatsapp_sink(clone_id, message, modified_text, effective_config['whatsapp_groups'])
+                except Exception as error:
+                    # Telegram already accepted this post; a WhatsApp failure must not resend it.
+                    log_warning(f'WhatsApp: post da clonagem {clone_id} não entrou na fila.')
+                    if self.whatsapp_error_sink:
+                        try:
+                            self.whatsapp_error_sink(clone_id, str(error) if isinstance(error, ValueError) else 'Falha ao preparar o envio para WhatsApp.')
+                        except Exception:
+                            pass
             return True
         except Exception as e:
             log_error(f"Erro ao clonar mensagem: {e}")

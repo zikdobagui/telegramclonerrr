@@ -38,3 +38,7 @@ node_modules/
 
 # Verificações locais de design, perfis temporários e capturas
 .taste-skill/
+
+# Linked WhatsApp devices and durable delivery queue (never publish credentials)
+**/whatsapp/
+.runtime/

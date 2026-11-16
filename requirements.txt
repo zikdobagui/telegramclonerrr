@@ -11,3 +11,4 @@ aiohttp
 python-dotenv
 psutil
 tzdata
+neonize==0.10.0

@@ -1,0 +1,17 @@
+<section class="tab-content" id="whatsapp" aria-labelledby="wa-title">
+ <header class="content-header"><h2 id="wa-title">WhatsApp</h2><p>Conecte sua conta e escolha seus grupos como destinos adicionais dos posts clonados.</p></header>
+ <div class="wa-layout">
+  <section class="card" aria-labelledby="wa-connection-title">
+   <span class="plans-eyebrow">Sua conta · Seus grupos</span><h3 id="wa-connection-title">Conectar um aparelho</h3>
+   <p id="wa-status" role="status">Conecte seu WhatsApp para começar.</p>
+   <div id="wa-qr-box" class="wa-qr-box" hidden><img id="wa-qr" alt="QR Code para conectar seu WhatsApp" width="300" height="300"><p id="wa-qr-time" class="wa-muted"></p></div>
+   <ol class="wa-steps"><li>Abra o WhatsApp no celular.</li><li>Acesse <strong>Aparelhos conectados → Conectar aparelho</strong>.</li><li>Leia o QR Code exibido aqui.</li></ol>
+   <div class="wa-actions"><button id="wa-connect" type="button" class="btn btn-primary">Conectar WhatsApp</button><button id="wa-disconnect" type="button" class="btn" hidden>Desconectar</button></div>
+   <p class="wa-muted">O pareamento é reutilizado após reinícios, enquanto o aparelho continuar autorizado no WhatsApp. Desconectar aqui pausa a conexão; para remover o vínculo, use Aparelhos conectados no celular.</p>
+   <p id="wa-error" role="alert" class="wa-error" hidden></p>
+  </section>
+  <aside class="card"><h3>Do Telegram para o seu grupo</h3><p>Depois de conectar, carregue seus grupos. Ao criar ou editar uma clonagem, selecione os destinos do WhatsApp.</p><p>O post mantém as alterações de texto da clonagem. Fotos, vídeos e documentos de até 16 MB também podem ser enviados.</p><p>Se a conexão cair, posts preparados aguardam na fila. Envios sem confirmação ficam separados para você conferir no grupo.</p><p class="wa-muted">Esta conexão usa uma biblioteca não oficial. O WhatsApp pode pedir novo pareamento ou restringir o aparelho. O acesso de cada usuário fica separado.</p><button type="button" class="dash-action" onclick="openDashboardTab('clones')">Abrir clonagem <i class="fas fa-arrow-right" aria-hidden="true"></i></button></aside>
+ </div>
+ <section class="card"><div class="wa-heading"><div><h3>Grupos da sua conta</h3><p class="wa-muted">Disponíveis para selecionar na criação ou edição da clonagem.</p></div><button class="mini-btn" id="wa-refresh-groups" type="button">Carregar meus grupos</button></div><div id="wa-groups" class="wa-group-grid"><p class="wa-muted">Conecte o WhatsApp e carregue seus grupos.</p></div></section>
+ <section class="card"><h3>Envios da clonagem</h3><div id="wa-counts" class="wa-counts"></div><p id="wa-last-error" class="wa-error" hidden></p><div class="wa-table-wrap"><table><thead><tr><th scope="col">Clonagem</th><th scope="col">Grupo</th><th scope="col">Estado</th><th scope="col">Detalhe</th></tr></thead><tbody id="wa-deliveries"><tr><td colspan="4">Nenhum envio preparado.</td></tr></tbody></table></div></section>
+</section>
