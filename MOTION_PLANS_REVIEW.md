@@ -1,5 +1,9 @@
 # Animações e planos — 15/11/2026
 
+## Planos na página pública e login
+
+Incluída a seção pública `#planos` antes do formulário de acesso, com link no menu, os mesmos três cartões animados e prefixos próprios para os detalhes. Adicionados estilos públicos para cartões, botões e superfícies, sem depender das variáveis do painel autenticado. Autenticação e cadastro preservados. Validação isolada: três planos na página pública, seis no painel, IDs únicos, destinos de detalhes, formulários e recursos locais existentes. Conferência visual continua pendente.
+
 ## Planos na visão geral
 
 Adicionados os três cartões de planos logo após os indicadores do painel principal. `plan_cards.html` é compartilhado com a aba de planos; cada inclusão recebe um prefixo diferente para os IDs dos detalhes. Adicionados elementos 3D em camadas nos cartões, entrada sequencial na visão geral e botão para abrir a aba completa. Preços, limites e contratação permanecem explicitamente indisponíveis. Corrigido também texto com caracteres corrompidos na apresentação dos planos.

@@ -1,4 +1,18 @@
 /* Spatial product scene. CSS 3D, no libraries, no external assets. */
+.marketing .public-plans {--studio-panel:#121722;--studio-line:#293348;--studio-muted:#a0acc1;height:auto!important;min-height:100svh;padding:96px 0;background:radial-gradient(ellipse at 50% 35%,#1b37612b,transparent 65%),#0b1019;}
+.public-plans-heading {max-width:740px;margin-bottom:48px;}
+.public-plans-heading h2 {font-size:clamp(32px,4vw,56px);font-weight:500;letter-spacing:-.045em;line-height:1.08;margin:0 0 24px;color:#edf2fc;}
+.public-plans-heading p {color:#a0acc1;font-size:18px;line-height:1.7;max-width:58ch;margin:0;}
+.marketing .public-plans .plan-card h3 {color:#edf2fc;font-weight:500;}
+.marketing .public-plans .plan-price strong {color:#edf2fc;}
+.marketing .public-plans .dash-action {display:flex;align-items:center;justify-content:center;min-height:48px;border:1px solid #344b70;border-radius:8px;padding:12px 20px;background:#1a2941;color:#e5efff;font:500 16px var(--font-text);cursor:pointer;transition:background .2s,translate .2s,border-color .2s;}
+.marketing .public-plans .dash-action.primary {background:#3975ef;border-color:#6696f3;color:#fff;}
+.marketing .public-plans .dash-action:hover {background:#29446d;border-color:#8cb4ff;translate:0 -2px;}
+.marketing .public-plans .dash-action.primary:hover {background:#4c85f7;}
+.marketing .public-plans .dash-action:active {translate:0 1px;}
+.public-plans-footer {display:flex;align-items:center;justify-content:space-between;gap:24px;margin-top:32px;}
+.public-plans-footer p {margin:0;color:#a0acc1;font-size:14px;line-height:1.7;}
+@media(max-width:800px) {.marketing .public-plans {padding:72px 0;}.public-plans-heading {margin-bottom:32px;}.public-plans-heading p {font-size:16px;}.public-plans-footer {align-items:stretch;flex-direction:column;}.public-plans-footer a {width:100%;}}
 .dashboard-plans {margin:32px 0 40px;padding:32px 0;border-top:1px solid var(--studio-line);border-bottom:1px solid var(--studio-line);}
 .dashboard-plans-heading {display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:28px;}
 .dashboard-plans-heading h2 {font-size:30px;line-height:1.2;letter-spacing:-.8px;margin:0 0 12px;}

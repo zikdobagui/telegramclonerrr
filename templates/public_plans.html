@@ -1,0 +1,11 @@
+<section class="section public-plans" id="planos" aria-labelledby="public-plans-title">
+ <div class="wrap">
+  <header class="public-plans-heading">
+   <span class="plans-eyebrow">Planos TG Auto</span>
+   <h2 id="public-plans-title">Seu workspace.<br>Seu próximo plano.</h2>
+   <p>Conheça os modelos de aluguel que estamos preparando. Por enquanto, são exemplos: preços, limites e condições serão definidos em breve.</p>
+  </header>
+  {% with plan_scope='public' %}{% include 'plan_cards.html' %}{% endwith %}
+  <div class="public-plans-footer"><p>Prévia ilustrativa. Contratação e pagamentos ainda indisponíveis.</p><a class="btn btn--secondary" href="#acesso">Acessar minha conta <span aria-hidden="true">↗</span></a></div>
+ </div>
+</section>

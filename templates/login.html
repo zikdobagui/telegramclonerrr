@@ -20,7 +20,7 @@
 <script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),1500)</script>
 <link rel="stylesheet" href="{{ url_for('static', filename='dark.css') }}?v=20261115-1">
 <link rel="stylesheet" href="{{ url_for('static', filename='motion-plans.css') }}?v=20261115-2">
-<link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-1">
+<link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-3">
 </head>
 <body class="marketing">
 <!-- software; teal-on-paper, Familjen Grotesk, centred hero; word-highlight in #fluxo.
@@ -28,7 +28,7 @@
 <header class="nav"><div class="wrap nav__bar">
 <a class="skip-link" href="#top">Pular para o conteúdo</a>
 <a class="nav__logo" href="#top" translate="no"><span class="brand-symbol" aria-hidden="true"><img src="{{ url_for('static', filename='taste/icons/telegram.svg') }}" width="32" height="32" alt=""></span>TG Auto<span class="brand-caption">Telegram Automation</span></a>
-<nav class="nav__links" aria-label="Navegação principal"><div class="nav__item"><a class="nav__link" href="#recursos">Recursos</a></div><div class="nav__item"><a class="nav__link" href="#fluxo">Como funciona</a></div></nav>
+<nav class="nav__links" aria-label="Navegação principal"><div class="nav__item"><a class="nav__link" href="#recursos">Recursos</a></div><div class="nav__item"><a class="nav__link" href="#fluxo">Como funciona</a></div><div class="nav__item"><a class="nav__link" href="#planos">Planos</a></div></nav>
 <div class="nav__actions"><a class="btn btn--primary" href="#acesso">Acessar painel <span aria-hidden="true">↗</span></a></div>
 </div></header>
 <main id="top" tabindex="-1">
@@ -63,6 +63,7 @@
  <p class="t-label">Como funciona</p><h2 id="flow-title" class="mo-wh__text">Conecte suas contas.<br>Prepare suas tarefas.<br><strong>Acompanhe cada etapa.</strong></h2>
  <ol class="flow-steps"><li><span>01</span><div><h3>Configure as sessões</h3><p>Cadastre suas APIs e conecte as contas que você vai usar.</p></div></li><li><span>02</span><div><h3>Defina a operação</h3><p>Escolha os grupos, as metas e os limites da tarefa.</p></div></li><li><span>03</span><div><h3>Veja o andamento</h3><p>Consulte o progresso e os registros no seu painel.</p></div></li></ol>
 </div></section>
+{% include 'public_plans.html' %}
 <section class="section access-section" id="acesso" aria-labelledby="access-title"><div class="wrap access-grid"><div class="access-copy"><p class="t-label">Seu espaço de trabalho</p><h2 id="access-title">Tudo pronto para<br>sua próxima tarefa.</h2><p>Entre na sua conta ou crie um acesso. Suas sessões, configurações e registros ficam no seu espaço.</p><div class="access-note"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88m4.29-.98c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M2 16h.01m19.79 0c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2m2.31 12c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2"/></g></svg><span>Dados e operações separados por usuário.</span></div></div>
 <aside class="auth-card login-card" id="login-card">
 
@@ -310,6 +311,6 @@ document.querySelectorAll('[data-password-toggle]').forEach(button => {
     });
 });
 </script>
-<script src="{{ url_for('static', filename='motion-plans.js') }}?v=20261115-2"></script>
+<script src="{{ url_for('static', filename='motion-plans.js') }}?v=20261115-3"></script>
 </body>
 </html>
