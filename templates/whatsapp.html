@@ -4,9 +4,15 @@
   <section class="card" aria-labelledby="wa-connection-title">
    <span class="plans-eyebrow">Sua conta · Seus grupos</span><h3 id="wa-connection-title">Conectar um aparelho</h3>
    <p id="wa-status" role="status">Conecte seu WhatsApp para começar.</p>
+   <div id="wa-progress" class="wa-connect-progress" hidden>
+    <div class="wa-connection-orbit" aria-hidden="true"><span></span><span></span><i class="fab fa-whatsapp"></i></div>
+    <div class="wa-progress-copy"><strong id="wa-progress-title">Iniciando conexão</strong><p id="wa-progress-detail">Preparando seu aparelho...</p><span id="wa-progress-elapsed" aria-hidden="true"></span></div>
+   </div>
+   <ol class="wa-connect-stages" id="wa-connect-stages" aria-label="Etapas da conexão" hidden><li data-wa-stage="1">Preparar aparelho</li><li data-wa-stage="2">Receber QR Code</li><li data-wa-stage="3">Ler no celular</li><li data-wa-stage="4">Conectado</li></ol>
+   <p id="wa-diagnostic" class="wa-muted" hidden></p>
    <div id="wa-qr-box" class="wa-qr-box" hidden><img id="wa-qr" alt="QR Code para conectar seu WhatsApp" width="300" height="300"><p id="wa-qr-time" class="wa-muted"></p></div>
    <ol class="wa-steps"><li>Abra o WhatsApp no celular.</li><li>Acesse <strong>Aparelhos conectados → Conectar aparelho</strong>.</li><li>Leia o QR Code exibido aqui.</li></ol>
-   <div class="wa-actions"><button id="wa-connect" type="button" class="btn btn-primary">Conectar WhatsApp</button><button id="wa-disconnect" type="button" class="btn" hidden>Desconectar</button></div>
+   <div class="wa-actions"><button id="wa-connect" type="button" class="btn btn-primary">Conectar WhatsApp</button><button id="wa-disconnect" type="button" class="btn" hidden>Desconectar</button><button id="wa-refresh-status" type="button" class="mini-btn">Atualizar estado</button></div>
    <p class="wa-muted">O pareamento é reutilizado após reinícios, enquanto o aparelho continuar autorizado no WhatsApp. Desconectar aqui pausa a conexão; para remover o vínculo, use Aparelhos conectados no celular.</p>
    <p id="wa-error" role="alert" class="wa-error" hidden></p>
   </section>

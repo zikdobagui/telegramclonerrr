@@ -14,7 +14,7 @@ from contextlib import contextmanager
 import sys
 import uuid
 
-from flask import jsonify, request, session
+from flask import jsonify, request, session, Response
 from data_store import atomic_write_json, load_json_file
 
 MAX_MEDIA = 16 * 1024 * 1024
@@ -47,6 +47,17 @@ def load_neonize_client():
 
 class WhatsAppError(ValueError):
     pass
+
+
+def connection_failure(error):
+    message = str(error).lower()
+    if isinstance(error, (ImportError, ModuleNotFoundError)) or any(word in message for word in ('libmagic', 'shared object', 'glibc', 'dll load')):
+        return 'WA_DEPENDENCY_MISSING', 'A biblioteca do WhatsApp não carregou no servidor. Execute o rebuild das dependências na Discloud.'
+    if isinstance(error, sqlite3.Error) or any(word in message for word in ('sqlite', 'database is locked', 'unable to open database', 'permission denied')):
+        return 'WA_SESSION_STORAGE', 'Não foi possível abrir a sessão salva. Verifique a permissão e a disponibilidade da pasta de dados no servidor.'
+    if isinstance(error, (ConnectionError, TimeoutError)) or any(word in message for word in ('timeout', 'dial tcp', 'websocket', 'handshake', 'no such host', 'connection refused')):
+        return 'WA_NETWORK_ERROR', 'O servidor não conseguiu falar com o WhatsApp. Verifique a conexão de saída da Discloud e tente novamente.'
+    return 'WA_CONNECTION_ERROR', 'A conexão do WhatsApp falhou antes de concluir. Tente conectar novamente; se persistir, confira os logs do servidor.'
 
 
 class Outbox:
@@ -137,12 +148,17 @@ class NeonizeDevice:
         self.last_send = 0
         self.qr_sequence = 0
         self.thread = None
+        self.phase = 'preparing'
+        self.error_code = None
+        self.started_at = self.updated_at = time.time()
+        self.qr_digest = None
 
-    def change(self, state, message, clear_qr=True):
+    def change(self, state, message, clear_qr=True, phase=None, error_code=None):
         with self.guard:
             if self.stopping:
                 return
             self.state, self.message = state, message
+            self.phase, self.error_code, self.updated_at = phase or state, error_code, time.time()
             if clear_qr:
                 self.qr, self.qr_until = None, 0
 
@@ -150,7 +166,54 @@ class NeonizeDevice:
         with self.guard:
             return {'status': self.state, 'message': self.message,
                     'qr': self.qr if self.qr_until > time.time() else None,
+                    'qr_available': bool(self.qr and self.qr_until > time.time()),
+                    'qr_revision': self.qr_digest,
+                    'phase': self.phase, 'error_code': self.error_code,
+                    'started_at': self.started_at, 'updated_at': self.updated_at,
                     'qr_expires_at': self.qr_until if self.qr else None}
+
+    def close_native(self):
+        if self.client:
+            try:
+                self.client.stop()
+            except Exception:
+                pass
+
+    def check_timeout(self):
+        with self.guard:
+            waiting = self.state in ('connecting', 'reconnecting') and time.time() - self.updated_at > 75
+            expired = self.state == 'qr' and self.qr_until and time.time() > self.qr_until + 30
+            if self.stopping or not (waiting or expired):
+                return
+            self.stopping = True
+            self.state, self.phase, self.error_code = 'timeout', 'timeout', 'WA_CONNECT_TIMEOUT'
+            self.message = 'A tentativa demorou demais sem receber um QR válido ou confirmar a conexão. Tente novamente.'
+            self.qr = None
+        threading.Thread(target=self.close_native, daemon=True).start()
+
+    def receive_qr(self, raw):
+        try:
+            import segno
+            raw = raw.encode() if isinstance(raw, str) else raw
+            digest = hashlib.sha256(raw).hexdigest()[:16]
+            with self.guard:
+                if self.stopping or (digest == self.qr_digest and self.qr_until > time.time()):
+                    return
+            image = io.BytesIO()
+            segno.make_qr(raw).save(image, kind='png', scale=6, border=4)
+            with self.guard:
+                if self.stopping:
+                    return
+                self.qr = 'data:image/png;base64,' + base64.b64encode(image.getvalue()).decode()
+                self.qr_digest = digest
+                self.qr_sequence += 1
+                self.qr_until = time.time() + (55 if self.qr_sequence == 1 else 18)
+                self.state, self.phase = 'qr', 'awaiting_scan'
+                self.error_code, self.updated_at = None, time.time()
+                self.message = 'QR Code pronto. Leia em Aparelhos conectados no WhatsApp.'
+        except Exception:
+            self.change('error', 'O código chegou do WhatsApp, mas a imagem não pôde ser gerada. Tente novamente.', phase='error', error_code='WA_QR_RENDER')
+            threading.Thread(target=self.close_native, daemon=True).start()
 
     def launch(self):
         self.thread = threading.Thread(target=self.run, name='whatsapp-device', daemon=True)
@@ -158,9 +221,10 @@ class NeonizeDevice:
 
     def run(self):
         try:
+            self.change('connecting', 'Carregando a biblioteca de conexão...', phase='loading_library')
             NewClient = load_neonize_client()
-            from neonize.events import ConnectedEv, DisconnectedEv, LoggedOutEv, StreamReplacedEv, KeepAliveTimeoutEv, KeepAliveRestoredEv
-            import segno
+            from neonize.events import ConnectedEv, DisconnectedEv, LoggedOutEv, StreamReplacedEv, KeepAliveTimeoutEv, KeepAliveRestoredEv, QREv, ConnectFailureEv, ClientOutdatedEv, TemporaryBanEv
+            self.change('connecting', 'Preparando o aparelho e abrindo a sessão salva...', phase='opening_session')
             # The database preserves pairing. A fresh native handle prevents a
             # previous client's GC finalizer from stopping a replacement client.
             client = NewClient(str(self.directory / 'auth.sqlite'), uuid='tgauto-' + hashlib.sha256(self.username.encode()).hexdigest()[:12] + '-' + uuid.uuid4().hex)
@@ -168,15 +232,28 @@ class NeonizeDevice:
 
             @client.qr
             def qr_callback(_, raw):
-                image = io.BytesIO()
-                segno.make_qr(raw).save(image, kind='png', scale=6, border=4)
-                with self.guard:
-                    if self.stopping:
-                        return
-                    self.qr = 'data:image/png;base64,' + base64.b64encode(image.getvalue()).decode()
-                    self.qr_sequence += 1
-                    self.qr_until = time.time() + (55 if self.qr_sequence == 1 else 18)
-                    self.state, self.message = 'qr', 'Leia o QR Code em Aparelhos conectados no WhatsApp.'
+                self.receive_qr(raw)
+
+            @client.event(QREv)
+            def qr_event(_, event):
+                if event.Codes and not self.qr:
+                    self.receive_qr(event.Codes[0])
+
+            @client.event(ConnectFailureEv)
+            def connection_failed(*_):
+                self.change('error', 'O WhatsApp recusou a conexão. Tente novamente e confira se o aparelho continua autorizado.', error_code='WA_CONNECT_REJECTED')
+                threading.Thread(target=self.close_native, daemon=True).start()
+
+            @client.event(ClientOutdatedEv)
+            def client_outdated(*_):
+                self.change('error', 'O WhatsApp exige uma atualização da biblioteca de conexão no servidor.', error_code='WA_CLIENT_OUTDATED')
+                threading.Thread(target=self.close_native, daemon=True).start()
+
+            @client.event(TemporaryBanEv)
+            def temporary_ban(*_):
+                self.change('error', 'O WhatsApp restringiu temporariamente este aparelho. Aguarde a liberação antes de reconectar.', error_code='WA_TEMPORARY_RESTRICTION')
+                self.on_disable()
+                threading.Thread(target=self.close_native, daemon=True).start()
 
             @client.event(ConnectedEv)
             def connected(*_):
@@ -209,18 +286,20 @@ class NeonizeDevice:
 
             if self.stopping:
                 return
+            self.change('connecting', 'Contatando o WhatsApp e aguardando o QR Code ou a sessão salva...', phase='waiting_whatsapp')
             client.connect()
-            if self.state not in ('logged_out', 'replaced'):
+            if self.state not in ('logged_out', 'replaced', 'error', 'timeout'):
                 self.change('disconnected', 'Conexão encerrada. Uma nova tentativa será feita automaticamente.')
-        except Exception:
-            self.change('error', 'Não foi possível conectar. Verifique a rede e as dependências do deploy.')
+        except Exception as error:
+            code, message = connection_failure(error)
+            self.change('error', message, error_code=code)
 
     def stop(self):
         with self.guard:
             self.stopping = True
             self.state, self.message, self.qr = 'disconnected', 'Conexão pausada. O pareamento foi preservado.', None
-        if self.client:
-            self.client.stop()
+            self.phase = 'disconnected'
+        self.close_native()
 
     def joined_groups(self):
         if self.state != 'connected' or not self.client:
@@ -308,12 +387,14 @@ class WhatsAppService:
 
     def status(self, username):
         device = self.devices.get(username)
+        if device:
+            device.check_timeout()
         info = device.snapshot() if device else {'status': 'disconnected', 'message': 'Conecte seu WhatsApp para usar na clonagem.', 'qr': None}
         try:
             info['library_version'] = importlib.metadata.version('neonize')
         except importlib.metadata.PackageNotFoundError:
             info['library_version'] = None
-            info.update(status='unavailable', message='A biblioteca WhatsApp ainda não está instalada neste deploy.')
+            info.update(status='unavailable', phase='error', error_code='WA_DEPENDENCY_MISSING', message='A biblioteca WhatsApp ainda não está instalada neste deploy. Execute o rebuild das dependências na Discloud.')
         info['outbox'] = self.store(username).summary()
         info['last_error'] = self.settings(username).get('last_error', '')
         return info
@@ -421,6 +502,7 @@ class WhatsAppService:
                 with self.guard:
                     devices = list(self.devices.items())
                 for username, device in devices:
+                    device.check_timeout()
                     if device.state == 'connected' and not device.send_guard.locked() and time.time() - device.last_send >= 3:
                         threading.Thread(target=self.send_next, args=(username, device), daemon=True).start()
             except Exception:
@@ -440,6 +522,15 @@ def register_whatsapp_routes(app, login_required, service):
     def whatsapp_status():
         return jsonify(success=True, connection=service.status(session['username']))
 
+    @app.route('/api/whatsapp/qr', methods=['GET'])
+    @login_required
+    def whatsapp_qr():
+        device = service.devices.get(session['username'])
+        code = device.snapshot().get('qr') if device else None
+        if not code:
+            return jsonify(success=False, error='O QR Code ainda não está disponível ou expirou.'), 409
+        return Response(base64.b64decode(code.split(',', 1)[1], validate=True), mimetype='image/png', headers={'X-Content-Type-Options': 'nosniff'})
+
     @app.route('/api/whatsapp/<action>', methods=['POST'])
     @login_required
     def whatsapp_action(action):
@@ -451,7 +542,7 @@ def register_whatsapp_routes(app, login_required, service):
                 service.disconnect(username)
             else:
                 return jsonify(success=False, error='Ação inválida.'), 404
-            return jsonify(success=True)
+            return jsonify(success=True, connection=service.status(username))
         except WhatsAppError as error:
             return jsonify(success=False, error=str(error)), 400
 

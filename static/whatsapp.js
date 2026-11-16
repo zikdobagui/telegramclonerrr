@@ -2,25 +2,48 @@
  'use strict';
  const page=document.getElementById('whatsapp');if(!page)return;
  const el=id=>document.getElementById('wa-'+id);
- let timer=null,loading=false,groups=[],snapshot=null;
+ let timer=null,pollPromise=null,groups=[],snapshot=null,requesting=false,requestStarted=0,operation=0,qrRevision=null,qrAttempts=0;
  const stateLabels={pending:'Na fila',sending:'Enviando',sent:'Confirmado',unknown:'Sem confirmação',failed:'Falhou'};
  const selected=new Map();
  async function api(path='',method='GET') {
-  const response=await fetch('/api/whatsapp'+path,{method,cache:'no-store'});
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
+  try {
+  const response=await fetch('/api/whatsapp'+path,{method,cache:'no-store',signal:controller.signal});
   let data;try{data=await response.json();}catch(_){throw new Error('Resposta inválida do servidor.');}
   if(!response.ok||!data.success)throw new Error(data.error||'Não foi possível acessar o WhatsApp.');
   return data;
+  } catch(err) {
+   if(err.name==='AbortError')throw new Error('O servidor não respondeu em 12 segundos. A tentativa pode continuar no servidor; use Atualizar estado para conferir.');
+   throw err;
+  } finally {clearTimeout(timeout);}
  }
  function error(node,message){node.textContent=message||'';node.hidden=!message;}
  function render() {
   if(!snapshot)return;
-  el('status').textContent=snapshot.message;
-  el('qr-box').hidden=!snapshot.qr;
-  if(snapshot.qr)el('qr').src=snapshot.qr;else el('qr').removeAttribute('src');
-  el('qr-time').textContent='O QR Code é atualizado automaticamente enquanto aguarda a leitura.';
-  const busy=['connecting','qr','reconnecting','connected'].includes(snapshot.status);
+  const status=requesting?'requesting':snapshot.status;
+  const phase=requesting?'preparing':snapshot.phase;
+  el('status').textContent=requesting?'Solicitando uma conexão ao servidor...':snapshot.message;
+  const hasQR=!requesting&&Boolean(snapshot.qr_available||snapshot.qr);
+  el('qr-box').hidden=!hasQR;
+  if(hasQR){
+   const revision=snapshot.qr_revision||snapshot.qr_expires_at||snapshot.qr;
+   if(qrRevision!==revision){qrRevision=revision;el('qr').src='/api/whatsapp/qr?v='+encodeURIComponent(String(snapshot.qr_revision||snapshot.qr_expires_at||'current'))+'&attempt='+(qrAttempts++);}
+  }else{qrRevision=null;el('qr').removeAttribute('src');}
+  el('qr-time').textContent='Leia este código no celular. Se expirar, o próximo será exibido automaticamente.';
+  const waiting=requesting||['connecting','reconnecting'].includes(status)||(status==='qr'&&!hasQR);
+  const busy=requesting||['connecting','qr','reconnecting','connected'].includes(status);
   el('connect').disabled=busy||snapshot.status==='unavailable';
-  el('connect').textContent=snapshot.status==='connected'?'WhatsApp conectado':'Conectar WhatsApp';
+  el('connect').setAttribute('aria-busy',String(waiting));
+  el('connect').textContent=status==='connected'?'WhatsApp conectado':waiting?'Conectando...':status==='qr'?'Aguardando leitura do QR':['error','timeout','disconnected','logged_out','replaced'].includes(status)?'Conectar novamente':'Conectar WhatsApp';
+  el('progress').hidden=!waiting;
+  const phaseText={preparing:['Iniciando conexão','Enviando sua solicitação ao servidor.'],loading_library:['Preparando a conexão','Carregando a biblioteca de WhatsApp.'],opening_session:['Abrindo seu aparelho','Verificando o pareamento salvo no servidor.'],waiting_whatsapp:['Aguardando o WhatsApp','O QR Code aparecerá aqui assim que chegar.'],reconnecting:['Reconectando','Tentando reutilizar o aparelho já vinculado.']};
+  const progress=phaseText[phase]||['Atualizando QR Code','Aguardando um novo código válido do WhatsApp.'];
+  el('progress-title').textContent=progress[0];el('progress-detail').textContent=progress[1];
+  el('connect-stages').hidden=!busy;
+  const step=status==='connected'?4:hasQR?3:phase==='waiting_whatsapp'||status==='reconnecting'||status==='qr'?2:1;
+  page.querySelectorAll('[data-wa-stage]').forEach(item=>{const number=Number(item.dataset.waStage);item.classList.toggle('is-done',number<step||status==='connected');item.classList.toggle('is-active',number===step&&status!=='connected');});
+  const diagnostic=snapshot.error_code?`Diagnóstico: ${snapshot.error_code}. ${snapshot.message}`:'';
+  error(el('diagnostic'),diagnostic);
   el('disconnect').hidden=!busy;
   el('refresh-groups').disabled=snapshot.status!=='connected';
   error(el('last-error'),snapshot.last_error);
@@ -36,10 +59,20 @@
   }
   if(!el('deliveries').children.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='Nenhum envio preparado.';tr.append(td);el('deliveries').append(tr);}
  }
- async function poll(){
-  if(loading)return;clearTimeout(timer);loading=true;
-  try{snapshot=(await api()).connection;render();}catch(err){error(el('error'),err.message);}
-  finally{loading=false;if(page.classList.contains('active'))timer=setTimeout(poll,3000);}
+ function poll(){
+  if(pollPromise)return pollPromise;
+  clearTimeout(timer);const version=operation;
+  pollPromise=(async()=>{
+   try{const data=await api();if(version===operation&&!requesting){snapshot=data.connection;render();error(el('error'),'');}}
+   catch(err){
+    if(version===operation&&!requesting&&snapshot&&['connecting','reconnecting','qr'].includes(snapshot.status)){
+     snapshot={...snapshot,status:'error',phase:'error',error_code:'WA_STATUS_UNAVAILABLE',message:'Não foi possível acompanhar a conexão. A tentativa pode continuar no servidor; atualize o estado.',qr:null,qr_available:false};render();
+    }
+    error(el('error'),err.message);
+   }
+   finally{pollPromise=null;if(page.classList.contains('active'))timer=setTimeout(poll,2000);}
+  })();
+  return pollPromise;
  }
  function renderOptions(scope){
   const container=document.getElementById(scope+'WhatsAppOptions');if(!container)return;
@@ -64,9 +97,17 @@
    render();
   }catch(err){error(errorNode,err.message);}
  }
- el('connect').addEventListener('click',async()=>{el('connect').disabled=true;try{error(el('error'),'');await api('/connect','POST');await poll();}catch(err){error(el('error'),err.message);el('connect').disabled=false;}});
- el('disconnect').addEventListener('click',async()=>{el('disconnect').disabled=true;try{await api('/disconnect','POST');await poll();}catch(err){error(el('error'),err.message);}finally{el('disconnect').disabled=false;}});
+ el('connect').addEventListener('click',async()=>{
+  if(requesting)return;operation++;clearTimeout(timer);requesting=true;requestStarted=Date.now();snapshot=snapshot||{};render();error(el('error'),'');
+  try{const data=await api('/connect','POST');requesting=false;snapshot=data.connection||{status:'connecting',phase:'waiting_whatsapp',message:'Aguardando o WhatsApp...',started_at:requestStarted/1000};render();}
+  catch(err){requesting=false;snapshot={...snapshot,status:'error',phase:'error',message:err.message,qr:null,qr_available:false};render();error(el('error'),err.message);}
+  finally{timer=setTimeout(poll,500);}
+ });
+ el('disconnect').addEventListener('click',async()=>{operation++;clearTimeout(timer);el('disconnect').disabled=true;try{const data=await api('/disconnect','POST');if(data.connection){snapshot=data.connection;render();}}catch(err){error(el('error'),err.message);}finally{el('disconnect').disabled=false;timer=setTimeout(poll,500);}});
  el('refresh-groups').addEventListener('click',()=>loadGroups());
+ el('refresh-status').addEventListener('click',poll);
+ el('qr').addEventListener('error',()=>{qrRevision=null;error(el('error'),'O QR chegou, mas a imagem não carregou. Tentando obter uma nova imagem...');});
+ setInterval(()=>{if(!el('progress').hidden){const started=requesting?requestStarted:(snapshot?.started_at||Date.now()/1000)*1000;el('progress-elapsed').textContent=`${Math.max(0,Math.floor((Date.now()-started)/1000))} s decorridos · atualização automática`; }},1000);
  document.querySelectorAll('[data-wa-load]').forEach(button=>button.addEventListener('click',async()=>{button.disabled=true;try{await loadGroups(button.dataset.waLoad);}finally{button.disabled=false;}}));
  document.querySelector('[data-tab="whatsapp"]')?.addEventListener('click',event=>{if(!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey)poll();});
  window.WhatsAppUI={

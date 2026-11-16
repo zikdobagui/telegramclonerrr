@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import Mock, AsyncMock, patch
 
 from flask import Flask, session
-from whatsapp_bridge import Outbox, WhatsAppService, WhatsAppError, NeonizeDevice, register_whatsapp_routes
+from whatsapp_bridge import Outbox, WhatsAppService, WhatsAppError, NeonizeDevice, register_whatsapp_routes, connection_failure
 from channel_cloner import ChannelCloner
 
 GROUP = '120363000001@g.us'
@@ -165,10 +165,35 @@ class DeviceContractTests(unittest.TestCase):
         device.client.get_joined_groups.return_value=[SimpleNamespace(JID=SimpleNamespace(User='120363000001',Server='g.us'),GroupName=SimpleNamespace(Name='Own group'),Participants=[1,2],GroupAnnounce=SimpleNamespace(IsAnnounce=True))]
         self.assertEqual(device.joined_groups(),[{'id':GROUP,'name':'Own group','members':2,'admin_only':True}])
 
+    def test_qr_rotation_duplicate_callback_and_expiry(self):
+        device=NeonizeDevice('alice',self.temp.name,Mock())
+        device.receive_qr(b'first-code');first=device.snapshot()
+        device.receive_qr(b'first-code');self.assertEqual(device.qr_sequence,1)
+        device.receive_qr(b'second-code');self.assertNotEqual(device.snapshot()['qr_revision'],first['qr_revision'])
+        self.assertEqual(device.snapshot()['phase'],'awaiting_scan')
+        with patch('whatsapp_bridge.time.time',return_value=device.qr_until+1):self.assertFalse(device.snapshot()['qr_available'])
+
+    def test_connection_timeout_stops_native_and_preserves_timeout_diagnostic(self):
+        device=NeonizeDevice('alice',self.temp.name,Mock());device.client=Mock()
+        device.updated_at=0
+        with patch('whatsapp_bridge.threading.Thread') as thread:
+            device.check_timeout();thread.return_value.start.assert_called_once()
+        self.assertEqual(device.snapshot()['error_code'],'WA_CONNECT_TIMEOUT')
+        self.assertEqual(device.state,'timeout');self.assertTrue(device.stopping)
+        device.change('connected','late callback')
+        self.assertEqual(device.state,'timeout')
+
+    def test_dependency_and_network_errors_have_safe_specific_diagnostics(self):
+        code,message=connection_failure(ImportError('secret local path'))
+        self.assertEqual(code,'WA_DEPENDENCY_MISSING');self.assertNotIn('secret',message)
+        self.assertEqual(connection_failure(TimeoutError())[0],'WA_NETWORK_ERROR')
+
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.app=Flask(__name__);self.app.secret_key='test';self.service=Mock()
+        self.service.status.return_value={'status':'connecting','phase':'loading_library'}
+        self.service.devices={}
         def auth(fn):
             @wraps(fn)
             def wrapped(*args,**kwargs):
@@ -195,6 +220,23 @@ class ApiTests(unittest.TestCase):
         self.service.groups.side_effect=WhatsAppError('Connect first')
         self.assertEqual(self.client.get('/api/whatsapp/groups').status_code,409)
         self.service.groups.assert_called_once_with('alice')
+
+    def test_qr_image_is_authenticated_private_png_and_scoped(self):
+        import base64
+        png=b'\x89PNG\r\n\x1a\nTEST'
+        device=Mock();device.snapshot.return_value={'qr':'data:image/png;base64,'+base64.b64encode(png).decode()}
+        self.service.devices['alice']=device
+        response=self.client.get('/api/whatsapp/qr')
+        self.assertEqual(response.status_code,200);self.assertEqual(response.mimetype,'image/png')
+        self.assertEqual(response.data,png);self.assertIn('no-store',response.headers['Cache-Control'])
+        self.assertEqual(self.app.test_client().get('/api/whatsapp/qr').status_code,401)
+        with self.client.session_transaction() as s:s['username']='bob'
+        self.assertEqual(self.client.get('/api/whatsapp/qr').status_code,409)
+
+    def test_connect_returns_current_phase_without_extra_poll(self):
+        result=self.client.post('/api/whatsapp/connect')
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json['connection']['phase'],'loading_library')
 
 
 class CloningRouteTests(unittest.TestCase):

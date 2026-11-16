@@ -45,9 +45,21 @@ O supervisor restaura a conexão WhatsApp e a fila. O mecanismo anterior de moni
 
 ## Validação
 
-Resultado final: **165 testes aprovados** na suíte completa em Python 3.13, incluindo **22 testes específicos** desta integração.
+Execução inicial: **165 testes aprovados** na suíte completa em Python 3.13, incluindo **22 testes específicos** desta integração. A revisão do progresso adiciona testes para timeout, rotação do QR, diagnósticos e imagem autenticada.
+
+Revisão do progresso: **170 testes aprovados**, incluindo **27 específicos** da integração. O teste de interface pode ser repetido com `node tests/test_whatsapp_progress.cjs` a partir da raiz do projeto.
 
 - Testes específicos sem conexões reais: autenticação, isolamento, QR, contrato da Neonize, destinos na criação/edição, fotos, limites de mídia, deduplicação, concorrência, persistência, estados ambíguos e limpeza de arquivos compartilhados.
 - Sintaxe Python, JavaScript e CSS, renderização Jinja, IDs únicos, labels e navegação conferidos. JavaScript inline da página renderizada também passa na checagem de sintaxe.
 - Fallback de libmagic exercitado em subprocesso isolado no Windows, simulando ausência da biblioteca de sistema e um loader antigo em cache; MIME e importação da Neonize confirmados sem conectar ao WhatsApp.
-- Nenhum QR real foi gerado ou lido, nenhum aparelho foi conectado e nenhum post foi enviado a grupos reais durante os testes. Validação visual em navegador e teste real de reconexão na Discloud continuam pendentes.
+- Na revisão do progresso, uma sessão temporária sem conta vinculada recebeu um QR real do WhatsApp no Windows. O fluxo completo de status e rota autenticada de PNG foi exercitado, a imagem foi validada e a conexão encerrada. Nenhum QR foi lido, aparelho vinculado ou post enviado a grupos reais. Validação visual em navegador e teste real de reconexão na Discloud continuam pendentes.
+
+## Revisão do QR e progresso
+
+Ao clicar em conectar, o painel mostra imediatamente animação, botão ocupado, tempo decorrido e as etapas de preparação do aparelho, obtenção do QR, leitura no celular e conexão concluída. O estado vem das fases reais do backend: carregamento da biblioteca, abertura da sessão e contato com o WhatsApp.
+
+Requisições HTTP têm timeout de 12 segundos. Tentativas nativas que permanecem sem progresso por 75 segundos são interrompidas e exibem diagnóstico, em vez de manter carregamento indefinido. QR expirado é ocultado e aguarda renovação. A captura do QR usa o callback nativo e também o evento QR como fallback, sem repetir a mesma revisão.
+
+`GET /api/whatsapp/qr` serve PNG somente ao usuário autenticado dono da sessão, com cache desabilitado. A imagem usa a própria origem do site, evitando depender de permissão a imagens `data:` no navegador. O POST de conectar retorna a fase atual; respostas antigas de polling não podem sobrescrever uma nova tentativa. Erros de rede, dependência, armazenamento, versão obsoleta e recusa do WhatsApp recebem códigos específicos, sem expor caminhos internos ou tokens.
+
+Verificação frontend em DOM simulado com o JavaScript real: carregamento imediato, etapas, imagem PNG, erro/timeout, corrida de polling e cancelamento de HTTP lento. Isso não substitui revisão visual no navegador nem comprova a causa específica da falha no servidor da Discloud.
