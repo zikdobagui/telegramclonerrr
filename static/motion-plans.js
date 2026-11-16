@@ -11,7 +11,7 @@
  reduced.addEventListener('change', sync);
  function enterPanel(panel) {
   if (!panel || reduced.matches) return;
-  const items = panel.querySelectorAll(':scope > .dashboard-grid > article, :scope > .plans-grid > article');
+  const items = panel.querySelectorAll(':scope > .dashboard-grid > article, :scope > .plans-grid > article, :scope > .dashboard-plans .plans-grid > article');
   items.forEach((item, index) => item.animate([
    {opacity:.2,translate:'0 32px'},
    {opacity:1,translate:'0 0'}

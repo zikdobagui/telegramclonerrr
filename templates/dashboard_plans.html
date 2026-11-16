@@ -1,0 +1,8 @@
+<section class="dashboard-plans" aria-labelledby="dashboard-plans-title">
+ <header class="dashboard-plans-heading">
+  <div><span class="plans-eyebrow">Planos TG Auto</span><h2 id="dashboard-plans-title">Seu próximo plano começa aqui.</h2><p>Explore os modelos de aluguel do workspace. Valores e condições serão definidos em breve.</p></div>
+  <button type="button" class="dash-action" onclick="openDashboardTab('plans')">Explorar planos <i class="fas fa-arrow-right" aria-hidden="true"></i></button>
+ </header>
+ {% with plan_scope='overview' %}{% include 'plan_cards.html' %}{% endwith %}
+ <p class="dashboard-plans-disclaimer">Prévia ilustrativa · Preços e limites a definir · Contratação ainda indisponível</p>
+</section>

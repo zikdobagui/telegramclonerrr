@@ -1,5 +1,11 @@
 # Animações e planos — 15/11/2026
 
+## Planos na visão geral
+
+Adicionados os três cartões de planos logo após os indicadores do painel principal. `plan_cards.html` é compartilhado com a aba de planos; cada inclusão recebe um prefixo diferente para os IDs dos detalhes. Adicionados elementos 3D em camadas nos cartões, entrada sequencial na visão geral e botão para abrir a aba completa. Preços, limites e contratação permanecem explicitamente indisponíveis. Corrigido também texto com caracteres corrompidos na apresentação dos planos.
+
+Validação: HTTP 200, seis cartões renderizados, IDs únicos, seis controles de detalhe com destinos existentes, posição dos planos antes dos gráficos, sintaxe JavaScript e CSS. Conferência visual em navegador continua pendente.
+
 ## Revisão 3D solicitada
 
 Esta revisão substitui o controle de pausa descrito abaixo: o botão e a leitura da preferência de pausa foram removidos a pedido do usuário. Apenas a preferência de movimento reduzido do sistema permanece. O pedido explícito também orienta a inclinação 3D dos cartões e as animações contínuas sem controle visível, em lugar das restrições padrão da skill.

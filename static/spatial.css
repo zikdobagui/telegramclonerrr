@@ -1,4 +1,19 @@
 /* Spatial product scene. CSS 3D, no libraries, no external assets. */
+.dashboard-plans {margin:32px 0 40px;padding:32px 0;border-top:1px solid var(--studio-line);border-bottom:1px solid var(--studio-line);}
+.dashboard-plans-heading {display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:28px;}
+.dashboard-plans-heading h2 {font-size:30px;line-height:1.2;letter-spacing:-.8px;margin:0 0 12px;}
+.dashboard-plans-heading p {color:var(--studio-muted);font-size:15px;line-height:1.6;margin:0;max-width:58ch;}
+.dashboard-plans-heading button {flex-shrink:0;}
+.dashboard-plans-disclaimer {margin:20px 0 0;color:var(--studio-muted);font-size:13px;line-height:1.6;}
+.plan-emblem {position:relative;height:100px;width:100%;perspective:600px;margin:0 0 16px;pointer-events:none;}
+.plan-emblem span {position:absolute;left:50%;top:12px;margin-left:-34px;width:68px;height:68px;border:1px solid #7eafff99;border-radius:12px;background:linear-gradient(140deg,#437bd655,#142848dd);box-shadow:0 12px 20px #0003,inset 0 1px #d6e7ff44;transform:rotateX(55deg) rotateZ(-35deg) translateZ(0);animation:plan-layers 6s ease-in-out infinite;}
+.plan-emblem span:nth-child(2) {top:24px;opacity:.65;animation-delay:-.3s;}
+.plan-emblem span:nth-child(3) {top:36px;opacity:.35;animation-delay:-.6s;}
+.plan-card:nth-child(2) .plan-emblem span {border-color:#acd2ff;background:linear-gradient(140deg,#518ff999,#1c3a6bdd);}
+.plan-card:nth-child(3) .plan-emblem span {animation-delay:-2s;}
+@keyframes plan-layers {0%,100%{transform:rotateX(55deg) rotateZ(-35deg) translateZ(0)}50%{transform:rotateX(45deg) rotateZ(-22deg) translateZ(15px)}}
+@media(max-width:800px) {.dashboard-plans-heading {flex-direction:column;align-items:flex-start;}.dashboard-plans-heading button {width:100%;}.dashboard-plans-heading h2 {font-size:26px;}.plan-emblem {height:84px;}}
+@media(prefers-reduced-motion:reduce) {.plan-emblem span {animation:none!important;}}
 .spatial-scene {position:relative;width:100%;height:340px;perspective:900px;isolation:isolate;overflow:hidden;pointer-events:none;contain:layout paint;}
 .spatial-scene::before {content:"";position:absolute;inset:4%;background:radial-gradient(ellipse,#2867ef38,transparent 66%);filter:blur(18px);}
 .spatial-world {position:absolute;inset:0;transform-style:preserve-3d;animation:world-drift 14s ease-in-out infinite alternate;}

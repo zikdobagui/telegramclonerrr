@@ -7350,7 +7350,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='workspace.css') }}?v=20261112-2">
 <link rel="stylesheet" href="{{ url_for('static', filename='dark.css') }}?v=20261115-1">
 <link rel="stylesheet" href="{{ url_for('static', filename='motion-plans.css') }}?v=20261115-2">
-<link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-1">
+<link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-2">
 </head>
 <body data-design="studio">
 <a class="workspace-skip" href="#workspace-main">Pular para o conteúdo</a>
@@ -7551,6 +7551,8 @@
                         <span>Tarefas em execução</span>
                     </article>
                 </div>
+
+                {% include 'dashboard_plans.html' %}
 
                 <div class="dash-charts" aria-label="Gráficos da operação">
                     <section class="dashboard-panel dash-chart-panel">
@@ -10859,6 +10861,6 @@
         }
     </script>
 <script src="{{ url_for('static', filename='experience.js') }}?v=20261112-2" defer></script>
-<script src="{{ url_for('static', filename='motion-plans.js') }}?v=20261115-2"></script>
+<script src="{{ url_for('static', filename='motion-plans.js') }}?v=20261115-3"></script>
 </body>
 </html>
