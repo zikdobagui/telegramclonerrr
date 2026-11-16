@@ -6,7 +6,7 @@ Aba **Membros visíveis** no painel e atalho **Verificar grupos** na visão gera
 2. Clique em **Analisar lista** para conferir links únicos, repetidos e linhas inválidas.
 3. Selecione sessões da própria conta e a quantidade **total** de grupos. Em branco: todos os links únicos, até 500 por execução. Até 20 sessões selecionadas, distribuição sequencial e intervalo de 2 segundos entre grupos.
 4. Inicie. A visualização padrão mostra somente os grupos confirmados como visíveis. Outros filtros mostram ocultos, sem acesso e erros/inconclusivos.
-5. **Copiar links visíveis** copia links normalizados. **Baixar visíveis (.txt)** preserva as linhas originais dos grupos confirmados. Uma nova execução substitui a anterior.
+5. **Copiar grupos e membros** e **Baixar visíveis (.txt)** usam o mesmo formato: `Nome do grupo | Membros: 2113 | https://t.me/grupo`. A quantidade vem da consulta ao Telegram; quando ausente, aparece `não informado`. Somente grupos confirmados como visíveis entram na cópia e no arquivo. Uma nova execução substitui a anterior.
 
 ## Critério
 
@@ -31,3 +31,5 @@ Processamento em background; uma verificação por usuário, integrada aos bloqu
 - O primeiro teste geral falhou por ausência de `tzdata` no ambiente temporário; repetido com a dependência já declarada no projeto e aprovado.
 
 Não foram acessadas sessões reais nem realizadas consultas aos grupos fornecidos. Validação com Telegram usa mocks. Revisão visual em navegador pendente pela indisponibilidade do host de acesso ao navegador nesta sessão.
+
+Atualização: corrigido o rótulo `Membros visíveis` no menu, que continha um `?` literal no lugar do acento. Cópia e download agora compartilham a formatação produzida no servidor, inclusive para resultados já salvos. Testes verificam correspondência entre o texto da cópia e o arquivo, contagem zero, quantidade ausente e exclusão de ocultos.

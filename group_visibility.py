@@ -50,6 +50,18 @@ class SessionUnavailable(Exception):
     pass
 
 
+def visible_groups_text(job):
+    lines = []
+    for row in (job or {}).get('results', []):
+        if row.get('status') != 'visible':
+            continue
+        title = re.sub(r'\s+', ' ', str(row.get('title') or row['link'])).strip()
+        count = row.get('members_count')
+        members = str(count) if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else 'não informado'
+        lines.append(f"{title} | Membros: {members} | {row['link']}")
+    return '\n'.join(lines)
+
+
 async def inspect_group(client, group):
     """Never joins groups, sends messages, or stores participants."""
     from telethon import functions, types
@@ -120,7 +132,10 @@ def register_visibility_routes(app, login_required, get_paths, get_manager, get_
                         saved.update(status='interrupted', message='Servidor reiniciado. Os resultados parciais foram preservados.')
                         atomic_write_json(filename(username), saved)
                     jobs[username] = saved
-            return copy.deepcopy(jobs.get(username))
+            snapshot = copy.deepcopy(jobs.get(username))
+            if snapshot:
+                snapshot['visible_text'] = visible_groups_text(snapshot)
+            return snapshot
 
     def update(username, path, **fields):
         with guard:
@@ -296,6 +311,5 @@ def register_visibility_routes(app, login_required, get_paths, get_manager, get_
     @login_required
     def visibility_export():
         job = current(session['username'])
-        lines = [row['original'] for row in (job or {}).get('results', []) if row['status'] == 'visible']
-        return Response('\n'.join(lines), mimetype='text/plain', headers={
+        return Response(visible_groups_text(job), mimetype='text/plain', headers={
             'Content-Disposition': 'attachment; filename="grupos-membros-visiveis.txt"', 'Cache-Control': 'no-store'})

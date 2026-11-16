@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 from flask import Flask, session
 from telethon import errors, types, functions
-from group_visibility import parse_groups, inspect_group, classify_error, register_visibility_routes
+from group_visibility import parse_groups, inspect_group, classify_error, register_visibility_routes, visible_groups_text
 
 
 class ParserTests(unittest.TestCase):
@@ -134,12 +134,22 @@ class ApiTests(unittest.TestCase):
     def test_export_is_user_scoped_and_visible_only_and_restart(self):
         base=Path(self.paths('alice')['data_dir'])
         (base/'group_visibility.json').write_text(json.dumps({'status':'running','results':[
-            {'status':'visible','original':'VISIBLE LINE'},{'status':'hidden','original':'HIDDEN LINE'}]}),encoding='utf-8')
+            {'status':'visible','original':'old input count','title':'Example Group','members_count':2113,'link':'https://t.me/example_group'},
+            {'status':'hidden','original':'HIDDEN LINE','link':'https://t.me/hidden_group'}]}),encoding='utf-8')
         self.assertEqual(self.client.get('/api/group-visibility').json['job']['status'],'interrupted')
-        self.assertEqual(self.client.get('/api/group-visibility/export').text,'VISIBLE LINE')
+        expected='Example Group | Membros: 2113 | https://t.me/example_group'
+        self.assertEqual(self.client.get('/api/group-visibility/export').text,expected)
+        self.assertEqual(self.client.get('/api/group-visibility').json['job']['visible_text'],expected)
         with self.client.session_transaction() as s:s['username']='bob'
         self.assertIsNone(self.client.get('/api/group-visibility').json['job'])
         self.assertEqual(self.client.get('/api/group-visibility/export').text,'')
+
+    def test_export_preserves_zero_and_does_not_invent_missing_counts(self):
+        text=visible_groups_text({'results':[
+            {'status':'visible','title':'Zero\nGroup','members_count':0,'link':'https://t.me/zero_group'},
+            {'status':'visible','title':'Unknown','link':'https://t.me/unknown_group'},
+            {'status':'hidden','title':'Hidden','members_count':99,'link':'https://t.me/hidden_group'}]})
+        self.assertEqual(text,'Zero Group | Membros: 0 | https://t.me/zero_group\nUnknown | Membros: não informado | https://t.me/unknown_group')
 
     def test_preview_normalizes_export(self):
         result=self.client.post('/api/group-visibility/preview',json={'groups':'@Example_group\nhttps://t.me/example_group\ninvalid line'})

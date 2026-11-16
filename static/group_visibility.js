@@ -58,7 +58,7 @@
    const stat=document.createElement('div');stat.className='gv-stat';const number=document.createElement('strong');number.textContent=count;
    const label=document.createElement('span');label.textContent=title;stat.append(number,label);el('summary').append(stat);
   }
-  el('result-note').textContent=job?`${job.valid_links} links únicos na lista; ${job.duplicates} repetidos ignorados; ${job.invalid_lines.length} linhas inválidas. O arquivo exporta somente os confirmados como visíveis, preservando as linhas originais.`:'';
+  el('result-note').textContent=job?`${job.valid_links} links únicos na lista; ${job.duplicates} repetidos ignorados; ${job.invalid_lines.length} linhas inválidas. A cópia e o arquivo incluem nome, quantidade de membros e link de cada grupo visível.`:'';
   const filter=el('filter').value;
   const filtered=rows.filter(row=>filter==='all' || row.status===filter || (filter==='other' && !['visible','hidden','inaccessible'].includes(row.status)));
   el('rows').replaceChildren();
@@ -106,7 +106,7 @@
  });
  el('cancel').addEventListener('click',async()=>{try {await api('/cancel',{});await poll();}catch(err){error(err.message);}});
  el('copy').addEventListener('click',async()=>{
-  try {await navigator.clipboard.writeText((job?.results || []).filter(r=>r.status==='visible').map(r=>r.link).join('\n'));el('status').textContent='Links visíveis copiados.';}catch(_){error('Não foi possível copiar. Use Baixar visíveis (.txt).');}
+  try {await navigator.clipboard.writeText(job?.visible_text || '');el('status').textContent='Grupos visíveis copiados com a quantidade de membros.';}catch(_){error('Não foi possível copiar. Use Baixar visíveis (.txt).');}
  });
  async function open() {if (!loaded){loaded=true;await loadSessions();}await poll();}
  document.querySelector('[data-tab="groupVisibility"]')?.addEventListener('click',event=>{if (!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey)open();});
