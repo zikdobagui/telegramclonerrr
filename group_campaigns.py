@@ -585,9 +585,13 @@ class CampaignStore:
             if not isinstance(image, str) or not re.fullmatch(r'[a-f0-9]{32}\.(jpg|png|webp)', image) or not os.path.isfile(os.path.join(os.path.dirname(self.path), 'campaign_media', image)):
                 raise ValueError('Imagem indisponível. Selecione novamente o arquivo')
         group_image = payload.get('group_image', '')
-        if group_image:
-            if not isinstance(group_image, str) or not re.fullmatch(r'[a-f0-9]{32}\.(jpg|png|webp)', group_image) or not os.path.isfile(os.path.join(os.path.dirname(self.path), 'campaign_media', group_image)):
+        group_images = payload.get('group_images', [group_image] if group_image else [])
+        if not isinstance(group_images, list) or len(group_images) > 30:
+            raise ValueError('Selecione até 30 imagens dos grupos')
+        for image in group_images:
+            if not isinstance(image, str) or not re.fullmatch(r'[a-f0-9]{32}\.(jpg|png|webp)', image) or not os.path.isfile(os.path.join(os.path.dirname(self.path), 'campaign_media', image)):
                 raise ValueError('Imagem do grupo indisponível. Selecione novamente o arquivo')
+        group_image = group_images[0] if group_images else ''
         descriptions = payload.get('descriptions', [])
         if not isinstance(descriptions, list) or len(descriptions) > 30 or any(not isinstance(item, str) for item in descriptions):
             raise ValueError('Use até 30 descrições de grupos')
@@ -601,7 +605,7 @@ class CampaignStore:
         settings = {
             'admin_usernames': admin_usernames(payload.get('admin_usernames', payload.get('admin_username'))),
             'sessions': list(dict.fromkeys(session_names)), 'warming': warming, 'messages': messages[:1000], 'images': images,
-            'group_image': group_image, 'descriptions': descriptions,
+            'group_image': group_image, 'group_images': group_images, 'descriptions': descriptions,
             'warm_days': integer(payload.get('warm_days', 1), 'Dias de aquecimento', high=90),
             'warm_interval': integer(payload.get('warm_interval', 60), 'Intervalo de mensagens (minutos)', high=1440),
             'delay': delay_min, 'delay_min': delay_min, 'delay_max': delay_max,
@@ -1868,9 +1872,10 @@ async def campaign_loop(store, cid, gateway):
                         store.group_update(gid, status='creating')
                         owner = names[(group['slot'] - 1) % len(names)]
                         descriptions = settings.get('descriptions', [])
+                        group_images = settings.get('group_images') or ([settings['group_image']] if settings.get('group_image') else [])
                         created = await gateway.create({**group,
                             'description': descriptions[(group['slot'] - 1) % len(descriptions)] if descriptions else '',
-                            'group_image': settings.get('group_image', '')}, owner, lambda **values: store.group_update(gid, **values))
+                            'group_image': group_images[(group['slot'] - 1) % len(group_images)] if group_images else ''}, owner, lambda **values: store.group_update(gid, **values))
                         store.group_update(gid, **created, status='warming' if settings['warming'] else 'ready',
                                            warm_until=time.time() + settings['warm_days'] * 86400 if settings['warming'] else 0)
                         admins = admin_usernames(settings.get('admin_usernames', settings.get('admin_username')))
@@ -2274,6 +2279,8 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 settings = store.get(cid)['settings']
                 payload.setdefault('images', settings.get('images', []))
                 payload.setdefault('group_image', settings.get('group_image', ''))
+                if 'group_images' not in payload and 'group_image' not in (request.get_json() or {}):
+                    payload['group_images'] = settings.get('group_images', [settings['group_image']] if settings.get('group_image') else [])
                 payload.setdefault('descriptions', settings.get('descriptions', []))
                 names = payload.get('sessions', [])
                 available = {s['session_name'] for s in get_sessions(username).load_sessions() if s.get('active', True) and s.get('status', 'active') == 'active'}

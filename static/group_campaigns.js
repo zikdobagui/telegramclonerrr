@@ -4,7 +4,8 @@
     const labels = {paused:'Pausada', running:'Em execução', pending:'A criar / vincular', creating:'Criando', warming:'Aquecendo', ready:'Pronto para distribuir', error:'Precisa de revisão'};
     let editingId = null;
     let selectedImages = [];
-    let selectedGroupImage = '';
+    let selectedGroupImage = [];
+    let pendingGroupImages = [];
     let selectedDescriptions = [];
     let version = 0;
     let snapshot = null;
@@ -236,7 +237,8 @@
         el('campaign-import-options').hidden = true;
         el('campaign-current-leads').textContent = 'Você pode importar agora ou ao editar a tarefa.';
         selectedImages = [];
-        selectedGroupImage = '';
+        selectedGroupImage = [];
+        pendingGroupImages = [];
         selectedDescriptions = [];
         el('campaign-images-status').textContent = '';
         el('campaign-group-image-status').textContent = '';
@@ -266,12 +268,13 @@
         el('campaign-names-file').disabled = true;
         const settings = task.settings;
         selectedImages = [...(settings.images || [])];
-        selectedGroupImage = settings.group_image || '';
+        selectedGroupImage = settings.group_images || (settings.group_image ? [settings.group_image] : []);
+        pendingGroupImages = [];
         selectedDescriptions = [...(settings.descriptions || [])];
         el('campaign-images').value = '';
         el('campaign-images-status').textContent = `${selectedImages.length} imagens salvas`;
         el('campaign-group-image').value = '';
-        el('campaign-group-image-status').textContent = selectedGroupImage ? 'Imagem dos grupos salva' : '';
+        el('campaign-group-image-status').textContent = selectedGroupImage.length ? `${selectedGroupImage.length} imagens dos grupos salvas` : '';
         el('campaign-descriptions-file').value = '';
         el('campaign-descriptions-status').textContent = selectedDescriptions.length ? `${selectedDescriptions.length} descrições salvas` : '';
         const fields = {name:task.name, count:task.groups.length, limit:settings.daily_limit,
@@ -406,10 +409,15 @@
         el('campaign-images').addEventListener('change', () => {
             el('campaign-images-status').textContent = [...el('campaign-images').files].map(file => file.name).join(', ');
         });
-        el('campaign-group-image').addEventListener('change', () => {
-            const file = el('campaign-group-image').files[0];
-            el('campaign-group-image-status').textContent = file ? file.name : '';
-        });
+        for (const id of ['campaign-group-image', 'campaign-group-folder']) {
+            el(id).addEventListener('change', () => {
+                pendingGroupImages = [...el(id).files].filter(file => /\.(jpe?g|png|webp)$/i.test(file.name))
+                    .sort((a, b) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name, 'pt-BR', {numeric:true}));
+                el(id === 'campaign-group-image' ? 'campaign-group-folder' : 'campaign-group-image').value = '';
+                el('campaign-group-image-status').textContent = pendingGroupImages.length ? `${pendingGroupImages.length} imagens em rotação: ${pendingGroupImages.map(file => file.name).join(', ')}` : 'Nenhuma imagem compatível selecionada';
+            });
+        }
+
         el('campaign-descriptions-file').addEventListener('change', async event => {
             const file = event.target.files[0];
             if (!file) return;
@@ -462,18 +470,20 @@
                     el('campaign-images').value = '';
                     el('campaign-images-status').textContent = `${selectedImages.length} imagens carregadas`;
                 }
-                const groupImage = el('campaign-group-image').files[0];
-                if (groupImage) {
-                    if (groupImage.size > 10 * 1024 * 1024) throw new Error('A imagem do grupo deve ter até 10 MB.');
+                if (pendingGroupImages.length) {
+                    const files = pendingGroupImages;
+                    if (files.length > 30 || files.some(file => file.size > 10 * 1024 * 1024) || files.reduce((sum, file) => sum + file.size, 0) > 30 * 1024 * 1024) throw new Error('Selecione até 30 imagens dos grupos: 10 MB por arquivo e 30 MB no total.');
                     const data = new FormData();
-                    data.append('images', groupImage);
-                    selectedGroupImage = (await api('/images', {method:'POST', body:data})).images[0];
+                    files.forEach(file => data.append('images', file));
+                    selectedGroupImage = (await api('/images', {method:'POST', body:data})).images;
+                    pendingGroupImages = [];
                     el('campaign-group-image').value = '';
-                    el('campaign-group-image-status').textContent = 'Imagem dos grupos carregada';
+                    el('campaign-group-folder').value = '';
+                    el('campaign-group-image-status').textContent = `${selectedGroupImage.length} imagens dos grupos carregadas`;
                 }
                 const payload = {
                     images:selectedImages,
-                    group_image:selectedGroupImage, descriptions:selectedDescriptions,
+                    group_images:selectedGroupImage, descriptions:selectedDescriptions,
                     group_names:editingId === null ? names : undefined,
                     name:el('campaign-name').value, count:el('campaign-count').value, daily_limit:el('campaign-limit').value,
                     admin_usernames:el('campaign-admin').value,

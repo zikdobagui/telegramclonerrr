@@ -8458,6 +8458,8 @@
                 <i class="fas fa-info-circle"></i>
                 Cole um link, username ou ID por linha. Para extrair apenas 1 grupo, coloque só 1 linha. Cada grupo gera um arquivo separado. Limite: 20 por execução.
             </p>
+            <label for="extract-groups-file">Importar TXT do filtro de grupos</label>
+            <input id="extract-groups-file" type="file" accept=".txt,text/plain" onchange="importExtractGroupsFile(this)">
             <textarea id="extract-group-list" rows="7" placeholder="-1002462690102&#10;https://t.me/grupo1&#10;@grupo2&#10;https://t.me/+conviteprivado"
                       style="width: 100%; padding: 12px; resize: vertical;"></textarea>
             <div class="extract-private-id-box">

@@ -1286,12 +1286,29 @@ function extractMembers() {
     extractMembersList();
 }
 
+async function importExtractGroupsFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    try {
+        if (file.size > 2 * 1024 * 1024) throw new Error('O arquivo deve ter até 2 MB.');
+        document.getElementById('extract-group-list').value = await file.text();
+        showNotification('Lista carregada. Confira os grupos antes de iniciar (até 20 por execução).', 'success');
+    } catch (error) {
+        showNotification(error.message, 'error');
+    } finally {
+        input.value = '';
+    }
+}
+
 function extractMembersList() {
     const sessionIndex = parseInt(document.getElementById('extract-session').value);
     const linksText = document.getElementById('extract-group-list').value || '';
     const groupLinks = linksText
         .split(/\r?\n/)
-        .map(link => link.trim())
+        .map(link => {
+            const match = link.match(/https?:\/\/(?:t\.me|telegram\.me)\/[^\s|]+/i);
+            return match ? match[0] : link.trim();
+        })
         .filter(Boolean);
     const filters = {
         active_7d: document.getElementById('filter-active-7d')?.checked || false,
