@@ -350,10 +350,10 @@
                         ${group.status === 'warming' ? `<p>Aquecimento até ${esc(new Date(group.warm_until * 1000).toLocaleString('pt-BR'))}</p>` : ''}
                         <form data-group="${group.id}" data-task="${task.id}">
                             ${task.settings.limit_scope === 'group' ? `<div class="gc-upload"><div class="form-group"><label>Leads por dia neste grupo<input name="daily_limit" type="number" value="${group.daily_limit}" min="1" max="10000" required ${busy ? 'disabled' : ''}></label></div><button class="btn btn-primary" name="action" value="limit" ${busy ? 'disabled' : ''}>Salvar limite</button></div>` : ''}
-                            <details class="gc-replace" data-detail="replace-${group.id}"><summary>Precisa substituir este grupo?</summary><p>Use outro grupo no lugar deste. O histórico de leads e a cota do dia são mantidos.</p>
+                            <details class="gc-replace" data-detail="replace-${group.id}" ${group.status === 'error' ? 'open' : ''}><summary>Trocar grupo banido ou indisponível</summary><p>Pause a tarefa para trocar este grupo por outro. O histórico de leads, a posição na rotação de imagens e a cota usada no ciclo são mantidos.</p>
                             <div class="form-group"><label>Nome do novo grupo<input name="title" value="${esc(group.title)}" maxlength="100" ${busy ? 'disabled' : ''}></label></div>
                             <div class="form-group"><label>Link de um grupo existente (opcional)<input name="reference" placeholder="https://t.me/+..." ${busy ? 'disabled' : ''}></label><small>Deixe vazio para criar um novo grupo quando iniciar a tarefa.</small></div>
-                            <button class="btn btn-primary" name="action" value="replace" ${busy ? 'disabled' : ''}>Substituir grupo</button><small>O grupo anterior permanece no Telegram.</small></details>
+                            <button class="btn btn-primary" name="action" value="replace" ${busy ? 'disabled' : ''}>Substituir grupo</button><button class="btn btn-primary" name="action" value="replace-banned" ${busy ? 'disabled' : ''}>Trocar grupo banido</button><small>A troca afeta apenas este grupo da tarefa. O grupo anterior não será excluído do Telegram.</small></details>
                         </form>${ownershipControls(task, group, busy)}${deletionControls(task, group, busy)}</div>
                     </details>`).join('')}</div></details>
                     <details class="gc-history" data-detail="events-${task.id}"><summary><span>Central de logs</span><span class="gc-live-state" data-state="${streamState}">${streamState === 'live' ? 'Ao vivo' : 'Conectando…'}</span><span class="gc-badge gc-log-count">${(liveEvents.get(task.id) || []).length}</span></summary><div class="gc-log-toolbar"><input type="search" data-log-search="${task.id}" placeholder="Buscar sessão, grupo ou mensagem…" aria-label="Buscar nos logs" value="${esc(logFilters.get(task.id)?.query || '')}"><select data-log-tone="${task.id}" aria-label="Filtrar tipo de evento">${[['','Todos os eventos'],['info','Etapas'],['success','Sucessos'],['warning','Atenção'],['waiting','Esperas']].map(([value,label]) => `<option value="${value}" ${logFilters.get(task.id)?.tone === value ? 'selected' : ''}>${label}</option>`).join('')}</select><button type="button" class="btn gc-clear-logs" data-action="clear-logs" data-id="${task.id}" title="Limpar apenas os logs desta tarefa. Novos eventos continuam ao vivo.">Limpar logs</button></div><p class="gc-history-help">Mais recentes primeiro · até 500 eventos · atualização ao vivo</p><div class="gc-live-content">${renderHistory(liveEvents.get(task.id), logFilters.get(task.id))}</div></details>
@@ -647,13 +647,15 @@
                 });
                 return;
             }
-            const replace = event.submitter?.value === 'replace';
+            const banned = event.submitter?.value === 'replace-banned';
+            const replace = banned || event.submitter?.value === 'replace';
             const data = Object.fromEntries(new FormData(form));
             const taskId = form.dataset.task || form.dataset.settings;
             submit(form, async () => {
                 const task = snapshot.campaigns.find(task => task.id === Number(taskId));
                 if (replace) {
                     data.replace = true;
+                    if (banned) data.replacement_reason = 'banned';
                     data.daily_limit ??= task.groups.find(group => group.id === Number(form.dataset.group)).daily_limit;
                 }
                 const path = form.dataset.group ? `/${taskId}/groups/${form.dataset.group}` : `/${taskId}/settings`;

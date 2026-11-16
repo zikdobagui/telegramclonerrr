@@ -527,6 +527,20 @@ class CampaignStoreTests(unittest.TestCase):
         with self.store.db() as conn:
             self.assertEqual(conn.execute('SELECT count(*) FROM groups').fetchone()[0], 3)
 
+    def test_banned_group_replacement_keeps_other_slots_and_records_reason(self):
+        cid, groups = self.task()
+        self.store.state(cid, 'paused')
+        self.store.group_update(groups[0]['id'], status='error', error='ChannelPrivateError')
+        self.store.edit_group(cid, groups[0]['id'], {'replace': True, 'replacement_reason': 'banned'})
+        current = self.store.groups(cid)
+        replacement = next(group for group in current if group['slot'] == groups[0]['slot'])
+        self.assertNotEqual(replacement['id'], groups[0]['id'])
+        self.assertEqual(replacement['status'], 'pending')
+        self.assertEqual(replacement['reference'], '')
+        self.assertIn(groups[1]['id'], [group['id'] for group in current])
+        task = next(task for task in self.store.snapshot()['campaigns'] if task['id'] == cid)
+        self.assertTrue(any('indicação de banimento' in event['message'] for event in task['events']))
+
     def test_per_group_dedup_allows_one_delivery_in_each_slot(self):
         cid, groups = self.task(dedup='group')
         self.leads(1)

@@ -792,7 +792,10 @@ class CampaignStore:
                 conn.execute('INSERT INTO groups(campaign_id,slot,title,daily_limit,reference) VALUES(?,?,?,?,?)', (cid, group['slot'], title, limit, reference))
             else:
                 conn.execute('UPDATE groups SET daily_limit=? WHERE id=?', (limit, gid))
-        self.event(cid, 'Grupo substituído; histórico de leads e cota diária preservados.' if payload.get('replace') else 'Limite diário atualizado.')
+        if payload.get('replace') and payload.get('replacement_reason') == 'banned':
+            self.event(cid, f"Grupo da posição {group['slot']} trocado por indicação de banimento. Substituto aguardando criação ou vínculo ao iniciar; histórico de leads e cota diária preservados.")
+        else:
+            self.event(cid, 'Grupo substituído; histórico de leads e cota diária preservados.' if payload.get('replace') else 'Limite diário atualizado.')
 
     def import_leads(self, filename, raw, cid=None, mode='replace'):
         if mode not in ('append', 'replace'):
