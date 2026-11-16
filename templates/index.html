@@ -7351,6 +7351,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='dark.css') }}?v=20261115-1">
 <link rel="stylesheet" href="{{ url_for('static', filename='motion-plans.css') }}?v=20261115-2">
 <link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-3">
+<link rel="stylesheet" href="{{ url_for('static', filename='group_visibility.css') }}?v=20261115-1">
 </head>
 <body data-design="studio">
 <a class="workspace-skip" href="#workspace-main">Pular para o conteúdo</a>
@@ -7425,6 +7426,7 @@
                         <i class="fas fa-people-roof"></i>
                         <span>Criar grupos</span>
                     </a>
+                    <a href="#groupVisibility" class="menu-item" data-tab="groupVisibility"><i class="fas fa-eye" aria-hidden="true"></i><span>Membros vis?veis</span></a>
                     <a href="#extract" class="menu-item" data-tab="extract">
                         <i class="fas fa-download"></i>
                         <span>Extrair</span>
@@ -7493,6 +7495,7 @@
                 </div>
             </header>
             {% include 'plans.html' %}
+            {% include 'group_visibility.html' %}
             <!-- Tab: Dashboard -->
             <div class="tab-content active" id="dashboard">
                 <div class="dashboard-hero">
@@ -7508,6 +7511,7 @@
                             <button class="dash-action" onclick="openDashboardTab('sessions')">
                                 <i class="fas fa-users"></i> Ver sessões
                             </button>
+                            <button class="dash-action" type="button" onclick="openDashboardTab('groupVisibility')"><i class="fas fa-eye" aria-hidden="true"></i> Verificar grupos</button>
                             <button class="dash-action" onclick="loadDashboard()">
                                 <i class="fas fa-sync"></i> Atualizar
                             </button>
@@ -10862,5 +10866,6 @@
     </script>
 <script src="{{ url_for('static', filename='experience.js') }}?v=20261112-2" defer></script>
 <script src="{{ url_for('static', filename='motion-plans.js') }}?v=20261115-3"></script>
+<script src="{{ url_for('static', filename='group_visibility.js') }}?v=20261115-1"></script>
 </body>
 </html>

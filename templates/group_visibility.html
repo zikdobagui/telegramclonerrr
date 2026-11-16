@@ -1,0 +1,28 @@
+<section class="tab-content" id="groupVisibility" aria-labelledby="gv-title">
+ <header class="content-header"><h2 id="gv-title">Verificar membros visíveis</h2><p>Cole sua lista de grupos e separe os que permitem consultar a lista de membros.</p></header>
+ <div class="gv-layout">
+  <form id="gv-form" class="card">
+   <h3>1. Lista de grupos</h3>
+   <p class="gv-muted">Aceita links t.me, @usuários ou linhas completas com nome e quantidade de membros, um grupo por linha.</p>
+   <div class="form-group"><label for="gv-file">Importar arquivo de texto (opcional)</label><input id="gv-file" type="file" accept=".txt,.csv,text/plain,text/csv"></div>
+   <div class="form-group"><label for="gv-groups">Grupos para verificar</label><textarea id="gv-groups" rows="9" maxlength="1000000" placeholder="(1) | ID | Nome do grupo | Grupo | Membros: 2113 | https://t.me/nomedogrupo" required></textarea></div>
+   <button type="button" class="mini-btn" id="gv-analyze">Analisar lista</button>
+   <p id="gv-list-info" class="gv-muted" role="status">Links repetidos serão ignorados. Os IDs informados na lista não serão usados.</p>
+   <h3>2. Sessões e quantidade</h3>
+   <div class="gv-session-heading"><span id="gv-selected-count">0 sessões selecionadas</span><button type="button" class="mini-btn" id="gv-reload">Atualizar sessões</button></div>
+   <div id="gv-sessions" class="gv-sessions" role="group" aria-label="Sessões para consulta"><p class="gv-muted">Abra esta ferramenta para carregar as sessões.</p></div>
+   <div class="form-group"><label for="gv-limit">Quantidade total de grupos</label><input id="gv-limit" type="number" min="1" max="500" step="1" placeholder="Todos os links válidos, até 500"><small class="gv-muted">Distribuição sequencial entre as sessões selecionadas. Cada grupo é consultado uma vez, com intervalo entre consultas.</small></div>
+   <div class="gv-actions"><button class="btn btn-primary" id="gv-start" type="submit">Iniciar verificação</button><button class="btn" id="gv-cancel" type="button" hidden>Cancelar verificação</button></div>
+   <p id="gv-error" class="gv-error" role="alert" hidden></p>
+  </form>
+  <aside class="card gv-explanation"><span class="plans-eyebrow">Como a consulta funciona</span><h3>Uma confirmação por grupo.</h3><p>O resultado depende das permissões da sessão usada naquele grupo, no momento da consulta.</p><ul><li><strong>Visíveis:</strong> consulta da lista confirmada e sem indicação de membros ocultos.</li><li><strong>Ocultos:</strong> o Telegram informa que a lista está oculta.</li><li><strong>Sem acesso:</strong> a sessão não tem permissão ou ainda não participa de um grupo privado.</li><li><strong>Outros:</strong> link inválido, canal, falha de sessão ou resultado inconclusivo.</li></ul><p>Não entra em grupos, não envia mensagens e não salva os dados dos membros. Uma limitação de espera do Telegram interrompe a execução e preserva o resultado parcial.</p></aside>
+ </div>
+ <section class="card gv-results" aria-labelledby="gv-results-title">
+  <div class="gv-results-heading"><div><h3 id="gv-results-title">Resultado da verificação</h3><p id="gv-status" role="status">Nenhuma verificação realizada.</p></div><div class="gv-actions"><button id="gv-copy" class="mini-btn" type="button" disabled>Copiar links visíveis</button><a id="gv-export" class="dash-action" href="/api/group-visibility/export" hidden>Baixar visíveis (.txt)</a></div></div>
+  <progress id="gv-progress" value="0" max="1" aria-label="Progresso da verificação"></progress>
+  <div class="gv-summary" id="gv-summary"></div>
+  <div class="form-group"><label for="gv-filter">Mostrar resultados</label><select id="gv-filter"><option value="visible">Apenas membros visíveis</option><option value="all">Todos os resultados</option><option value="hidden">Membros ocultos</option><option value="inaccessible">Sem acesso</option><option value="other">Erros e inconclusivos</option></select></div>
+  <p id="gv-result-note" class="gv-muted"></p>
+  <div class="gv-table-wrap"><table><thead><tr><th scope="col">Grupo</th><th scope="col">Resultado</th><th scope="col">Sessão</th><th scope="col">Detalhe</th></tr></thead><tbody id="gv-rows"><tr><td colspan="4">Os grupos confirmados como visíveis aparecerão aqui.</td></tr></tbody></table></div>
+ </section>
+</section>

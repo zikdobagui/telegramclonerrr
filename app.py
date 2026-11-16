@@ -25,6 +25,7 @@ from logger import log_info, log_error, log_warning, log_debug, log_section, log
 from data_store import atomic_write_json, load_json_file
 from operations_store import OperationsStore
 from group_campaigns import register_campaign_routes
+from group_visibility import register_visibility_routes
 
 for stream in (sys.stdout, sys.stderr):
     try:
@@ -999,6 +1000,7 @@ def emit_task_log(message, log_type='info', task_id=None):
 
 def create_session_lock_state():
     return {
+        'group_visibility': False,
         'warming': False,
         'extraction': False,
         'addition': False,
@@ -1018,6 +1020,10 @@ def get_user_lock_state(username=None):
 def check_session_lock(operation, task_id=None, username=None):
     """Verifica se pode executar a operação"""
     session_locks = get_user_lock_state(username)
+    if session_locks.get('group_visibility'):
+        return False, 'Aguarde a verificação de grupos terminar ou cancele antes de iniciar outra operação.'
+    if operation == 'group_visibility' and (any(session_locks.get(key) for key in ('warming', 'extraction', 'addition', 'group_factory', 'group_campaign')) or session_locks.get('active_tasks')):
+        return False, 'Aguarde as operações com sessões terminarem antes de verificar grupos.'
     if session_locks.get('group_campaign'):
         return False, 'Pause a tarefa de grupos antes de iniciar outra operação com sessões.'
     if operation == 'task':
@@ -1485,6 +1491,8 @@ def remove_all_sessions():
 def reset_locks():
     """Reseta todos os locks do sistema"""
     username = get_current_username()
+    if get_user_lock_state(username).get('group_visibility'):
+        return jsonify(success=False, error='Cancele a verificação de grupos e aguarde seu encerramento antes de resetar os locks.'), 409
     session_locks_by_user[username] = create_session_lock_state()
     return jsonify({'success': True, 'message': 'Locks resetados com sucesso'})
 
@@ -6494,6 +6502,12 @@ group_campaign_supervisor = register_campaign_routes(
     get_next_api, check_session_lock, set_session_lock, get_user_lock_state,
     list_usernames=lambda: [user['username'] for user in user_manager.load_users() if user.get('username')],
     get_background_api=get_campaign_background_api
+)
+
+
+register_visibility_routes(
+    app, login_required, get_user_paths, get_session_manager_instance,
+    get_next_api, check_session_lock, set_session_lock
 )
 
 
