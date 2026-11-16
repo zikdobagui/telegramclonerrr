@@ -2152,6 +2152,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             if resuming:
                 store.event(cid, 'Execução retomada automaticamente no servidor. Não é necessário manter o navegador ou o computador ligado.')
             store.event(cid, f'Tarefa iniciada com {len(usable)} sessão(ões) válida(s). O executor está ativo; acompanhe abaixo a próxima ação ou o motivo da espera.')
+            get_locks(username)['group_campaign_sessions'] = set(usable)
             set_lock('group_campaign', True, username=username)
 
             def run():

@@ -1018,7 +1018,7 @@ def get_user_lock_state(username=None):
         session_locks_by_user[username] = create_session_lock_state()
     return session_locks_by_user[username]
 
-def check_session_lock(operation, task_id=None, username=None):
+def check_session_lock(operation, task_id=None, username=None, session_name=None):
     """Verifica se pode executar a operação"""
     session_locks = get_user_lock_state(username)
     if session_locks.get('group_visibility'):
@@ -1026,7 +1026,10 @@ def check_session_lock(operation, task_id=None, username=None):
     if operation == 'group_visibility' and (any(session_locks.get(key) for key in ('warming', 'extraction', 'addition', 'group_factory', 'group_campaign')) or session_locks.get('active_tasks')):
         return False, 'Aguarde as operações com sessões terminarem antes de verificar grupos.'
     if session_locks.get('group_campaign'):
-        return False, 'Pause a tarefa de grupos antes de iniciar outra operação com sessões.'
+        campaign_sessions = session_locks.get('group_campaign_sessions')
+        if operation != 'extraction' or not session_name or campaign_sessions is None or session_name in campaign_sessions:
+            return False, ('Esta sessão está em uso pela tarefa de grupos. Selecione outra sessão livre ou pause a tarefa.'
+                           if operation == 'extraction' else 'Pause a tarefa de grupos antes de iniciar outra operação com sessões.')
     if operation == 'task':
         if session_locks['warming'] or session_locks.get('group_factory'):
             return False, "Não é possível processar tarefas enquanto aquecimento ou criação de grupos está ativa."
@@ -1069,6 +1072,8 @@ def set_session_lock(operation, locked, task_id=None, username=None):
             session_locks['active_tasks'].discard(task_id)
     else:
         session_locks[operation] = locked
+        if operation == 'group_campaign' and not locked:
+            session_locks.pop('group_campaign_sessions', None)
 
 def load_api_config():
     """Carrega configurações da API do usuário logado"""
@@ -2860,11 +2865,6 @@ def handle_extract_members(data):
         return
     
     # Verifica se pode extrair
-    can_extract, message = check_session_lock('extraction')
-    if not can_extract:
-        emit('error', {'message': message})
-        emit_extract_log(f'❌ {message}', 'error')
-        return
     
     session_index = data['session_index']
     group_link = data['group_link']
@@ -2873,11 +2873,16 @@ def handle_extract_members(data):
     
     session_index = int(session_index)
     sessions = session_manager.load_sessions()
-    if session_index >= len(sessions):
+    if session_index < 0 or session_index >= len(sessions):
         emit('error', {'message': 'Sessão inválida'})
         return
     
     session_info = sessions[session_index]
+    can_extract, message = check_session_lock('extraction', session_name=session_info['session_name'])
+    if not can_extract:
+        emit('error', {'message': message})
+        emit_extract_log(f'❌ {message}', 'error')
+        return
     if not session_info.get('active', True):
         emit('error', {'message': 'Sessão indisponível para extração'})
         emit_extract_log('❌ Sessão indisponível para extração', 'error')
@@ -2985,11 +2990,6 @@ def handle_extract_members_list(data):
         emit('error', {'message': 'Configure a API primeiro!'})
         return
 
-    can_extract, message = check_session_lock('extraction')
-    if not can_extract:
-        emit('error', {'message': message})
-        emit_extract_log(f'❌ {message}', 'error')
-        return
 
     session_index = data.get('session_index')
     group_links = [str(link).strip() for link in data.get('group_links', []) if str(link).strip()]
@@ -3006,11 +3006,16 @@ def handle_extract_members_list(data):
 
     session_index = int(session_index)
     sessions = session_manager.load_sessions()
-    if session_index >= len(sessions):
+    if session_index < 0 or session_index >= len(sessions):
         emit('error', {'message': 'Sessão inválida'})
         return
 
     session_info = sessions[session_index]
+    can_extract, message = check_session_lock('extraction', session_name=session_info['session_name'])
+    if not can_extract:
+        emit('error', {'message': message})
+        emit_extract_log(f'❌ {message}', 'error')
+        return
     if not session_info.get('active', True):
         emit('error', {'message': 'Sessão indisponível para extração'})
         emit_extract_log('❌ Sessão indisponível para extração', 'error')
