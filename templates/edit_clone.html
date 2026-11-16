@@ -1,0 +1,43 @@
+<div id="editCloneModal" class="modal clone-editor-overlay" role="dialog" aria-modal="true" aria-labelledby="clone-editor-title" aria-describedby="clone-editor-description" style="display:none;">
+ <div class="modal-content clone-editor">
+  <form class="clone-editor-form" onsubmit="event.preventDefault(); updateClone();">
+   <header class="clone-editor-header">
+    <div class="clone-editor-heading"><span class="clone-editor-mark" aria-hidden="true"><i class="fas fa-clone"></i></span><div><span class="clone-editor-eyebrow">Workspace / Clonagem</span><h2 id="clone-editor-title">Editar clonagem</h2><p id="clone-editor-description">Ajuste os destinos e personalize os próximos posts.</p></div></div>
+    <button class="clone-editor-close" type="button" onclick="closeEditCloneModal()" aria-label="Fechar edição da clonagem"><i class="fas fa-times" aria-hidden="true"></i></button>
+   </header>
+   <div class="clone-editor-body">
+    <input type="hidden" id="editCloneId">
+    <div class="clone-editor-grid">
+     <section class="clone-editor-section" aria-labelledby="clone-editor-identity">
+      <div class="clone-editor-section-title"><span>01</span><div><h3 id="clone-editor-identity">Identificação</h3><p>Organize a clonagem no seu painel.</p></div></div>
+      <div class="form-group"><label for="editCloneName">Nome da clonagem</label><input id="editCloneName" type="text" placeholder="Ex.: Ofertas do meu canal" required></div>
+      <div class="form-group"><label for="editCloneSession">Conta do Telegram <i class="fas fa-lock" aria-hidden="true"></i></label><input id="editCloneSession" type="text" disabled aria-describedby="clone-editor-session-note"><small id="clone-editor-session-note">A conta vinculada é definida na criação da clonagem.</small></div>
+     </section>
+     <section class="clone-editor-section" aria-labelledby="clone-editor-route">
+      <div class="clone-editor-section-title"><span>02</span><div><h3 id="clone-editor-route">Origem e destino</h3><p>Defina o caminho dos seus posts.</p></div></div>
+      <div class="form-group"><label for="editCloneSource"><i class="fas fa-arrow-down" aria-hidden="true"></i> Canal de origem</label><input id="editCloneSource" type="text" placeholder="@canalorigem ou -100…" required></div>
+      <div class="form-group"><label for="editCloneDest"><i class="fas fa-arrow-up" aria-hidden="true"></i> Canal de destino</label><input id="editCloneDest" type="text" placeholder="@meucanal ou -100…" required></div>
+     </section>
+     <section class="clone-editor-section" aria-labelledby="clone-editor-message">
+      <div class="clone-editor-section-title"><span>03</span><div><h3 id="clone-editor-message">Conteúdo do post</h3><p>Adicione sua identidade às mensagens.</p></div></div>
+      <div class="form-group"><label for="editClonePrefix">Texto no início <span>Opcional</span></label><textarea id="editClonePrefix" rows="3" placeholder="Uma chamada antes do conteúdo original"></textarea></div>
+      <div class="form-group"><label for="editCloneFooter">Texto no final <span>Opcional</span></label><textarea id="editCloneFooter" rows="3" placeholder="Sua assinatura ou uma chamada para o canal"></textarea></div>
+     </section>
+     <section class="clone-editor-section" aria-labelledby="clone-editor-filters">
+      <div class="clone-editor-section-title"><span>04</span><div><h3 id="clone-editor-filters">Filtros de conteúdo</h3><p>Escolha o que remover do post original.</p></div></div>
+      <label class="clone-editor-toggle" for="editCloneRemoveLinks"><span><strong>Remover links</strong><small>Retira os links do conteúdo original.</small></span><input id="editCloneRemoveLinks" type="checkbox"><span class="clone-editor-switch" aria-hidden="true"></span></label>
+      <label class="clone-editor-toggle" for="editCloneRemoveMentions"><span><strong>Remover menções</strong><small>Retira as referências a @usuários.</small></span><input id="editCloneRemoveMentions" type="checkbox"><span class="clone-editor-switch" aria-hidden="true"></span></label>
+     </section>
+     <section class="clone-editor-section clone-editor-wide" aria-labelledby="clone-editor-replacements">
+      <div class="clone-editor-section-title"><span>05</span><div><h3 id="clone-editor-replacements">Substituições de texto</h3><p>Troque palavras ou frases automaticamente, preservando a formatação reconhecida.</p></div></div>
+      <div class="clone-editor-replacement-labels" aria-hidden="true"><span>Texto original</span><span>Substituir por</span><span></span></div>
+      <div id="editCloneReplacementRows"></div>
+      <button type="button" class="clone-editor-add" onclick="addCloneReplacementRow('editCloneReplacementRows')"><i class="fas fa-plus" aria-hidden="true"></i> Adicionar substituição</button>
+     </section>
+     <div class="clone-editor-wide clone-editor-whatsapp">{% with wa_scope='editClone' %}{% include 'whatsapp_destinations.html' %}{% endwith %}</div>
+    </div>
+   </div>
+   <footer class="clone-editor-footer"><span><i class="fas fa-sliders" aria-hidden="true"></i> Configurações da clonagem</span><div><button type="button" class="btn btn-secondary" onclick="closeEditCloneModal()">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fas fa-check" aria-hidden="true"></i> Salvar alterações</button></div></footer>
+  </form>
+ </div>
+</div>

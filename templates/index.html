@@ -7353,6 +7353,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-3">
 <link rel="stylesheet" href="{{ url_for('static', filename='group_visibility.css') }}?v=20261115-1">
 <link rel="stylesheet" href="{{ url_for('static', filename='whatsapp.css') }}?v=20261115-2">
+<link rel="stylesheet" href="{{ url_for('static', filename='clone-editor.css') }}?v=20261115-1">
 </head>
 <body data-design="studio">
 <a class="workspace-skip" href="#workspace-main">Pular para o conteúdo</a>
@@ -8429,141 +8430,7 @@
 </div>
 
 <!-- Modal: Editar Clonagem -->
-<div id="editCloneModal" class="modal" style="display:none; position: fixed; inset: 0; max-width: none; width: 100%; padding: 24px; align-items: center; justify-content: center; z-index: 10000; overflow-y: auto;">
-    <div class="modal-content" style="max-width: 1120px; width: 94%; max-height: 90vh; overflow-y: auto;">
-        <div class="modal-header" style="background: linear-gradient(135deg, #F59E0B, #EC4899); color: white; border-radius: 15px 15px 0 0;">
-            <h3 style="margin: 0;"><i class="fas fa-edit"></i> Editar Clonagem</h3>
-            <button class="modal-close" onclick="closeEditCloneModal()" style="color: white; font-size: 28px;">&times;</button>
-        </div>
-        <div class="modal-body" style="padding: 30px;">
-            
-            <input type="hidden" id="editCloneId">
-            
-            <!-- Seção: Informações Básicas -->
-            <div style="background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3B82F6; padding: 20px; border-radius: 10px; margin-bottom: 25px;">
-                <h4 style="margin: 0 0 15px 0; color: #60A5FA; font-size: 16px;">
-                    <i class="fas fa-info-circle"></i> Informações Básicas
-                </h4>
-                
-                <div class="form-group">
-                    <label style="font-weight: 600; color: #CBD5E1; margin-bottom: 8px; display: block;">
-                        📝 Nome da Clonagem
-                    </label>
-                    <input type="text" id="editCloneName" placeholder="Ex: Canal Notícias → Meu Canal" 
-                           style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.8); border: 2px solid rgba(71, 85, 105, 0.5); border-radius: 8px; color: #fff; font-size: 14px;">
-                </div>
-
-                <div class="form-group" style="margin-top: 15px;">
-                    <label style="font-weight: 600; color: #CBD5E1; margin-bottom: 8px; display: block;">
-                        📱 Sessão (Conta do Telegram)
-                    </label>
-                    <input type="text" id="editCloneSession" disabled
-                           style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.5); border: 2px solid rgba(71, 85, 105, 0.5); border-radius: 8px; color: #94A3B8; font-size: 14px;">
-                    <small style="color: #94A3B8; font-size: 12px; display: block; margin-top: 5px;">
-                        ⚠️ A sessão não pode ser alterada após criação
-                    </small>
-                </div>
-            </div>
-
-            <!-- Seção: Canais -->
-            <div style="background: rgba(139, 92, 246, 0.1); border-left: 4px solid #8B5CF6; padding: 20px; border-radius: 10px; margin-bottom: 25px;">
-                <h4 style="margin: 0 0 15px 0; color: #A78BFA; font-size: 16px;">
-                    <i class="fas fa-exchange-alt"></i> Configuração de Canais
-                </h4>
-                
-                <div class="form-group">
-                    <label style="font-weight: 600; color: #CBD5E1; margin-bottom: 8px; display: block;">
-                        📥 Canal Origem
-                    </label>
-                    <input type="text" id="editCloneSource" placeholder="Ex: -1001234567890 ou @canalorigem" 
-                           style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.8); border: 2px solid rgba(71, 85, 105, 0.5); border-radius: 8px; color: #fff; font-size: 14px;">
-                </div>
-
-                <div class="form-group" style="margin-top: 15px;">
-                    <label style="font-weight: 600; color: #CBD5E1; margin-bottom: 8px; display: block;">
-                        📤 Canal Destino
-                    </label>
-                    <input type="text" id="editCloneDest" placeholder="Ex: -1009876543210 ou @meucanal" 
-                           style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.8); border: 2px solid rgba(71, 85, 105, 0.5); border-radius: 8px; color: #fff; font-size: 14px;">
-                </div>
-            </div>
-
-            {% with wa_scope='editClone' %}{% include 'whatsapp_destinations.html' %}{% endwith %}
-
-            <!-- Seção: Filtros -->
-            <div style="background: rgba(236, 72, 153, 0.1); border-left: 4px solid #EC4899; padding: 20px; border-radius: 10px; margin-bottom: 25px;">
-                <h4 style="margin: 0 0 15px 0; color: #F9A8D4; font-size: 16px;">
-                    <i class="fas fa-filter"></i> Filtros e Remoções
-                </h4>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                    <label style="display: flex; align-items: center; gap: 10px; padding: 12px; background: rgba(30, 41, 59, 0.5); border-radius: 8px; cursor: pointer;">
-                        <input type="checkbox" id="editCloneRemoveLinks" style="width: 18px; height: 18px; cursor: pointer;">
-                        <span style="color: #E2E8F0; font-size: 14px;">🔗 Remover Links</span>
-                    </label>
-                    
-                    <label style="display: flex; align-items: center; gap: 10px; padding: 12px; background: rgba(30, 41, 59, 0.5); border-radius: 8px; cursor: pointer;">
-                        <input type="checkbox" id="editCloneRemoveMentions" style="width: 18px; height: 18px; cursor: pointer;">
-                        <span style="color: #E2E8F0; font-size: 14px;">@ Remover Menções</span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- Seção: Personalização -->
-            <div style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #F59E0B; padding: 20px; border-radius: 10px; margin-bottom: 25px;">
-                <h4 style="margin: 0 0 15px 0; color: #FCD34D; font-size: 16px;">
-                    <i class="fas fa-edit"></i> Personalização de Mensagens
-                </h4>
-                
-                <div class="form-group">
-                    <label style="font-weight: 600; color: #CBD5E1; margin-bottom: 8px; display: block;">
-                        📌 Prefixo
-                    </label>
-                    <textarea id="editClonePrefix" rows="2" placeholder="Ex: 🔥 NOVIDADE!" 
-                              style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.8); border: 2px solid rgba(71, 85, 105, 0.5); border-radius: 8px; color: #fff; font-size: 14px; resize: vertical;"></textarea>
-                </div>
-
-                <div class="form-group" style="margin-top: 15px;">
-                    <label style="font-weight: 600; color: #CBD5E1; margin-bottom: 8px; display: block;">
-                        📌 Rodapé
-                    </label>
-                    <textarea id="editCloneFooter" rows="2" placeholder="Ex: ➡️ Siga: @meucanal" 
-                              style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.8); border: 2px solid rgba(71, 85, 105, 0.5); border-radius: 8px; color: #fff; font-size: 14px; resize: vertical;"></textarea>
-                </div>
-            </div>
-
-            <!-- Seção: Substituições -->
-            <div style="background: rgba(16, 185, 129, 0.1); border-left: 4px solid #10B981; padding: 20px; border-radius: 10px;">
-                <h4 style="margin: 0 0 15px 0; color: #6EE7B7; font-size: 16px;">
-                    <i class="fas fa-repeat"></i> Substituições de Texto
-                </h4>
-                
-                <div class="form-group">
-                    <label style="font-weight: 600; color: #CBD5E1; margin-bottom: 8px; display: block;">
-                        Trocar palavras/frases automaticamente
-                    </label>
-                    <div id="editCloneReplacementRows" style="display: grid; gap: 10px;"></div>
-                    <button type="button" class="btn btn-primary" onclick="addCloneReplacementRow('editCloneReplacementRows')" style="margin-top: 12px; padding: 10px 14px; font-size: 13px;">
-                        <i class="fas fa-plus"></i> Adicionar substituição
-                    </button>
-                    <small style="color: #94A3B8; font-size: 12px; display: block; margin-top: 8px;">
-                        Exemplo: substituir <strong>SERVIDOR - ULTRAPLAY (Power)</strong> por <strong>Seu servidor</strong>.
-                        Se o original estiver em <strong>**negrito**</strong>, o sistema preserva a formatação.
-                    </small>
-                </div>
-            </div>
-
-        </div>
-        <div class="modal-footer" style="background: rgba(15, 23, 42, 0.5); padding: 20px; border-radius: 0 0 15px 15px; display: flex; gap: 10px; justify-content: flex-end;">
-            <button class="btn btn-secondary" onclick="closeEditCloneModal()" style="padding: 12px 24px; font-size: 14px;">
-                <i class="fas fa-times"></i> Cancelar
-            </button>
-            <button class="btn btn-primary" onclick="updateClone()" style="padding: 12px 24px; font-size: 14px; background: linear-gradient(135deg, #F59E0B, #EC4899);">
-                <i class="fas fa-save"></i> Salvar Alterações
-            </button>
-        </div>
-    </div>
-</div>
+{% include 'edit_clone.html' %}
 
 <!-- Tab: Extrair -->
 <div class="tab-content" id="extract">
