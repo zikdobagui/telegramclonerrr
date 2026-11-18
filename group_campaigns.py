@@ -1552,6 +1552,69 @@ class TelegramCampaignGateway:
             await client.disconnect()
 
 
+class CampaignConnectionPool:
+    """One Telegram event loop and connection pool per user across campaigns."""
+
+    def __init__(self):
+        self.loop = asyncio.new_event_loop()
+        self.clients = {}
+        self.client_locks = {}
+        self.members = {}
+        self.guard = threading.RLock()
+        self.operation_lock = None
+        self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
+        self.thread.start()
+
+    def attach(self, gateway):
+        with self.guard:
+            self.members[id(gateway)] = gateway
+            if hasattr(gateway, 'clients'):
+                gateway.clients = self.clients
+                gateway.client_locks = self.client_locks
+        return SharedCampaignGateway(self, gateway)
+
+    async def execute(self, gateway, method, args, kwargs):
+        if self.operation_lock is None:
+            self.operation_lock = asyncio.Lock()
+        async with self.operation_lock:
+            if method == 'close':
+                with self.guard:
+                    if id(gateway) not in self.members:
+                        return
+                    self.members.pop(id(gateway))
+                    reserved = set().union(*(set(item.sessions) for item in self.members.values()))
+                if not hasattr(gateway, 'clients'):
+                    await gateway.close()
+                    return
+                # A paused task must not disconnect accounts used by another task.
+                for name in list(self.clients):
+                    if name not in reserved:
+                        client = self.clients.pop(name)
+                        await client.disconnect()
+                return
+            return await getattr(gateway, method)(*args, **kwargs)
+
+
+class SharedCampaignGateway:
+    def __init__(self, pool, gateway):
+        object.__setattr__(self, '_pool', pool)
+        object.__setattr__(self, '_gateway', gateway)
+
+    def __setattr__(self, name, value):
+        setattr(self._gateway, name, value)
+
+    def __getattr__(self, name):
+        value = getattr(self._gateway, name)
+        if not asyncio.iscoroutinefunction(value):
+            return value
+
+        async def invoke(*args, **kwargs):
+            future = asyncio.run_coroutine_threadsafe(
+                self._pool.execute(self._gateway, name, args, kwargs), self._pool.loop)
+            return await asyncio.wrap_future(future)
+        return invoke
+
+
 class GroupAccessError(ValueError):
     pass
 
@@ -2097,6 +2160,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     group_actions_busy = set()
     runtimes = {}
     worker_sessions = {}
+    connection_pools = {}
 
     def worker_busy(username, cid=None):
         return username in group_actions_busy or any(
@@ -2151,15 +2215,14 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                     store.event(cid, f'Sessão {name} já está em espera por limitação/flood; a tarefa iniciará e aguardará a liberação automaticamente.')
             if not usable:
                 raise ValueError('Nenhuma sessão válida disponível para iniciar a tarefa')
-            reserved = set().union(*(names for other, names in worker_sessions.items() if other[0] == username))
-            conflicts = reserved.intersection(usable)
-            if conflicts:
-                raise ValueError('Selecione sessões diferentes para tarefas simultâneas. Sessões em uso: ' + ', '.join(sorted(conflicts)))
             paths = get_paths(username)
             session_data = usable
-            gateway = TelegramCampaignGateway(paths, session_data, api)
+            pool = connection_pools.setdefault(username, None)
+            if pool is None:
+                pool = connection_pools[username] = CampaignConnectionPool()
             if not resuming:
                 store.prepare_start(cid)
+            gateway = pool.attach(TelegramCampaignGateway(paths, session_data, api))
             if resuming:
                 store.event(cid, 'Execução retomada automaticamente no servidor. Não é necessário manter o navegador ou o computador ligado.')
             store.event(cid, f'Tarefa iniciada com {len(usable)} sessão(ões) válida(s). O executor está ativo; acompanhe abaixo a próxima ação ou o motivo da espera.')
@@ -2180,7 +2243,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                         if store.get(cid)['status'] == 'running':
                             store.event(cid, 'Executor reiniciado automaticamente após um erro.')
                             await asyncio.sleep(5)
-                            current_gateway = TelegramCampaignGateway(paths, session_data, api)
+                            current_gateway = pool.attach(TelegramCampaignGateway(paths, session_data, api))
                 try:
                     asyncio.run(with_runtime())
                 except Exception as error:
@@ -2200,6 +2263,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 worker_sessions.pop(key, None)
                 workers.pop(key, None)
                 refresh_worker_lock(username)
+                asyncio.run_coroutine_threadsafe(pool.execute(gateway._gateway, 'close', (), {}), pool.loop)
                 raise
 
     def restore_saved_campaigns():

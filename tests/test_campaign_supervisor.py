@@ -116,14 +116,19 @@ class CampaignSupervisorTests(unittest.TestCase):
         self.assertEqual(store.get(second)['status'], 'running')
         self.assertFalse(self.gateways[1].closed.is_set())
 
-    def test_same_session_is_not_opened_by_two_tasks(self):
+    def test_tasks_with_same_session_both_run_and_pause_independently(self):
         store, first, _ = self.task()
         _, second, _ = self.task()
         self.supervisor.start()
-        self.wait_for(lambda: len(self.gateways) >= 1)
+        self.wait_for(lambda: len(self.gateways) == 2)
+        self.wait_for(lambda: all(task['counts'].get('added') for task in store.snapshot()['campaigns']))
         self.supervisor.scan()
-        self.assertEqual(len(self.gateways), 1)
-        self.assertEqual(store.get(first)['status'], 'running')
+        self.assertEqual(len(self.gateways), 2)
+        store.state(first, 'paused')
+        self.wait_for(lambda: self.gateways[0].closed.is_set())
+        self.assertTrue(self.locks['alice'])
+        self.assertEqual(store.get(second)['status'], 'running')
+        self.assertFalse(self.gateways[1].closed.is_set())
 
     def test_server_adds_without_login_or_any_http_request(self):
         store, cid, _ = self.task()
