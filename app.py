@@ -1027,7 +1027,7 @@ def check_session_lock(operation, task_id=None, username=None, session_name=None
         return False, 'Aguarde as operações com sessões terminarem antes de verificar grupos.'
     if session_locks.get('group_campaign'):
         campaign_sessions = session_locks.get('group_campaign_sessions')
-        if operation != 'extraction' or not session_name or campaign_sessions is None or session_name in campaign_sessions:
+        if operation != 'group_campaign_start' and (operation != 'extraction' or not session_name or campaign_sessions is None or session_name in campaign_sessions):
             return False, ('Esta sessão está em uso pela tarefa de grupos. Selecione outra sessão livre ou pause a tarefa.'
                            if operation == 'extraction' else 'Pause a tarefa de grupos antes de iniciar outra operação com sessões.')
     if operation == 'task':
@@ -1052,7 +1052,7 @@ def check_session_lock(operation, task_id=None, username=None, session_name=None
         if len(session_locks['active_tasks']) > 0:
             return False, "Não é possível adicionar enquanto tarefas estão em andamento"
         return True, "OK"
-    elif operation == 'group_factory':
+    elif operation in ('group_factory', 'group_campaign_start'):
         if session_locks['warming'] or session_locks['addition'] or len(session_locks['active_tasks']) > 0:
             return False, "Não é possível criar grupos enquanto aquecimento, adição ou tarefas estão em andamento"
         if session_locks.get('group_factory'):

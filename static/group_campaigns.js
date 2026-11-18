@@ -309,7 +309,7 @@
             const openDetails = new Set([...el('campaign-list').querySelectorAll('details[open][data-detail]')].map(detail => detail.dataset.detail));
             const logScroll = new Map([...el('campaign-list').querySelectorAll('.gc-history')].map(history => [history.dataset.detail, history.querySelector('.gc-log-list')?.scrollTop || 0]));
             el('campaign-list').innerHTML = data.campaigns.map(task => {
-                const busy = data.worker_active || task.status === 'running';
+                const busy = (data.active_worker_ids || []).includes(task.id) || task.status === 'running';
                 const counts = task.counts;
                 rememberEvents(task.id, task.events, task.logs_cleared_through || 0);
                 const perGroup = task.settings.limit_scope === 'group';

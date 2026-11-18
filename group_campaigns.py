@@ -2096,9 +2096,18 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     guard = threading.RLock()
     group_actions_busy = set()
     runtimes = {}
+    worker_sessions = {}
 
-    def worker_busy(username):
-        return username in group_actions_busy or bool(workers.get(username) and workers[username].is_alive())
+    def worker_busy(username, cid=None):
+        return username in group_actions_busy or any(
+            key[0] == username and (cid is None or key[1] == cid) and worker.is_alive()
+            for key, worker in workers.items())
+
+    def refresh_worker_lock(username):
+        names = set().union(*(names for key, names in worker_sessions.items() if key[0] == username))
+        get_locks(username)['group_campaign_sessions'] = names
+        set_lock('group_campaign', any(key[0] == username for key in worker_sessions), username=username)
+
 
     def store_for(username):
         store = CampaignStore(get_paths(username)['data_dir'])
@@ -2115,9 +2124,10 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         with guard:
             if resuming and store.get(cid)['status'] != 'running':
                 return
-            if worker_busy(username):
-                raise ValueError('Já existe uma tarefa de grupos em execução ou encerrando')
-            allowed, message = check_lock('group_factory', username=username)
+            key = (username, cid)
+            if worker_busy(username, cid):
+                raise ValueError('Esta tarefa de grupos já está em execução ou encerrando')
+            allowed, message = check_lock('group_campaign_start', username=username)
             if not allowed or get_locks(username).get('extraction'):
                 raise ValueError(message if not allowed else 'Aguarde a extração terminar')
             api = get_background_api(username) if resuming and get_background_api else get_api()
@@ -2141,31 +2151,32 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                     store.event(cid, f'Sessão {name} já está em espera por limitação/flood; a tarefa iniciará e aguardará a liberação automaticamente.')
             if not usable:
                 raise ValueError('Nenhuma sessão válida disponível para iniciar a tarefa')
+            reserved = set().union(*(names for other, names in worker_sessions.items() if other[0] == username))
+            conflicts = reserved.intersection(usable)
+            if conflicts:
+                raise ValueError('Selecione sessões diferentes para tarefas simultâneas. Sessões em uso: ' + ', '.join(sorted(conflicts)))
             paths = get_paths(username)
             session_data = usable
             gateway = TelegramCampaignGateway(paths, session_data, api)
-            if resuming:
-                # Do not reset groups that require manual review.
-                store.recover()
-            else:
+            if not resuming:
                 store.prepare_start(cid)
             if resuming:
                 store.event(cid, 'Execução retomada automaticamente no servidor. Não é necessário manter o navegador ou o computador ligado.')
             store.event(cid, f'Tarefa iniciada com {len(usable)} sessão(ões) válida(s). O executor está ativo; acompanhe abaixo a próxima ação ou o motivo da espera.')
-            get_locks(username)['group_campaign_sessions'] = set(usable)
-            set_lock('group_campaign', True, username=username)
+            worker_sessions[key] = set(usable)
+            refresh_worker_lock(username)
 
             def run():
                 async def with_runtime():
                     current_gateway = gateway
                     while store.get(cid)['status'] == 'running':
                         with guard:
-                            runtimes[username] = (cid, current_gateway, asyncio.get_running_loop())
+                            runtimes[key] = (cid, current_gateway, asyncio.get_running_loop())
                         try:
                             await campaign_loop(store, cid, current_gateway)
                         finally:
                             with guard:
-                                runtimes.pop(username, None)
+                                runtimes.pop(key, None)
                         if store.get(cid)['status'] == 'running':
                             store.event(cid, 'Executor reiniciado automaticamente após um erro.')
                             await asyncio.sleep(5)
@@ -2175,16 +2186,20 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 except Exception as error:
                     store.event(cid, f'Erro ao reiniciar o executor: {error}. A tarefa continua marcada como ativa.')
                 finally:
-                    set_lock('group_campaign', False, username=username)
+                    with guard:
+                        worker_sessions.pop(key, None)
+                        refresh_worker_lock(username)
 
             worker = threading.Thread(target=run, daemon=True)
-            workers[username] = worker
+            workers[key] = worker
             try:
                 worker.start()
             except Exception:
                 if not resuming:
                     store.state(cid, 'paused', 'Não foi possível iniciar o processo')
-                set_lock('group_campaign', False, username=username)
+                worker_sessions.pop(key, None)
+                workers.pop(key, None)
+                refresh_worker_lock(username)
                 raise
 
     def restore_saved_campaigns():
@@ -2194,7 +2209,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         for username in sorted(usernames):
             try:
                 with guard:
-                    if worker_busy(username):
+                    if username in group_actions_busy:
                         continue
                     paths = get_paths(username)
                     if not paths or not os.path.isfile(os.path.join(paths['data_dir'], 'group_campaigns.db')):
@@ -2204,12 +2219,13 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                         pending = [row[0] for row in conn.execute("SELECT id FROM campaigns WHERE status='running' ORDER BY id")]
                     if not pending:
                         continue
-                    cid = pending[0]
-                    try:
-                        # Same guard as manual starts: never launch duplicate workers.
-                        start_worker(username, cid, resuming=True)
-                    except Exception as error:
-                        store.event_recent(cid, f'Retomada automática aguardando: {error}. Nova verificação em 30 segundos.', seconds=300)
+                    for cid in pending:
+                        if worker_busy(username, cid):
+                            continue
+                        try:
+                            start_worker(username, cid, resuming=True)
+                        except Exception as error:
+                            store.event_recent(cid, f'Retomada automática aguardando: {error}. Nova verificação em 30 segundos.', seconds=300)
             except Exception:
                 logging.getLogger(__name__).exception('Não foi possível restaurar tarefas de grupos de %s', username)
 
@@ -2260,6 +2276,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
             result = store.snapshot()
             with guard:
                 result['worker_active'] = worker_busy(username)
+                result['active_worker_ids'] = [key[1] for key, worker in workers.items() if key[0] == username and worker.is_alive()]
             return jsonify(success=True, **result)
         payload = request.get_json() or {}
         sessions = get_sessions(username).load_sessions()
@@ -2438,7 +2455,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 raise ValueError('O grupo ainda não foi criado ou vinculado.')
             if group['deletion_status'] in {'pending', 'unknown'}:
                 raise ValueError('Resolva a exclusão pendente antes de consultar membros.')
-            runtime = runtimes.get(username)
+            runtime = runtimes.get((username, cid))
             if username in group_actions_busy:
                 raise ValueError('Aguarde a operação atual terminar e atualize novamente.')
             if runtime:

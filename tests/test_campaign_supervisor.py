@@ -47,7 +47,7 @@ class CampaignSupervisorTests(unittest.TestCase):
 
         class Sessions:
             def load_sessions(self, **kwargs):
-                return [{'session_name': 'one.session', 'active': True}]
+                return [{'session_name': name, 'active': True} for name in ('one.session', 'two.session')]
 
             def is_session_flooded(self, name):
                 return False
@@ -98,6 +98,32 @@ class CampaignSupervisorTests(unittest.TestCase):
         self.wait_for(lambda: not any(self.locks.values()))
         for gateway in self.gateways:
             gateway.closed.wait(2)
+
+    def test_two_tasks_run_and_pause_independently(self):
+        store, first, _ = self.task()
+        second = store.create({'name': 'Second', 'count': 1}, ['two.session'])
+        store.group_update(store.groups(second)[0]['id'], status='ready')
+        store.import_leads('leads.txt', b'@another_person', cid=second)
+        store.state(second, 'running')
+        self.supervisor.start()
+        self.wait_for(lambda: len(self.gateways) == 2)
+        self.wait_for(lambda: all(task['counts'].get('added') for task in store.snapshot()['campaigns']))
+        self.supervisor.scan()
+        self.assertEqual(len(self.gateways), 2)
+        store.state(first, 'paused')
+        self.wait_for(lambda: self.gateways[0].closed.is_set())
+        self.assertTrue(self.locks['alice'])
+        self.assertEqual(store.get(second)['status'], 'running')
+        self.assertFalse(self.gateways[1].closed.is_set())
+
+    def test_same_session_is_not_opened_by_two_tasks(self):
+        store, first, _ = self.task()
+        _, second, _ = self.task()
+        self.supervisor.start()
+        self.wait_for(lambda: len(self.gateways) >= 1)
+        self.supervisor.scan()
+        self.assertEqual(len(self.gateways), 1)
+        self.assertEqual(store.get(first)['status'], 'running')
 
     def test_server_adds_without_login_or_any_http_request(self):
         store, cid, _ = self.task()
