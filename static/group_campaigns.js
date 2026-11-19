@@ -331,7 +331,7 @@
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
                     <details class="gc-controls" data-detail="controls-${task.id}"><summary>Contatos e configurações <span>${task.lead_count || 0} contatos · delay ${task.settings.delay_min ?? task.settings.delay ?? 60}–${task.settings.delay_max ?? task.settings.delay ?? 60}s</span></summary><div class="gc-controls-body">
-                    <p class="info">${task.lead_source ? `Arquivo desta tarefa: <strong>${esc(task.lead_source.filename)}</strong> · ${task.lead_count} contatos importados · ${task.excluded_lead_count || 0} retirados por conta desativada` : 'Esta tarefa está sem arquivo próprio. Importe os contatos para habilitar as adições; a lista compartilhada antiga não será usada.'}</p>
+                    <p class="info">${task.lead_source || task.lead_count ? `Arquivo desta tarefa: <strong>${esc(task.lead_source?.filename || 'Base de leads salva')}</strong> · ${task.lead_count} contatos importados · ${task.excluded_lead_count || 0} retirados por conta desativada` : 'Esta tarefa está sem arquivo próprio. Importe os contatos para habilitar as adições; a lista compartilhada antiga não será usada.'}</p>
                     <button type="button" class="btn btn-primary" data-action="import-leads" data-id="${task.id}" ${busy ? 'disabled' : ''}>Importar arquivo desta tarefa</button><a class="btn btn-primary gc-export-leads" href="/api/group-campaigns/${task.id}/leads/export" download="leads-tarefa-${task.id}.json">Exportar base limpa (JSON)</a><small>Importe este JSON em outro login. Contas desativadas são excluídas; referências não resolvidas e o arquivo original são preservados.</small>
 
                     ${!task.groups.length ? '<p class="info">Esta tarefa não tem mais grupos. O histórico foi mantido; você pode excluir a tarefa quando quiser.</p>' : ''}
@@ -400,6 +400,8 @@
         preview();
         el('campaign-leads-file').addEventListener('change', () => {
             el('campaign-import-options').hidden = editingId === null || !el('campaign-leads-file').files.length;
+            const file = el('campaign-leads-file').files[0];
+            if (file) el('campaign-current-leads').textContent = `${file.name} selecionado. Clique em Salvar para importar os leads nesta tarefa.`;
         });
         el('campaign-images-clear').addEventListener('click', () => {
             selectedImages = [];
@@ -494,28 +496,18 @@
                 };
                 const leadFile = el('campaign-leads-file').files[0];
                 if (leadFile && leadFile.size > 25 * 1024 * 1024) throw new Error('O arquivo de leads deve ter até 25 MB.');
-                const result = await api(editingId === null ? '' : `/${editingId}`, json(editingId === null ? 'POST' : 'PUT', payload));
+                payload.import_mode = el('campaign-create-form').querySelector('[name="campaign-import-mode"]:checked').value;
+                const method = editingId === null ? 'POST' : 'PUT';
+                let options = json(method, payload);
                 if (leadFile) {
-                    // Preserve the saved task on upload failure, allowing a safe retry.
-                    editingId = result.id;
-                    el('campaign-count').disabled = true;
-                    el('campaign-names').disabled = true;
-                    el('campaign-names-file').disabled = true;
-                    el('campaign-editor-title').textContent = 'Editar tarefa #' + result.id;
-                    el('campaign-cancel-edit').hidden = false;
-                    const data = new FormData();
-                    data.append('file', leadFile);
-                    data.append('campaign_id', result.id);
-                    data.append('mode', el('campaign-create-form').querySelector('[name="campaign-import-mode"]:checked').value);
-                    try { await api('/leads', {method:'POST', body:data}); }
-                    catch (error) {
-                        el('campaign-import-options').hidden = false;
-                        await load();
-                        throw new Error('Tarefa salva, mas a importação falhou: ' + error.message + ' Corrija o arquivo e salve novamente.');
-                    }
+                    const body = new FormData();
+                    body.append('payload', JSON.stringify(payload));
+                    body.append('file', leadFile);
+                    options = {method, body};
                 }
+                const result = await api(editingId === null ? '' : `/${editingId}`, options);
                 resetEditor();
-                notice(`Tarefa #${result.id} salva. Clique em Iniciar para executar.`);
+                notice(`Tarefa #${result.id} salva${leadFile ? ' com o arquivo de leads importado' : ''}. Clique em Iniciar para executar.`);
                 await load();
                 reveal('campaign-monitor');
             });

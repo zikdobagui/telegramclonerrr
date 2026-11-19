@@ -10,7 +10,7 @@ import random
 import sqlite3
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 
 
@@ -616,7 +616,7 @@ class CampaignStore:
         }
         return name, count, limit, settings
 
-    def create(self, payload, session_names):
+    def create(self, payload, session_names, lead_upload=None):
         raw_names = payload.get('group_names', '')
         if not isinstance(raw_names, (str, list)):
             raise ValueError('Informe uma lista de nomes, um por linha')
@@ -630,12 +630,15 @@ class CampaignStore:
             payload = {**payload, 'count': len(names)}
         name, count, limit, settings = self.validated_settings(payload, session_names)
         with self.db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
             cid = conn.execute('INSERT INTO campaigns(name,settings,created) VALUES(?,?,?)', (name, json.dumps(settings), time.time())).lastrowid
             for slot in range(1, count + 1):
                 conn.execute('INSERT INTO groups(campaign_id,slot,title,daily_limit) VALUES(?,?,?,?)', (cid, slot, names[slot - 1] if names else f'{name} {slot:02}', limit))
+            if lead_upload:
+                self.import_leads(*lead_upload, cid=cid, conn=conn)
         return cid
 
-    def edit(self, cid, payload, session_names):
+    def edit(self, cid, payload, session_names, lead_upload=None):
         name, count, limit, settings = self.validated_settings(payload, session_names)
         with self.db() as conn:
             conn.execute('BEGIN IMMEDIATE')
@@ -656,6 +659,8 @@ class CampaignStore:
             if not settings['warming']:
                 conn.execute("UPDATE groups SET status='ready',warm_until=0 WHERE campaign_id=? AND current=1 AND status='warming'", (cid,))
             conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, 'Configurações da tarefa atualizadas.', time.time()))
+            if lead_upload:
+                self.import_leads(*lead_upload, cid=cid, mode=payload.get('import_mode', 'append'), conn=conn)
 
     def delete(self, cid):
         with self.db() as conn:
@@ -797,7 +802,7 @@ class CampaignStore:
         else:
             self.event(cid, 'Grupo substituído; histórico de leads e cota diária preservados.' if payload.get('replace') else 'Limite diário atualizado.')
 
-    def import_leads(self, filename, raw, cid=None, mode='replace'):
+    def import_leads(self, filename, raw, cid=None, mode='replace', conn=None):
         if mode not in ('append', 'replace'):
             raise ValueError('Escolha adicionar ou substituir os leads')
         if len(raw) > 25 * 1024 * 1024:
@@ -817,8 +822,9 @@ class CampaignStore:
         source_link = data.get('source_group_link') if filename.lower().endswith('.json') and isinstance(data, dict) else None
         stats = {'added': 0, 'duplicates': 0, 'invalid': 0}
         selected = set()
-        with self.db() as conn:
-            conn.execute('BEGIN IMMEDIATE')
+        with (self.db() if conn is None else nullcontext(conn)) as conn:
+            if not conn.in_transaction:
+                conn.execute('BEGIN IMMEDIATE')
             if cid is not None and not conn.execute('SELECT 1 FROM campaigns WHERE id=?', (cid,)).fetchone():
                 raise ValueError('Tarefa não encontrada')
             existing = {row['lead_id'] for row in conn.execute(
@@ -2331,6 +2337,19 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     def campaign_clear_logs(cid):
         return jsonify(success=True, logs_cleared_through=store_for(session['username']).clear_events(cid))
 
+    def campaign_save_payload():
+        if request.mimetype == 'multipart/form-data':
+            payload = json.loads(request.form.get('payload', '{}'))
+        else:
+            payload = request.get_json() or {}
+        if not isinstance(payload, dict):
+            raise ValueError('Dados da tarefa inválidos')
+        upload = request.files.get('file')
+        lead_upload = None
+        if upload and upload.filename:
+            lead_upload = (upload.filename, upload.stream.read(25 * 1024 * 1024 + 1))
+        return payload, lead_upload
+
     @app.route('/api/group-campaigns', methods=['GET', 'POST'])
     @endpoint
     def campaigns_api():
@@ -2342,36 +2361,36 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 result['worker_active'] = worker_busy(username)
                 result['active_worker_ids'] = [key[1] for key, worker in workers.items() if key[0] == username and worker.is_alive()]
             return jsonify(success=True, **result)
-        payload = request.get_json() or {}
+        payload, lead_upload = campaign_save_payload()
         sessions = get_sessions(username).load_sessions()
         names = payload.get('sessions', [])
         if not isinstance(names, list) or not names or any(name not in {s['session_name'] for s in sessions if s.get('active', True) and s.get('status', 'active') == 'active'} for name in names):
             raise ValueError('Selecione sessões ativas disponíveis')
-        return jsonify(success=True, id=store.create(payload, names))
+        return jsonify(success=True, id=store.create(payload, names, lead_upload=lead_upload))
 
     @app.route('/api/group-campaigns/<int:cid>', methods=['PUT', 'DELETE'])
     @endpoint
     def campaign_edit_api(cid):
         username = session['username']
         with guard:
-            if worker_busy(username):
+            if worker_busy(username, cid):
                 raise ValueError('Pause e aguarde a operação atual terminar antes de editar ou excluir tarefas')
             store = store_for(username)
             if request.method == 'DELETE':
                 store.delete(cid)
             else:
-                payload = request.get_json() or {}
+                payload, lead_upload = campaign_save_payload()
                 settings = store.get(cid)['settings']
                 payload.setdefault('images', settings.get('images', []))
                 payload.setdefault('group_image', settings.get('group_image', ''))
-                if 'group_images' not in payload and 'group_image' not in (request.get_json() or {}):
+                if 'group_images' not in payload and not payload.get('group_image'):
                     payload['group_images'] = settings.get('group_images', [settings['group_image']] if settings.get('group_image') else [])
                 payload.setdefault('descriptions', settings.get('descriptions', []))
                 names = payload.get('sessions', [])
                 available = {s['session_name'] for s in get_sessions(username).load_sessions() if s.get('active', True) and s.get('status', 'active') == 'active'}
                 if not isinstance(names, list) or not names or any(name not in available for name in names):
                     raise ValueError('Selecione sessões ativas disponíveis')
-                store.edit(cid, payload, names)
+                store.edit(cid, payload, names, lead_upload=lead_upload)
         return jsonify(success=True, id=cid)
 
     @app.route('/api/group-campaigns/images', methods=['POST'])

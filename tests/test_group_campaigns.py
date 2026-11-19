@@ -1508,6 +1508,48 @@ class CampaignApiTests(unittest.TestCase):
         finally:
             response.close()
 
+    def test_task_and_leads_are_saved_together_for_two_tasks(self):
+        self.login('alice')
+        ids = []
+        for name in ('First', 'Second'):
+            response = self.client.post('/api/group-campaigns', data={
+                'payload': json.dumps({'name': name, 'count': 1, 'sessions': ['one.session']}),
+                'file': (io.BytesIO(b'@shared_person'), name + '.txt')})
+            self.assertEqual(response.status_code, 200, response.json)
+            ids.append(response.json['id'])
+        tasks = self.client.get('/api/group-campaigns').json['campaigns']
+        self.assertEqual(len(set(ids)), 2)
+        self.assertTrue(all(task['lead_count'] == 1 and task['lead_source'] for task in tasks))
+        for cid in ids:
+            group = CampaignStore(str(Path(self.temp.name) / 'alice')).groups(cid)[0]
+            store = CampaignStore(str(Path(self.temp.name) / 'alice'))
+            store.group_update(group['id'], status='ready')
+            store.state(cid, 'running')
+            self.assertIsNotNone(store.claim(cid, group['id']))
+
+    def test_edit_with_invalid_file_preserves_saved_settings_and_leads(self):
+        self.login('alice')
+        created = self.client.post('/api/group-campaigns', data={
+            'payload': json.dumps({'name': 'Original', 'count': 1, 'sessions': ['one.session']}),
+            'file': (io.BytesIO(b'@saved_person'), 'original.txt')})
+        cid = created.json['id']
+        response = self.client.put(f'/api/group-campaigns/{cid}', data={
+            'payload': json.dumps({'name': 'Changed', 'count': 1, 'sessions': ['one.session']}),
+            'file': (io.BytesIO(b'not valid'), 'invalid.txt')})
+        self.assertEqual(response.status_code, 400)
+        task = self.client.get('/api/group-campaigns').json['campaigns'][0]
+        self.assertEqual(task['name'], 'Original')
+        self.assertEqual(task['lead_count'], 1)
+        self.assertEqual(task['lead_source']['filename'], 'original.txt')
+
+    def test_invalid_upload_does_not_leave_task_without_leads(self):
+        self.login('alice')
+        response = self.client.post('/api/group-campaigns', data={
+            'payload': json.dumps({'name': 'Invalid', 'sessions': ['one.session']}),
+            'file': (io.BytesIO(b'not valid'), 'leads.txt')})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.get('/api/group-campaigns').json['campaigns'], [])
+
     def test_authentication_validation_import_and_user_isolation(self):
         self.assertEqual(self.client.get('/api/group-campaigns').status_code, 401)
         self.login('alice')
