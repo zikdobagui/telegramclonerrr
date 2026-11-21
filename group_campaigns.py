@@ -886,11 +886,19 @@ class CampaignStore:
                     conn.execute('DELETE FROM campaign_leads WHERE campaign_id=?', (cid,))
                 conn.executemany('INSERT OR IGNORE INTO campaign_leads VALUES(?,?)', [(cid, lead_id) for lead_id in selected])
                 conn.execute('INSERT OR REPLACE INTO campaign_sources VALUES(?,?,?)', (cid, os.path.basename(filename.replace('\\', '/'))[:255], time.time()))
-                stats['task_total'] = conn.execute(
-                    'SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?',
-                    (cid,)
-                ).fetchone()[0]
+                stats['task_total'] = self._lead_count(conn, cid)
         return stats
+
+    @staticmethod
+    def _lead_count(conn, cid):
+        return conn.execute(
+            'SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?',
+            (cid,)
+        ).fetchone()[0]
+
+    def lead_count(self, cid):
+        with self.db() as conn:
+            return self._lead_count(conn, cid)
 
     def export_leads(self, cid):
         """Export only this task's selected identities, without delivery/session data."""
@@ -1038,7 +1046,7 @@ class CampaignStore:
                 task = self.get(cid)
                 source = conn.execute('SELECT filename,imported FROM campaign_sources WHERE campaign_id=?', (cid,)).fetchone()
                 task['lead_source'] = dict(source) if source else None
-                task['lead_count'] = conn.execute('SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id WHERE cl.campaign_id=?', (cid,)).fetchone()[0]
+                task['lead_count'] = self._lead_count(conn, cid)
                 task['excluded_lead_count'] = conn.execute('SELECT count(DISTINCT COALESCE(l.canonical_id,l.id)) FROM campaign_lead_exclusions e JOIN leads l ON l.id=e.lead_id WHERE e.campaign_id=?', (cid,)).fetchone()[0]
                 task['groups'] = self.groups(cid)
                 task['session_waits'] = session_wait_details(os.path.dirname(self.path), task['settings'].get('sessions', []))
@@ -2348,6 +2356,8 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         lead_upload = None
         if upload and upload.filename:
             lead_upload = (upload.filename, upload.stream.read(25 * 1024 * 1024 + 1))
+        elif payload.get('lead_file_selected') or request.mimetype == 'multipart/form-data':
+            raise ValueError('O arquivo de leads não chegou ao servidor. Selecione o arquivo novamente e salve a tarefa.')
         return payload, lead_upload
 
     @app.route('/api/group-campaigns', methods=['GET', 'POST'])
@@ -2366,7 +2376,8 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
         names = payload.get('sessions', [])
         if not isinstance(names, list) or not names or any(name not in {s['session_name'] for s in sessions if s.get('active', True) and s.get('status', 'active') == 'active'} for name in names):
             raise ValueError('Selecione sessões ativas disponíveis')
-        return jsonify(success=True, id=store.create(payload, names, lead_upload=lead_upload))
+        cid = store.create(payload, names, lead_upload=lead_upload)
+        return jsonify(success=True, id=cid, lead_count=store.lead_count(cid))
 
     @app.route('/api/group-campaigns/<int:cid>', methods=['PUT', 'DELETE'])
     @endpoint
@@ -2391,6 +2402,7 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
                 if not isinstance(names, list) or not names or any(name not in available for name in names):
                     raise ValueError('Selecione sessões ativas disponíveis')
                 store.edit(cid, payload, names, lead_upload=lead_upload)
+                return jsonify(success=True, id=cid, lead_count=store.lead_count(cid))
         return jsonify(success=True, id=cid)
 
     @app.route('/api/group-campaigns/images', methods=['POST'])

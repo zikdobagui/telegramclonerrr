@@ -3,6 +3,7 @@
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const labels = {paused:'Pausada', running:'Em execução', pending:'A criar / vincular', creating:'Criando', warming:'Aquecendo', ready:'Pronto para distribuir', error:'Precisa de revisão'};
     let editingId = null;
+    let savingTask = false;
     let selectedImages = [];
     let selectedGroupImage = [];
     let pendingGroupImages = [];
@@ -257,7 +258,9 @@
         renderSessions();
     }
     async function editTask(task) {
+        if (savingTask) return;
         await loadSessions();
+        if (savingTask) return;
         editingId = task.id;
         el('campaign-leads-file').value = '';
         el('campaign-import-options').hidden = true;
@@ -382,6 +385,7 @@
             if (button) reveal(button.dataset.reveal);
         });
         el('campaign-new').addEventListener('click', async () => {
+            if (savingTask) return;
             resetEditor();
             reveal('campaign-builder');
             try { await loadSessions(); } catch (error) { notice(error.message, true); }
@@ -453,15 +457,22 @@
             if (file.size > 1024 * 1024) return notice('O arquivo de frases deve ter até 1 MB', true);
             el('campaign-phrases').value = await file.text();
         });
-        el('campaign-create-form').addEventListener('submit', event => {
+        el('campaign-create-form').addEventListener('submit', async event => {
             event.preventDefault();
-            submit(event.currentTarget, async () => {
+            if (savingTask) return;
+            const taskId = editingId;
+            const fileInput = el('campaign-leads-file');
+            const leadFile = fileInput.files[0];
+            savingTask = true;
+            fileInput.disabled = true;
+            await submit(event.currentTarget, async () => {
+                if (leadFile && leadFile.size > 25 * 1024 * 1024) throw new Error('O arquivo de leads deve ter até 25 MB.');
                 if (!el('campaign-sessions').selectedOptions.length) {
                     el('campaign-session-options').scrollIntoView({behavior:'smooth', block:'center'});
                     throw new Error('Marque pelo menos uma sessão na etapa 02.');
                 }
                 if (Number(el('campaign-delay-max').value) < Number(el('campaign-delay-min').value)) throw new Error('O intervalo máximo deve ser maior ou igual ao mínimo.');
-                const names = editingId === null ? customGroupNames() : [];
+                const names = taskId === null ? customGroupNames() : [];
                 if (names.length > 30 || names.some(name => Array.from(name).length > 100)) throw new Error('Use até 30 nomes com no máximo 100 caracteres cada.');
                 const files = [...el('campaign-images').files];
                 if (files.length) {
@@ -486,7 +497,7 @@
                 const payload = {
                     images:selectedImages,
                     group_images:selectedGroupImage, descriptions:selectedDescriptions,
-                    group_names:editingId === null ? names : undefined,
+                    group_names:taskId === null ? names : undefined,
                     name:el('campaign-name').value, count:el('campaign-count').value, daily_limit:el('campaign-limit').value,
                     admin_usernames:el('campaign-admin').value,
                     sessions:Array.from(el('campaign-sessions').selectedOptions, option => option.value),
@@ -494,10 +505,9 @@
                     warm_days:el('campaign-warm-days').value, warm_interval:el('campaign-warm-interval').value,
                     parallel_sessions:el('campaign-parallel').value === 'yes', delay_min:el('campaign-delay-min').value, delay_max:el('campaign-delay-max').value, dedup:el('campaign-dedup').value, limit_scope:el('campaign-limit-scope').value,
                 };
-                const leadFile = el('campaign-leads-file').files[0];
-                if (leadFile && leadFile.size > 25 * 1024 * 1024) throw new Error('O arquivo de leads deve ter até 25 MB.');
                 payload.import_mode = el('campaign-create-form').querySelector('[name="campaign-import-mode"]:checked').value;
-                const method = editingId === null ? 'POST' : 'PUT';
+                payload.lead_file_selected = Boolean(leadFile);
+                const method = taskId === null ? 'POST' : 'PUT';
                 let options = json(method, payload);
                 if (leadFile) {
                     const body = new FormData();
@@ -505,12 +515,18 @@
                     body.append('file', leadFile);
                     options = {method, body};
                 }
-                const result = await api(editingId === null ? '' : `/${editingId}`, options);
+                const result = await api(taskId === null ? '' : `/${taskId}`, options);
                 resetEditor();
-                notice(`Tarefa #${result.id} salva${leadFile ? ' com o arquivo de leads importado' : ''}. Clique em Iniciar para executar.`);
+                const count = result.lead_count;
+                const summary = Number.isInteger(count)
+                    ? ` ${count.toLocaleString('pt-BR')} ${count === 1 ? 'lead vinculado' : 'leads vinculados'} à tarefa.`
+                    : '';
+                notice(`Tarefa #${result.id} salva.${summary}`);
                 await load();
                 reveal('campaign-monitor');
             });
+            fileInput.disabled = false;
+            savingTask = false;
         });
         el('campaign-list').addEventListener('click', async event => {
             const button = event.target.closest('button[data-action]');

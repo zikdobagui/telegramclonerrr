@@ -1516,6 +1516,7 @@ class CampaignApiTests(unittest.TestCase):
                 'payload': json.dumps({'name': name, 'count': 1, 'sessions': ['one.session']}),
                 'file': (io.BytesIO(b'@shared_person'), name + '.txt')})
             self.assertEqual(response.status_code, 200, response.json)
+            self.assertEqual(response.json['lead_count'], 1)
             ids.append(response.json['id'])
         tasks = self.client.get('/api/group-campaigns').json['campaigns']
         self.assertEqual(len(set(ids)), 2)
@@ -1548,6 +1549,19 @@ class CampaignApiTests(unittest.TestCase):
             'payload': json.dumps({'name': 'Invalid', 'sessions': ['one.session']}),
             'file': (io.BytesIO(b'not valid'), 'leads.txt')})
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.get('/api/group-campaigns').json['campaigns'], [])
+
+    def test_missing_selected_upload_does_not_create_a_task(self):
+        self.login('alice')
+        payload = {'name': 'Missing upload', 'sessions': ['one.session']}
+        for options in (
+            {'data': {'payload': json.dumps(payload)}, 'content_type': 'multipart/form-data'},
+            {'json': {**payload, 'lead_file_selected': True}},
+        ):
+            with self.subTest(options=options):
+                response = self.client.post('/api/group-campaigns', **options)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('arquivo de leads', response.json['error'])
         self.assertEqual(self.client.get('/api/group-campaigns').json['campaigns'], [])
 
     def test_authentication_validation_import_and_user_isolation(self):
