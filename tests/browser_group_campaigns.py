@@ -230,6 +230,7 @@ def run():
                 page.locator('#campaign-refresh').click()
                 delete_details = page.locator(f'details[data-detail="delete-{delete_gid}"]')
                 delete_details.wait_for(state='attached')
+                page.locator('.gc-group-list').evaluate('(node) => node.open = true')
                 page.locator(f'details[data-detail="group-{delete_gid}"]').evaluate('(node) => node.open = true')
                 delete_details.locator('summary').click()
                 delete_button = delete_details.locator('button')
@@ -251,6 +252,18 @@ def run():
                 assert len(store.groups(1)) == 9
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 9
                 assert page.locator('.gc-task-lead-count').inner_text() == '1'
+                artifact_dir = ROOT / '.runtime' / 'group-task-design'
+                artifact_dir.mkdir(parents=True, exist_ok=True)
+                for width, height in [(1440, 900), (390, 844)]:
+                    page.set_viewport_size({'width': width, 'height': height})
+                    page.locator('#campaign-list details').evaluate_all('(nodes) => nodes.forEach(node => node.open = false)')
+                    page.locator('.gc-task').scroll_into_view_if_needed()
+                    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+                    timer = page.locator('[data-gc-clock]').first
+                    before = timer.inner_text()
+                    page.wait_for_timeout(1200)
+                    assert timer.inner_text() != before
+                    page.screenshot(path=str(artifact_dir / f'{width}x{height}.png'), full_page=True)
                 page.once('dialog', lambda dialog: dialog.dismiss())
                 page.get_by_role('button', name='Excluir tarefa', exact=True).click()
                 assert page.locator('.gc-task').count() == 1

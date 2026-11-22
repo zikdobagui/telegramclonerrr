@@ -355,6 +355,22 @@ class CampaignStoreTests(unittest.TestCase):
     def leads(self, count=10):
         return self.store.import_leads('leads.json', json.dumps({'members': [{'id': 100 + n, 'username': f'lead_{n}', 'access_hash': 9000000000000000000 + n} for n in range(count)]}).encode(), cid=next(iter(self.store.snapshot()['campaigns']), {}).get('id'))
 
+    def test_timing_uses_confirmations_and_survives_log_clear(self):
+        cid, groups = self.task(limit_scope='task')
+        self.leads(2)
+        delivery = self.store.claim(cid, groups[0]['id'])
+        timing = self.store.snapshot()['campaigns'][0]['timing']
+        self.assertIsNotNone(timing['cycle_started_at'])
+        self.assertIsNone(timing['goal_reached_at'])
+        self.store.finish(delivery['id'], 'added')
+        timing = self.store.snapshot()['campaigns'][0]['timing']
+        self.assertGreaterEqual(timing['goal_reached_at'], timing['cycle_started_at'])
+        self.store.clear_events(cid)
+        self.assertEqual(self.store.snapshot()['campaigns'][0]['timing'], timing)
+        with self.store.db() as conn:
+            conn.execute('UPDATE deliveries SET confirmed_at=NULL')
+        self.assertIsNone(self.store.snapshot()['campaigns'][0]['timing']['goal_reached_at'])
+
     def test_clear_logs_preserves_deliveries_quota_and_other_campaign(self):
         cid, groups = self.task()
         self.leads(2)

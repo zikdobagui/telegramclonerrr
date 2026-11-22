@@ -434,7 +434,11 @@ class CampaignStore:
             ''')
             conn.execute('CREATE TABLE IF NOT EXISTS quota_cycles (campaign_id INTEGER NOT NULL, scope INTEGER NOT NULL, token TEXT NOT NULL, started REAL NOT NULL, expires REAL NOT NULL, PRIMARY KEY(campaign_id,scope))')
             conn.execute('CREATE TABLE IF NOT EXISTS log_clears (campaign_id INTEGER PRIMARY KEY, through_id INTEGER NOT NULL)')
+            if 'started_at' not in {row['name'] for row in conn.execute('PRAGMA table_info(campaigns)')}:
+                conn.execute('ALTER TABLE campaigns ADD COLUMN started_at REAL')
             columns = {row['name'] for row in conn.execute('PRAGMA table_info(deliveries)')}
+            if 'confirmed_at' not in columns:
+                conn.execute('ALTER TABLE deliveries ADD COLUMN confirmed_at REAL')
             for column in ('resolved_hash', 'session_name'):
                 if column not in columns:
                     conn.execute(f'ALTER TABLE deliveries ADD COLUMN {column} TEXT')
@@ -565,7 +569,7 @@ class CampaignStore:
             runnable = conn.execute("SELECT count(*) FROM groups WHERE campaign_id=? AND current=1 AND status IN ('pending','warming','ready')", (cid,)).fetchone()[0]
             if not runnable:
                 raise ValueError('Nenhum grupo disponível para iniciar. Abra os detalhes dos grupos e resolva os erros ou vincule um grupo substituto.')
-            conn.execute("UPDATE campaigns SET status='running',error='' WHERE id=?", (cid,))
+            conn.execute("UPDATE campaigns SET started_at=CASE WHEN status='running' THEN started_at ELSE ? END,status='running',error='' WHERE id=?", (time.time(), cid))
             if recovered:
                 conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)',
                              (cid, f'{recovered} grupo(s) recuperado(s). Histórico de leads e cotas preservados.', time.time()))
@@ -1002,7 +1006,7 @@ class CampaignStore:
 
     def finish(self, did, status, error='', error_kind=''):
         with self.db() as conn:
-            conn.execute('UPDATE deliveries SET status=?,error=? WHERE id=?', (status, error[:1000], did))
+            conn.execute("UPDATE deliveries SET status=?,error=?,confirmed_at=CASE WHEN ?='added' THEN COALESCE(confirmed_at,?) ELSE confirmed_at END WHERE id=?", (status, error[:1000], status, time.time(), did))
             if status == 'failed' and error_kind == 'InputUserDeactivatedError':
                 delivery = conn.execute('SELECT campaign_id,lead_id FROM deliveries WHERE id=?', (did,)).fetchone()
                 inserted = conn.execute('INSERT OR IGNORE INTO campaign_lead_exclusions VALUES(?,?,?,?)',
@@ -1057,6 +1061,18 @@ class CampaignStore:
                 task['active_sessions'] = [row['session_name'] for row in conn.execute("SELECT DISTINCT session_name FROM deliveries WHERE campaign_id=? AND status='sending' AND session_name IS NOT NULL", (cid,))]
                 for group in task['groups']:
                     group['added'] = conn.execute("SELECT count(*) FROM deliveries WHERE group_id=? AND status='added'", (group['id'],)).fetchone()[0]
+                per_group = task['settings']['limit_scope'] == 'group'
+                scopes = [(g['slot'], g['daily_limit']) for g in task['groups']] if per_group else [(0, task['settings']['daily_limit'])]
+                starts, reached = [], []
+                for scope, goal in scopes:
+                    cycle, expires = self.quota_cycle(conn, cid, scope)
+                    if expires:
+                        starts.append(expires - 86400)
+                    rows = conn.execute("SELECT confirmed_at FROM deliveries WHERE campaign_id=? AND day=? AND status='added'" + (' AND slot=?' if scope else '') + ' ORDER BY confirmed_at', (cid, cycle, scope) if scope else (cid, cycle)).fetchall()
+                    # Old confirmations have no timestamp: never invent a completion time.
+                    reached.append(rows[goal - 1][0] if len(rows) >= goal and all(r[0] for r in rows[:goal]) else None)
+                task['timing'] = {'created_at': task['created'], 'started_at': task.get('started_at') if task['status'] == 'running' else None, 'cycle_started_at': min(starts) if starts else None,
+                                  'goal_reached_at': max(reached) if reached and all(reached) else None}
                 result['campaigns'].append(task)
             return result
 

@@ -62,6 +62,23 @@
         return `<div class="gc-progress"><div class="gc-progress-label"><span>${esc(label)}</span><strong>${pct}%</strong></div><progress max="${Math.max(1, total)}" value="${Math.min(value, total)}" aria-label="${esc(label)}"></progress><small>${value.toLocaleString('pt-BR')} de ${total.toLocaleString('pt-BR')} adições confirmadas neste ciclo de 24h</small></div>`;
     }
 
+    function duration(seconds) {
+        seconds = Math.max(0, Math.floor(seconds));
+        const days = Math.floor(seconds / 86400);
+        return `${days ? days + 'd ' : ''}${String(Math.floor(seconds / 3600) % 24).padStart(2, '0')}:${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    }
+    function updateClocks() {
+        document.querySelectorAll('[data-gc-clock]').forEach(node => {
+            node.textContent = duration(Date.now() / 1000 - Number(node.dataset.gcClock));
+        });
+    }
+    function clockRow(task, added, goal) {
+        const timing = task.timing || {};
+        const clock = value => `<time data-gc-clock="${Number(value)}">${duration(Date.now() / 1000 - value)}</time>`;
+        const met = goal > 0 && added >= goal;
+        return `<div class="gc-timing"><span title="Tempo corrido desde a criação, incluindo pausas">Criada há ${timing.created_at ? clock(timing.created_at) : '—'}</span>${timing.started_at ? `<span>Ativa há ${clock(timing.started_at)}</span>` : ''}<span class="${met ? 'gc-goal-met' : ''}">${met ? `Meta batida${timing.goal_reached_at ? ' há ' + clock(timing.goal_reached_at) : ''}` : timing.cycle_started_at ? 'Sem bater a meta há ' + clock(timing.cycle_started_at) : 'Meta aguardando início do ciclo'}</span></div>`;
+    }
+
     function groupShareLink(group) {
         if (!group.channel_id) return '';
         const link = group.invite || group.reference || '';
@@ -329,7 +346,8 @@
                     <button class="btn btn-danger" data-action="delete" data-id="${task.id}" ${busy ? 'disabled' : ''}>Excluir tarefa</button></div></div>
                     <div class="gc-task-body">
                     <div class="gc-task-meta"><span><i class="fas fa-users" aria-hidden="true"></i> ${task.groups.length} grupos</span><span><i class="fas fa-address-book" aria-hidden="true"></i> <strong class="gc-task-lead-count">${(task.lead_count || 0).toLocaleString('pt-BR')}</strong> leads desta tarefa</span><span>${task.settings.sessions.length} sessões · ${task.settings.sessions.length > 1 ? 'simultâneo' : 'individual'}</span><span title="${esc((task.active_sessions || []).join(', '))}">${(task.active_sessions || []).length} em andamento</span></div>
-                    <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta da tarefa · 24 horas')}<div class="gc-focus"><span class="gc-eyebrow">${task.status === 'running' ? 'Destino prioritário' : 'Próximo destino'}</span><strong>${focus ? esc(focus.title) : perGroup ? 'Sem grupo elegível agora' : 'Distribuição entre grupos'}</strong><small>${focus ? focus.status === 'error' ? 'Sequência bloqueada: revise o erro deste grupo e reinicie a tarefa. Os próximos grupos aguardam.' : focus.today >= focus.daily_limit ? 'Aguardando confirmação das vagas reservadas. Os próximos grupos aguardam.' : 'As sessões trabalham neste grupo até a meta. Grupos com erro são sinalizados e ignorados.' : 'Confira as cotas e os estados dos grupos abaixo.'}</small></div></div>
+                    <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta do ciclo · 24h')}<div class="gc-focus"><span class="gc-eyebrow">Próximo destino</span><strong>${dailyGoal > 0 && dailyAdded >= dailyGoal ? 'Meta do ciclo batida' : focus ? esc(focus.title) : 'Distribuição entre grupos'}</strong></div></div>
+                    ${clockRow(task, dailyAdded, dailyGoal)}
                     ${spamAlert}
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
@@ -363,6 +381,7 @@
                     </div>
                 </section>`;
             }).join('') || '<div class="gc-empty"><i class="fas fa-layer-group" aria-hidden="true"></i><h3>Sua primeira tarefa começa aqui</h3><p>Escolha os grupos e as sessões. Depois de salvar, ela aparecerá neste espaço.</p><button class="btn btn-primary" type="button" data-reveal="campaign-builder">Criar minha primeira tarefa</button></div>';
+            updateClocks();
             filterTasks();
             el('campaign-list').querySelectorAll('details[data-detail]').forEach(detail => detail.open = openDetails.has(detail.dataset.detail));
             el('campaign-list').querySelectorAll('.gc-history').forEach(history => {
@@ -682,6 +701,7 @@
             logFilters.set(id, filter);
             updateLogs(id);
         });
+        setInterval(updateClocks, 1000);
         startLogStream();
         window.addEventListener('pagehide', () => { logStream?.close(); logStream = null; });
         window.addEventListener('pageshow', startLogStream);
