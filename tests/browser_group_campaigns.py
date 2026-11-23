@@ -88,6 +88,7 @@ def run():
                 page.wait_for_function('document.querySelector(".gc-task-lead-count").textContent === "1"')
                 assert page.locator('#campaign-list details[data-detail^="group-"]').count() == 10
                 assert page.locator('.gc-group-title').first.text_content() == 'Comunidade Especial 0', repr(page.locator('.gc-group-title').first.text_content())
+                page.locator('.gc-task-disclosure').evaluate('(node) => node.open = true')
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-editor-title").textContent.includes("Editar tarefa #")')
                 page.locator('#campaign-leads-file').set_input_files({'name': 'leads.json', 'mimeType': 'application/json', 'buffer': b'{"members":[{"id":123,"username":"lead_test"}]} '})
@@ -95,6 +96,7 @@ def run():
                 page.locator('[name="campaign-import-mode" ][value="append" ]').check()
                 page.locator('#campaign-save-button').click()
                 page.wait_for_function('document.querySelector(".gc-task-lead-count").textContent === "2"')
+                page.locator('.gc-task-disclosure').evaluate('(node) => node.open = true')
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-editor-title").textContent.includes("Editar tarefa #")')
                 page.locator('#campaign-leads-file').set_input_files({'name': 'replacement.txt', 'mimeType': 'text/plain', 'buffer': b'@replacement_person'})
@@ -125,6 +127,7 @@ def run():
                     page.evaluate('document.body.dataset.theme = "dark"')
                     page.screenshot(path=str(output / 'campaign-dark.png'), full_page=True)
                 page.locator('#campaign-view-list').click()
+                page.locator('.gc-task-disclosure').evaluate('(node) => node.open = true')
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-name").value === "Tarefa de teste"')
                 assert page.locator('#campaign-count').is_disabled()
@@ -135,6 +138,7 @@ def run():
                 page.locator('#campaign-save-button').click()
                 page.wait_for_function('document.querySelector(".gc-task h3").textContent === "Tarefa editada"')
                 assert page.locator('.gc-task').count() == 1
+                page.locator('.gc-task-disclosure').evaluate('(node) => node.open = true')
                 page.get_by_role('button', name='Editar tarefa', exact=True).click()
                 page.wait_for_function('document.getElementById("campaign-limit").value === "37"')
                 page.locator('#campaign-cancel-edit').click()
@@ -259,11 +263,16 @@ def run():
                     page.locator('#campaign-list details').evaluate_all('(nodes) => nodes.forEach(node => node.open = false)')
                     page.locator('.gc-task').scroll_into_view_if_needed()
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-                    timer = page.locator('[data-gc-clock]').first
+                    assert page.locator('.gc-task').bounding_box()['height'] < 130
+                    assert not page.get_by_role('button', name='Editar tarefa', exact=True).is_visible()
+                    timer = page.locator('.gc-task-row [data-gc-clock]').last
                     before = timer.inner_text()
                     page.wait_for_timeout(1200)
                     assert timer.inner_text() != before
                     page.screenshot(path=str(artifact_dir / f'{width}x{height}.png'), full_page=True)
+                page.locator('.gc-task-row').focus()
+                page.keyboard.press('Enter')
+                assert page.get_by_role('button', name='Excluir tarefa', exact=True).is_visible()
                 page.once('dialog', lambda dialog: dialog.dismiss())
                 page.get_by_role('button', name='Excluir tarefa', exact=True).click()
                 assert page.locator('.gc-task').count() == 1

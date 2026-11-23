@@ -339,7 +339,16 @@
                 const sessionWaits = task.session_waits || [];
                 const spamAlert = sessionWaits.length ? `<details class="gc-alert gc-session-alert" data-detail="waits-${task.id}"><summary>⚠️ ${sessionWaits.length} sessão(ões) em espera ou bloqueadas <span>Ver motivos</span></summary><p>Flood aguarda o prazo informado. Contas congeladas exigem revisão no aplicativo oficial e ficam suspensas sem prazo automático.</p><ul>${sessionWaits.map(wait => `<li><strong>${esc(wait.name)}</strong> — limitada até ${esc(wait.requires_review ? 'revisão manual no Telegram (sem prazo automático)' : new Date(wait.until * 1000).toLocaleString('pt-BR'))}${wait.kind ? ` · ${esc(wait.kind)}` : ''}${wait.reason ? ` · ${esc(wait.reason)}` : ''}</li>`).join('')}</ul></details>` : '';
                 return `<section class="card task-card-modern gc-task" data-status="${esc(task.status)}" data-search="${esc((task.name + ' #' + task.id).toLocaleLowerCase('pt-BR'))}">
-                    <div class="gc-task-head"><div><span class="gc-task-id">TAREFA #${task.id}</span><h3>${esc(task.name)}</h3></div><div class="gc-task-actions"><span class="gc-badge ${esc(task.status)}">${esc(labels[task.status] || task.status)}</span>
+                    <details class="gc-task-disclosure" data-detail="task-${task.id}">
+                    <summary class="gc-task-row">
+                        <span class="gc-row-name"><span class="gc-task-id">#${task.id} · ${task.groups.length} grupos</span><h3>${esc(task.name)}</h3></span>
+                        <span class="gc-badge ${esc(task.status)}">${esc(labels[task.status] || task.status)}</span>
+                        <span class="gc-row-progress"><span>${dailyAdded.toLocaleString('pt-BR')} / ${dailyGoal.toLocaleString('pt-BR')} <small>· ${percent(dailyAdded, dailyGoal)}%</small></span><progress max="${Math.max(1, dailyGoal)}" value="${Math.min(dailyAdded, dailyGoal)}" aria-label="Meta do ciclo de ${esc(task.name)}"></progress></span>
+                        ${clockRow(task, dailyAdded, dailyGoal)}
+                        <span class="gc-row-indicator" title="${sessionWaits.length} sessões em espera${task.error ? ' · Tarefa com erro' : ''}">${task.error ? 'Erro' : sessionWaits.length ? '⚠ ' + sessionWaits.length : ''}</span>
+                        <span class="gc-row-toggle" aria-hidden="true">⌄</span>
+                    </summary>
+                    <div class="gc-task-head"><div class="gc-task-actions">
                     ${task.status === 'running' ? `<button class="btn btn-warning" data-action="pause" data-id="${task.id}">Pausar tarefa</button>` : `<button class="btn btn-primary" data-action="start" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Iniciar tarefa</button>`}
                     <button class="btn btn-primary" data-action="edit" data-id="${task.id}" ${busy || !task.groups.length ? 'disabled' : ''}>Editar tarefa</button>
                     <button type="button" class="btn btn-primary" data-action="copy-links" data-id="${task.id}" ${task.groups.some(group => groupShareLink(group)) ? '' : 'disabled'} title="Copiar nomes e links dos grupos desta tarefa">Copiar nomes e links</button>
@@ -347,7 +356,6 @@
                     <div class="gc-task-body">
                     <div class="gc-task-meta"><span><i class="fas fa-users" aria-hidden="true"></i> ${task.groups.length} grupos</span><span><i class="fas fa-address-book" aria-hidden="true"></i> <strong class="gc-task-lead-count">${(task.lead_count || 0).toLocaleString('pt-BR')}</strong> leads desta tarefa</span><span>${task.settings.sessions.length} sessões · ${task.settings.sessions.length > 1 ? 'simultâneo' : 'individual'}</span><span title="${esc((task.active_sessions || []).join(', '))}">${(task.active_sessions || []).length} em andamento</span></div>
                     <div class="gc-daily-overview">${progress(dailyAdded, dailyGoal, 'Meta do ciclo · 24h')}<div class="gc-focus"><span class="gc-eyebrow">Próximo destino</span><strong>${dailyGoal > 0 && dailyAdded >= dailyGoal ? 'Meta do ciclo batida' : focus ? esc(focus.title) : 'Distribuição entre grupos'}</strong></div></div>
-                    ${clockRow(task, dailyAdded, dailyGoal)}
                     ${spamAlert}
                     <div class="task-queue-summary gc-task-stats"><div><strong>${counts.added || 0}</strong><span>Adicionados</span></div><div><strong>${counts.failed || 0}</strong><span>Não adicionados</span></div><div><strong>${counts.skipped || 0}</strong><span>Duplicados ignorados</span></div><div><strong>${(counts.unknown || 0) + (counts.sending || 0)}</strong><span>Sem confirmação</span></div></div>
                     ${task.error ? `<p class="gc-alert" role="alert">${esc(task.error)}</p>` : ''}
@@ -379,6 +387,7 @@
                     </details>`).join('')}</div></details>
                     <details class="gc-history" data-detail="events-${task.id}"><summary><span>Central de logs</span><span class="gc-live-state" data-state="${streamState}">${streamState === 'live' ? 'Ao vivo' : 'Conectando…'}</span><span class="gc-badge gc-log-count">${(liveEvents.get(task.id) || []).length}</span></summary><div class="gc-log-toolbar"><input type="search" data-log-search="${task.id}" placeholder="Buscar sessão, grupo ou mensagem…" aria-label="Buscar nos logs" value="${esc(logFilters.get(task.id)?.query || '')}"><select data-log-tone="${task.id}" aria-label="Filtrar tipo de evento">${[['','Todos os eventos'],['info','Etapas'],['success','Sucessos'],['warning','Atenção'],['waiting','Esperas']].map(([value,label]) => `<option value="${value}" ${logFilters.get(task.id)?.tone === value ? 'selected' : ''}>${label}</option>`).join('')}</select><button type="button" class="btn gc-clear-logs" data-action="clear-logs" data-id="${task.id}" title="Limpar apenas os logs desta tarefa. Novos eventos continuam ao vivo.">Limpar logs</button></div><p class="gc-history-help">Mais recentes primeiro · até 500 eventos · atualização ao vivo</p><div class="gc-live-content">${renderHistory(liveEvents.get(task.id), logFilters.get(task.id))}</div></details>
                     </div>
+                    </details>
                 </section>`;
             }).join('') || '<div class="gc-empty"><i class="fas fa-layer-group" aria-hidden="true"></i><h3>Sua primeira tarefa começa aqui</h3><p>Escolha os grupos e as sessões. Depois de salvar, ela aparecerá neste espaço.</p><button class="btn btn-primary" type="button" data-reveal="campaign-builder">Criar minha primeira tarefa</button></div>';
             updateClocks();
