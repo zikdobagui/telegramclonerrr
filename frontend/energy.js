@@ -8,7 +8,8 @@ export function createEnergyField(header) {
   const ctx = canvas.getContext('2d');
   if (!ctx) { canvas.remove(); header.classList.remove('ui-energy-header'); return null; }
   let width = 0, height = 0, visible = false, last = 0;
-  const dots = Array.from({ length: innerWidth < 680 ? 15 : 28 }, () => ({
+  const marketing = header.matches('.marketing .hero');
+  const dots = Array.from({ length: marketing ? (innerWidth < 680 ? 28 : 65) : (innerWidth < 680 ? 15 : 28) }, () => ({
     x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.035,
     vy: (Math.random() - 0.5) * 0.1, size: 1 + Math.random() * 1.7,
   }));
@@ -35,8 +36,8 @@ export function createEnergyField(header) {
       for (let i = 0; i < dots.length; i++) for (let j = i + 1; j < dots.length; j++) {
         const a = dots[i], b = dots[j];
         const distance = Math.hypot((a.x - b.x) * width, (a.y - b.y) * height);
-        if (distance > 140) continue;
-        ctx.strokeStyle = `rgba(99,165,255,${(1 - distance / 140) * 0.2})`;
+        if (distance > (marketing ? 200 : 140)) continue;
+        ctx.strokeStyle = `rgba(99,165,255,${(1 - distance / (marketing ? 200 : 140)) * 0.2})`;
         ctx.beginPath(); ctx.moveTo(a.x * width, a.y * height); ctx.lineTo(b.x * width, b.y * height); ctx.stroke();
       }
     },

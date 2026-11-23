@@ -35,3 +35,5 @@ As instruÃ§Ãµes dessas skills foram usadas nesta implementaÃ§Ã£o e ficam disponÃ
 ## Movimento ampliado no painel
 
 No index, títulos usam brilho recorrente; cabeçalhos recebem um campo de partículas conectadas e gradiente em movimento. O canvas usa o mesmo ticker do GSAP/Lenis e só desenha quando o cabeçalho está visível; abas ocultas e a preferência de movimento reduzido não mantêm esse desenho ativo. Brilho e bordas dos cards reagem mais ao mouse; botões primários têm uma faixa de luz, e o menu ativo tem fundo animado. Entradas usam deslocamento de 36 px, duração de 700 ms e sequência de 75 ms. As listas compactas, números de produção e logs não recebem loops de entrada.
+
+A apresentação pública também recebe a constelação animada no hero, brilho recorrente do título, luz ambiente na prévia do produto, entrada em sequência mais ampla, parallax da prévia e efeitos de entrada nos recursos, planos e acesso. Os efeitos não dependem de autenticação.

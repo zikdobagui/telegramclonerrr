@@ -31,3 +31,12 @@ html[data-motion-engine="gsap"] .tab-content { animation:none!important; }
 
 /* Override legacy dashboard child positioning so the glow covers the full card. */
 body[data-design="studio"] .ui-surface > .ui-spotlight-layer {position:absolute!important;inset:0;max-width:none!important;width:100%;height:100%;}
+
+/* The public presentation gets the same prominent motion, before login. */
+.marketing .hero.ui-energy-header {isolation:isolate;position:relative;overflow:hidden;}
+.marketing .hero > .ui-energy-field {position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;opacity:.9;background:radial-gradient(ellipse at 18% 25%,#2872f347,transparent 48%),radial-gradient(ellipse at 85% 50%,#24bfd135,transparent 48%),linear-gradient(115deg,#183a6228,transparent,#18445d38);background-size:140% 140%;animation:ui-energy-drift 10s ease-in-out infinite alternate;}
+.marketing .hero .btn--primary,.marketing .nav__actions .btn--primary {position:relative;overflow:hidden;box-shadow:0 8px 34px #3e83ff55;}
+.marketing .hero .btn--primary::after,.marketing .nav__actions .btn--primary::after {content:'';position:absolute;inset:-40% auto -40% -80%;width:45%;background:linear-gradient(90deg,transparent,#ffffff50,transparent);transform:skewX(-20deg);animation:ui-button-sweep 4s ease-in-out infinite;pointer-events:none;}
+.marketing .hero-kicker > span {animation:ui-icon-pop 3s ease-in-out infinite;display:inline-block;}
+.marketing .resource-card:hover {box-shadow:0 20px 60px #217ce535!important;}
+.marketing .hero__window.ui-surface > .ui-spotlight-layer {position:absolute!important;inset:0;max-width:none!important;width:100%;height:100%;}

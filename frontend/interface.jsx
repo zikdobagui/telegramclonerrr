@@ -15,7 +15,7 @@ gsap.registerPlugin(ScrollTrigger);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const fine = matchMedia('(hover: hover) and (pointer: fine)');
 const headingSelector = '.content-header h2,.dashboard-welcome h2,.gc-workspace-header h2,.dashboard-plans-heading h2,.public-plans-heading h2,#hero-title > span,#resources-title,#access-title';
-const surfaceSelector = '.dashboard-welcome,.gc-workspace-header,.marketing .resource-card,.plan-card,.tab-content > .card';
+const surfaceSelector = '.marketing .hero__window,.dashboard-welcome,.gc-workspace-header,.marketing .resource-card,.plan-card,.tab-content > .card';
 let shutdown;
 
 function boot() {
@@ -58,8 +58,7 @@ function boot() {
       host.className = 'ui-shiny-host';
       node.replaceWith(host);
       const root = createRoot(host);
-      const workspace = document.body.matches('[data-design="studio"]');
-      flushSync(() => root.render(<ShinyText text={text} color={color} shineColor="#c3efff" trigger={workspace ? 'loop' : 'view'} speed={workspace ? 2.4 : 1.1} delay={workspace ? 1.8 : 0} shineWidth={workspace ? 55 : 24} />));
+      flushSync(() => root.render(<ShinyText text={text} color={color} shineColor="#c3efff" trigger="loop" speed={2.4} delay={1.8} shineWidth={55} />));
       roots.set(host, { root, text });
     }
   }
@@ -74,8 +73,7 @@ function boot() {
     host.setAttribute('aria-hidden', 'true');
     surface.append(host);
     const root = createRoot(host);
-    const workspace = document.body.matches('[data-design="studio"]');
-    flushSync(() => root.render(<SpotlightCard className="ui-spotlight" intensity={workspace ? 0.25 : 0.07} borderGlow={workspace ? 0.5 : 0.14} spotlightColor="#79bcff" spotlightSize={360} proximity={60} flare={true} ambient={workspace && surface.matches('.dashboard-welcome,.gc-workspace-header')} style={{ '--spotlight-card-surface': 'transparent', '--spotlight-card-shadow': 'none' }} />));
+    flushSync(() => root.render(<SpotlightCard className="ui-spotlight" intensity={0.25} borderGlow={0.5} spotlightColor="#79bcff" spotlightSize={360} proximity={60} flare={true} ambient={surface.matches('.dashboard-welcome,.gc-workspace-header,.hero__window')} style={{ '--spotlight-card-surface': 'transparent', '--spotlight-card-shadow': 'none' }} />));
     roots.set(host, { root, surface });
   }
 
@@ -111,13 +109,11 @@ function boot() {
     }
     scope.querySelectorAll(headingSelector).forEach(mountText);
     scope.querySelectorAll(surfaceSelector).forEach(mountSurface);
-    if (document.body.matches('[data-design="studio"]')) {
-      scope.querySelectorAll('.dashboard-welcome,.gc-workspace-header,.tab-content > .content-header').forEach(header => {
-        if (energyFields.has(header)) return;
-        const field = createEnergyField(header);
-        if (field) energyFields.set(header, field);
-      });
-    }
+    scope.querySelectorAll('.marketing .hero,.dashboard-welcome,.gc-workspace-header,.tab-content > .content-header').forEach(header => {
+      if (energyFields.has(header)) return;
+      const field = createEnergyField(header);
+      if (field) energyFields.set(header, field);
+    });
     scope.querySelectorAll('.tab-content').forEach(panel => {
       if (observedPanels.has(panel)) return;
       observedPanels.add(panel);
@@ -177,10 +173,14 @@ function boot() {
     if (document.body.classList.contains('marketing')) {
       contexts.set(document.body, gsap.context(() => {
         const hero = document.querySelector('.hero__c');
-        if (hero) gsap.timeline({ defaults: { ease: 'power3.out', duration: 0.5 } })
-          .from(hero.children, { y: 16, opacity: 0.3, stagger: 0.07, clearProps: 'transform,opacity' });
-        gsap.utils.toArray('.section-intro,.resource-card,.public-plans-heading,.access-copy').forEach(target => {
-          gsap.from(target, { y: 18, opacity: 0.4, duration: 0.5, ease: 'power2.out', clearProps: 'transform,opacity', scrollTrigger: { trigger: target, start: 'top 94%', once: true } });
+        if (hero) gsap.timeline({ defaults: { ease: 'power3.out', duration: 0.85 } })
+          .from(hero.children, { y: 40, opacity: 0.05, stagger: 0.13, clearProps: 'transform,opacity' });
+        const preview = document.querySelector('.hero__window');
+        if (preview) gsap.from(preview, { y: 65, scale: 0.96, opacity: 0.1, duration: 1.1, delay: 0.3, ease: 'power3.out', clearProps: 'transform,opacity' });
+        const product = document.querySelector('.product-window');
+        if (product) gsap.to(product, { y: -30, ease: 'none', scrollTrigger: { trigger: preview, start: 'top center', end: 'bottom top', scrub: 0.8 } });
+        gsap.utils.toArray('.section-intro,.resource-card,.public-plans-heading,.public-plans .plans-grid,.access-copy,.access-grid > aside').forEach(target => {
+          gsap.from(target, { y: 42, opacity: 0.15, duration: 0.85, ease: 'power2.out', clearProps: 'transform,opacity', scrollTrigger: { trigger: target, start: 'top 94%', once: true } });
         });
       }, document.body));
     }

@@ -62,6 +62,13 @@ def run():
                 page.goto(base, wait_until='domcontentloaded')
                 page.wait_for_function('window.TGInterface?.smoothScroll === true')
                 page.locator('#hero-title .shiny-text').wait_for()
+                page.locator('.marketing .hero > .ui-energy-field').wait_for(state='attached')
+                page.wait_for_timeout(1400)
+                public_a = page.screenshot(path=str(artifacts / f'presentation-{width}-a.png'))
+                page.wait_for_timeout(600)
+                public_b = page.screenshot(path=str(artifacts / f'presentation-{width}-b.png'))
+                assert public_a != public_b, 'Public presentation should visibly animate before login'
+
                 assert page.locator('#hero-title').inner_text().replace('\n', ' ').strip() == 'Automação para seu Telegram.'
                 page.mouse.wheel(0, 600)
                 page.wait_for_function('window.scrollY > 200')
