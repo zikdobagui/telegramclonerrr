@@ -76,6 +76,13 @@ def run():
                 page.goto(base + '/workspace', wait_until='domcontentloaded')
                 page.wait_for_function('window.TGInterface?.smoothScroll === true')
                 page.locator('.dashboard-welcome .shiny-text').wait_for()
+                page.locator('.dashboard-welcome .ui-energy-field').wait_for(state='attached')
+                page.wait_for_timeout(1000)
+                first_frame = page.locator('.dashboard-welcome').screenshot(path=str(artifacts / f'dashboard-{width}-a.png'))
+                page.wait_for_timeout(600)
+                second_frame = page.locator('.dashboard-welcome').screenshot(path=str(artifacts / f'dashboard-{width}-b.png'))
+                assert first_frame != second_frame, 'Dashboard motion must be visible even without a hover'
+
                 tabs = page.locator('.menu-item[data-tab]').evaluate_all('(nodes) => [...new Set(nodes.map(n => n.dataset.tab))]')
                 visited = []
                 for tab in tabs:
@@ -107,13 +114,13 @@ def run():
                 # Runtime preference changes must fully restore native scrolling and text.
                 page.emulate_media(reduced_motion='reduce')
                 page.wait_for_function('window.TGInterface?.smoothScroll === false')
-                assert page.locator('.ui-shiny-host,.ui-spotlight-layer').count() == 0
+                assert page.locator('.ui-shiny-host,.ui-spotlight-layer,.ui-energy-field').count() == 0
                 assert page.locator('#campaign-name').input_value() == 'Formulário preservado'
                 # On a fresh navigation the reduced-motion path starts natively too.
                 page.goto(base, wait_until='domcontentloaded')
                 page.wait_for_function('window.TGInterface?.smoothScroll === false')
                 assert page.locator('#hero-title').is_visible()
-                assert page.locator('.ui-shiny-host,.ui-spotlight-layer').count() == 0
+                assert page.locator('.ui-shiny-host,.ui-spotlight-layer,.ui-energy-field').count() == 0
                 page.emulate_media(reduced_motion='no-preference')
                 page.wait_for_function('window.TGInterface?.smoothScroll === true')
                 assert not errors, errors

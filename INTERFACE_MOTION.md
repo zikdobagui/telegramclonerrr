@@ -31,3 +31,7 @@ Foram revisadas e instaladas globalmente no ambiente do usuÃ¡rio:
 - [lenis-gsap](https://github.com/saikiranreddy18/Lenis-Agent-Skills/tree/main/lenis-gsap)
 
 As instruÃ§Ãµes dessas skills foram usadas nesta implementaÃ§Ã£o e ficam disponÃ­veis para as prÃ³ximas conversas.
+
+## Movimento ampliado no painel
+
+No index, títulos usam brilho recorrente; cabeçalhos recebem um campo de partículas conectadas e gradiente em movimento. O canvas usa o mesmo ticker do GSAP/Lenis e só desenha quando o cabeçalho está visível; abas ocultas e a preferência de movimento reduzido não mantêm esse desenho ativo. Brilho e bordas dos cards reagem mais ao mouse; botões primários têm uma faixa de luz, e o menu ativo tem fundo animado. Entradas usam deslocamento de 36 px, duração de 700 ms e sequência de 75 ms. As listas compactas, números de produção e logs não recebem loops de entrada.

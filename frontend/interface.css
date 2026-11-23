@@ -6,6 +6,19 @@
 .ui-spotlight-layer { position:absolute; inset:0; z-index:-1; pointer-events:none; border-radius:inherit; overflow:hidden; }
 .ui-spotlight-layer .ui-spotlight { width:100%; height:100%; padding:0; box-sizing:border-box; border-radius:inherit; }
 .ui-spotlight .spotlight-card__border { display:none; }
+.ui-energy-header { position:relative; isolation:isolate; }
+body[data-design="studio"] .ui-energy-header > .ui-energy-field { position:absolute!important;inset:0;width:100%!important;height:100%!important;max-width:none!important;z-index:-1;pointer-events:none;opacity:.8;background:linear-gradient(115deg,#2476ff25,transparent 40%,#28cdd924 70%,#3970ff28);background-size:230% 230%;animation:ui-energy-drift 8s ease-in-out infinite alternate; }
+body[data-design="studio"] .ui-energy-header { border-color:#447ed377!important; }
+body[data-design="studio"] .sidebar .menu-item.active {background:linear-gradient(110deg,#214f854d,#1e718048,#214f854d)!important;background-size:220% 100%!important;animation:ui-energy-drift 5s ease-in-out infinite alternate;box-shadow:inset 3px 0 #65caff,0 0 22px #368bff20!important;}
+body[data-design="studio"] :is(.btn-primary,.dash-action.primary) {box-shadow:0 4px 20px #2b83ff40;position:relative;overflow:hidden;}
+body[data-design="studio"] :is(.btn-primary,.dash-action.primary)::after {content:'';position:absolute;inset:-40% auto -40% -80%;width:45%;background:linear-gradient(90deg,transparent,#ffffff35,transparent);transform:skewX(-20deg);animation:ui-button-sweep 5s ease-in-out infinite;pointer-events:none;}
+@media(hover:hover) and (pointer:fine) {
+ body[data-design="studio"] :is(.btn,.dash-action):hover:not(:disabled) {translate:0 -3px;box-shadow:0 8px 24px #368bff40;}
+ body[data-design="studio"] .sidebar .menu-item:hover i {animation:ui-icon-pop .5s ease both;}
+}
+@keyframes ui-energy-drift {from{background-position:0% 30%}to{background-position:100% 80%}}
+@keyframes ui-button-sweep {0%,65%{left:-80%}100%{left:160%}}
+@keyframes ui-icon-pop {0%,100%{transform:rotate(0) scale(1)}45%{transform:rotate(-12deg) scale(1.25)}}
 html[data-motion-engine="gsap"] :is(button,a,input,select,textarea,summary):focus-visible { outline:2px solid #8ac8ff; outline-offset:3px; }
 html[data-motion-engine="gsap"] :is(.btn,.dash-action,.mini-btn,.gc-view-button,.auth-tab) { transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease; }
 html[data-motion-engine="gsap"] :is(.btn,.dash-action,.mini-btn):active:not(:disabled) { filter:brightness(.92); }
@@ -15,3 +28,6 @@ html[data-motion-engine="gsap"] .tab-content { animation:none!important; }
   html[data-motion-engine="gsap"] { scroll-behavior:auto!important; }
   html[data-motion-engine="gsap"] *,html[data-motion-engine="gsap"] *::before,html[data-motion-engine="gsap"] *::after { animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; scroll-behavior:auto!important; }
 }
+
+/* Override legacy dashboard child positioning so the glow covers the full card. */
+body[data-design="studio"] .ui-surface > .ui-spotlight-layer {position:absolute!important;inset:0;max-width:none!important;width:100%;height:100%;}

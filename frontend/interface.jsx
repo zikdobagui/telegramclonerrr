@@ -7,6 +7,7 @@ import Lenis from 'lenis';
 import 'lenis/dist/lenis.css';
 import ShinyText from './reactbits/ShinyText.jsx';
 import SpotlightCard from './reactbits/SpotlightCard.jsx';
+import { createEnergyField } from './energy.js';
 import './interface.css';
 
 // Presentation only. No account, task, authentication or API state is owned here.
@@ -23,6 +24,7 @@ function boot() {
   const { signal } = signalController;
   const roots = new Map();
   const contexts = new Map();
+  const energyFields = new Map();
   const interactions = gsap.context(() => {});
   const decorated = new WeakSet();
   const observedPanels = new WeakSet();
@@ -56,7 +58,8 @@ function boot() {
       host.className = 'ui-shiny-host';
       node.replaceWith(host);
       const root = createRoot(host);
-      flushSync(() => root.render(<ShinyText text={text} color={color} shineColor="#ffffff" trigger="view" speed={1.1} shineWidth={24} />));
+      const workspace = document.body.matches('[data-design="studio"]');
+      flushSync(() => root.render(<ShinyText text={text} color={color} shineColor="#c3efff" trigger={workspace ? 'loop' : 'view'} speed={workspace ? 2.4 : 1.1} delay={workspace ? 1.8 : 0} shineWidth={workspace ? 55 : 24} />));
       roots.set(host, { root, text });
     }
   }
@@ -71,7 +74,8 @@ function boot() {
     host.setAttribute('aria-hidden', 'true');
     surface.append(host);
     const root = createRoot(host);
-    flushSync(() => root.render(<SpotlightCard className="ui-spotlight" intensity={0.07} borderGlow={0.14} spotlightColor="#9fd8ff" spotlightSize={260} proximity={30} flare={false} ambient={false} style={{ '--spotlight-card-surface': 'transparent', '--spotlight-card-shadow': 'none' }} />));
+    const workspace = document.body.matches('[data-design="studio"]');
+    flushSync(() => root.render(<SpotlightCard className="ui-spotlight" intensity={workspace ? 0.25 : 0.07} borderGlow={workspace ? 0.5 : 0.14} spotlightColor="#79bcff" spotlightSize={360} proximity={60} flare={true} ambient={workspace && surface.matches('.dashboard-welcome,.gc-workspace-header')} style={{ '--spotlight-card-surface': 'transparent', '--spotlight-card-shadow': 'none' }} />));
     roots.set(host, { root, surface });
   }
 
@@ -84,8 +88,8 @@ function boot() {
     const targets = items.length ? items : [...panel.children].filter(node => node.matches('header,section,form')).slice(0, 6);
     if (!targets.length) return;
     contexts.set(panel, gsap.context(() => {
-      gsap.timeline({ defaults: { duration: 0.32, ease: 'power2.out' } })
-        .from(targets, { y: 10, opacity: 0.35, stagger: 0.035, clearProps: 'transform,opacity' });
+      gsap.timeline({ defaults: { duration: 0.7, ease: 'power3.out' } })
+        .from(targets, { y: 36, opacity: 0.12, stagger: 0.075, clearProps: 'transform,opacity' });
     }, panel));
   }
 
@@ -102,8 +106,18 @@ function boot() {
         roots.delete(host);
       }
     }
+    for (const [header, field] of energyFields) {
+      if (!header.isConnected) { field.destroy(); energyFields.delete(header); }
+    }
     scope.querySelectorAll(headingSelector).forEach(mountText);
     scope.querySelectorAll(surfaceSelector).forEach(mountSurface);
+    if (document.body.matches('[data-design="studio"]')) {
+      scope.querySelectorAll('.dashboard-welcome,.gc-workspace-header,.tab-content > .content-header').forEach(header => {
+        if (energyFields.has(header)) return;
+        const field = createEnergyField(header);
+        if (field) energyFields.set(header, field);
+      });
+    }
     scope.querySelectorAll('.tab-content').forEach(panel => {
       if (observedPanels.has(panel)) return;
       observedPanels.add(panel);
@@ -150,7 +164,10 @@ function boot() {
       prevent: node => Boolean(node.closest('.sidebar,.modal,[role="dialog"],textarea,select,.logs,.gc-log-list,.table-responsive,.gc-sessions,[data-lenis-prevent]')),
     });
     unsubscribe = lenis.on('scroll', ScrollTrigger.update);
-    ticker = seconds => lenis.raf(seconds * 1000);
+    ticker = seconds => {
+      lenis.raf(seconds * 1000);
+      energyFields.forEach(field => field.draw(seconds));
+    };
     gsap.ticker.add(ticker);
     gsap.ticker.lagSmoothing(0);
     scan();
@@ -216,6 +233,7 @@ function boot() {
     cancelAnimationFrame(refreshFrame);
     contexts.forEach(context => context.revert());
     interactions.revert();
+    energyFields.forEach(field => field.destroy());
     if (ticker) gsap.ticker.remove(ticker);
     unsubscribe?.();
     lenis?.destroy();
