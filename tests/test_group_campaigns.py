@@ -932,6 +932,82 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertGreater(gateway.session_retry_at['one.session'], 0)
         self.assertEqual(store.groups(cid)[0]['status'], 'ready')
 
+    def test_duplicated_authorization_key_rotates_session_without_harming_group(self):
+        from group_campaigns import parallel_group_additions, session_wait_details
+        from telethon.errors import AuthKeyDuplicatedError
+        cid, groups = self.task()
+        self.leads(3)
+        settings = self.store.get(cid)['settings']
+        calls = []
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(name)
+                if name == 'one.session':
+                    raise AuthKeyDuplicatedError(None)
+                return True
+
+        asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        self.assertEqual(calls, ['one.session', 'two.session'])
+        task = self.store.snapshot()['campaigns'][0]
+        self.assertEqual(task['groups'][0]['status'], 'ready')
+        self.assertEqual(task['groups'][0]['today_added'], 1)
+        self.assertEqual(task['counts'], {'added': 1})
+        self.assertEqual(session_wait_details(self.temp.name, ['one.session'])[0]['kind'], 'AuthKeyDuplicatedError')
+
+    def test_wrapped_owner_authorization_error_is_not_group_access_failure(self):
+        from group_campaigns import parallel_group_additions, GroupAccessError, session_wait_details
+        from telethon.errors import AuthKeyDuplicatedError
+        cid, groups = self.task()
+        self.leads(2)
+        settings = self.store.get(cid)['settings']
+
+        class Gateway:
+            async def invite(self, *args):
+                cause = AuthKeyDuplicatedError(None)
+                cause.session_name = 'owner.session'
+                raise GroupAccessError('Não foi possível renovar o convite') from cause
+
+        asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        self.assertEqual(self.store.groups(cid)[0]['status'], 'ready')
+        self.assertEqual(session_wait_details(self.temp.name, ['owner.session'])[0]['kind'], 'AuthKeyDuplicatedError')
+
+    def test_saved_false_group_error_is_recovered_without_replacing_group(self):
+        from telethon.errors import AuthKeyDuplicatedError
+        cid, groups = self.task()
+        group = groups[0]
+        self.store.group_update(group['id'], status='error', error=str(AuthKeyDuplicatedError(None)), channel_id='123', access_hash='456', creator='one.session')
+        recovered = self.store.groups(cid)[0]
+        self.assertEqual(recovered['id'], group['id'])
+        self.assertEqual(recovered['channel_id'], '123')
+        self.assertEqual(recovered['status'], 'ready')
+        self.assertEqual(recovered['error'], '')
+
+    def test_creation_session_auth_error_preserves_pending_group_and_rotates(self):
+        from telethon.errors import AuthKeyDuplicatedError
+        cid = self.store.create({'name': 'Create', 'count': 1}, ['one.session', 'two.session'])
+        self.store.state(cid, 'running')
+        store = self.store
+        calls = []
+
+        class Gateway:
+            async def create(self, group, name, persist):
+                calls.append(name)
+                if name == 'one.session':
+                    raise AuthKeyDuplicatedError(None)
+                store.state(cid, 'paused')
+                return {'channel_id': '123', 'access_hash': '456', 'creator': name, 'invite': 'https://t.me/+ok'}
+
+            async def close(self):
+                pass
+
+        import itertools
+        tick = itertools.count(step=30)
+        with patch('group_campaigns.time', SimpleNamespace(time=__import__('time').time, monotonic=lambda: next(tick))):
+            asyncio.run(asyncio.wait_for(campaign_loop(store, cid, Gateway()), timeout=2))
+        self.assertEqual(calls, ['one.session', 'two.session'])
+        self.assertEqual(store.groups(cid)[0]['status'], 'ready')
+
     def test_frozen_session_is_suspended_without_marking_group_error(self):
         from group_campaigns import parallel_group_additions, frozen_sessions, session_wait_details
         from telethon.errors import FrozenMethodInvalidError

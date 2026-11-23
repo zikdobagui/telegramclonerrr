@@ -33,3 +33,9 @@ node --check static/group_campaigns.js
 ```
 
 O teste opcional `python tests/browser_group_campaigns.py` usa Playwright/Chromium e um banco temporário para conferir os formulários. Os testes não criam grupos nem adicionam pessoas no Telegram.
+
+### Falhas de sessão e acesso
+
+- `AuthKeyDuplicatedError`, sessão revogada, expirada ou não autorizada são falhas da conta, não evidências de queda do grupo. A sessão entra em espera de 5 minutos para nova consulta, e precisa ser reconectada quando a autorização foi invalidada. No caso de chave duplicada, interrompa o uso simultâneo do mesmo arquivo de sessão em servidores diferentes. Outras sessões disponíveis continuam.
+- Convite expirado, falta de permissão e acesso privado exigem revisão de acesso. Não comprovam exclusão ou banimento do grupo. O painel distingue essa revisão de uma falha de operação e não afirma queda sem comprovação.
+- Grupos salvos com falso erro de autorização são recuperados preservando identidade, histórico e metas. O motivo anterior fica registrado nos eventos.

@@ -155,6 +155,30 @@ def transient_request(error):
     return bool(re.fullmatch(r'An error occurred while communicating with DC \d+(?: \(caused by \w+\))?', str(error))) or bool(re.fullmatch(r'Request was unsuccessful \d+ time\(s\)', str(error))) or isinstance(error, (TimeoutError, ConnectionError)) or type(error).__name__ in {'ServerError', 'RpcCallFailError', 'TimedOutError', 'InterdcCallErrorError', 'InterdcCallRichErrorError'}
 
 
+def session_auth_error(error):
+    """Identify account authorization failures, including wrapped/saved errors."""
+    for _ in range(8):
+        if error is None:
+            break
+        kind, message = type(error).__name__, str(error).lower()
+        if kind in {'AuthKeyDuplicatedError', 'AuthKeyUnregisteredError', 'AuthKeyInvalidError',
+                    'AuthKeyNotFound', 'SessionRevokedError', 'SessionExpiredError',
+                    'UserDeactivatedBanError', 'UserDeactivatedError', 'UnauthorizedError'} or any(
+                text in message for text in ('authkeyduplicated', 'auth_key_duplicated',
+                    'authorization key (session file) was used under two different ip addresses',
+                    'authkeyunregistered', 'auth_key_unregistered', 'sessionrevoked', 'session_revoked',
+                    'sessionexpired', 'session_expired', 'userdeactivatedban', 'user_deactivated_ban',
+                    'sessão não autorizada')) or ('sessão ' in message and ' não autorizada' in message):
+            return error
+        error = getattr(error, '__cause__', None) or getattr(error, '__context__', None)
+    return None
+
+
+def auth_session_name(error, fallback):
+    cause = session_auth_error(error)
+    return getattr(cause, 'session_name', None) or fallback
+
+
 def session_restriction(error):
     """Whether Telegram rejected the *account*, rather than the target group.
 
@@ -285,7 +309,9 @@ def place_session_on_wait(data_dir, session_name, error):
     one, so use a conservative 24-hour wait and let the user retry it later.
     """
     seconds = max(1, int(getattr(error, 'seconds', 0) or 0))
-    if not getattr(error, 'seconds', None):
+    if session_auth_error(error) is not None:
+        seconds = 300  # Recheck later; authorization still requires reconnecting the account.
+    elif not getattr(error, 'seconds', None):
         seconds = 24 * 60 * 60
     until = datetime.now() + __import__('datetime').timedelta(seconds=seconds)
     path = os.path.join(data_dir, 'session_floods.json')
@@ -685,6 +711,12 @@ class CampaignStore:
             for group in groups:
                 cycle, expires = self.quota_cycle(conn, cid, group['slot'] if settings['limit_scope'] == 'group' else 0)
                 group['quota_resets_at'] = expires
+                group['review_label'] = 'Revisar acesso' if group['error'].startswith('[ACESSO]') else 'Revisar operação'
+                if group['status'] == 'error' and session_auth_error(group['error']) is not None:
+                    status = ('warming' if group['warm_until'] > time.time() else 'ready') if group['channel_id'] else 'pending'
+                    conn.execute('INSERT INTO events(campaign_id,message,created) VALUES(?,?,?)', (cid, f"Grupo {group['slot']}: corrigida classificação anterior de falha da sessão; nenhuma queda do grupo foi comprovada. Motivo anterior: {group['error'][:500]}", time.time()))
+                    conn.execute("UPDATE groups SET status=?,error='' WHERE id=?", (status, group['id']))
+                    group.update(status=status, error='')
                 if group['status'] == 'error' and group['error'].startswith('[CONFIRMACAO_PENDENTE]'):
                     conn.execute("UPDATE groups SET status='ready',error='' WHERE id=?", (group['id'],))
                     group.update(status='ready', error='')
@@ -1095,7 +1127,9 @@ class TelegramCampaignGateway:
         async with self.client_locks.setdefault(name, asyncio.Lock()):
             try:
                 return await self._connect_client(name)
-            except Exception:
+            except Exception as error:
+                if session_auth_error(error) is not None:
+                    session_auth_error(error).session_name = name
                 client = self.clients.pop(name, None)
                 if client:
                     try:
@@ -1717,7 +1751,7 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
         rejected[name] = reason
         store.event(cid, f"Grupo {group['slot']}: sessão {name} sem acesso/permissão neste grupo ({reason}); as outras sessões continuarão tentando.")
         if all(candidate in rejected for candidate in names):
-            message = 'Nenhuma sessão disponível conseguiu acesso/permissão neste grupo. ' + '; '.join(f'{candidate}: {detail}' for candidate, detail in rejected.items())
+            message = '[ACESSO] Nenhuma sessão disponível conseguiu acesso/permissão neste grupo; isso não confirma que o grupo foi excluído ou banido. ' + '; '.join(f'{candidate}: {detail}' for candidate, detail in rejected.items())
             store.group_update(gid, status='error', error=message[:1000])
             store.event(cid, f"Grupo {group['slot']}: marcado com erro; seguindo para o próximo grupo disponível. {message}")
 
@@ -1815,14 +1849,17 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
                     store.finish(delivery['id'], 'retry', str(error))
                     reject_session(name, f'{type(error).__name__}: {error}')
                     return
-                if type(error).__name__ in {'AuthKeyUnregisteredError', 'SessionRevokedError', 'UserDeactivatedBanError'}:
-                    store.finish(delivery['id'], 'retry', str(error))
-                    retry_at[name] = time.time() + 300
-                    store.event(cid, f'{prefix}: sessão indisponível ({type(error).__name__}); retirada da rodada por 5 minutos. As demais sessões continuam.')
+                if session_auth_error(error) is not None:
+                    cause = session_auth_error(error)
+                    failed_name = auth_session_name(error, name)
+                    place_session_on_wait(data_dir, failed_name, cause)
+                    store.finish(delivery['id'], 'retry', f'{type(cause).__name__}: {cause}')
+                    retry_at[failed_name] = time.time() + 300
+                    store.event(cid, f'Sessão {failed_name}: falha de autorização ({type(cause).__name__}). Reconecte esta conta; se a chave foi duplicada, pare o uso simultâneo da mesma sessão em outros servidores. Nova consulta em 5 minutos, sem garantia de recuperação automática. Grupo {group["slot"]} preservado; isso não indica queda do grupo.')
                     return
                 if isinstance(error, GroupAccessError) or expired_group_invite(error):
                     store.finish(delivery['id'], 'retry', str(error))
-                    store.group_update(gid, status='error', error=str(error)[:1000])
+                    store.group_update(gid, status='error', error=('[ACESSO] ' + str(error))[:1000])
                     store.event(cid, f'{prefix}: entrada no grupo bloqueada antes de enviar o convite ao lead. O lead foi preservado para nova tentativa. {error}')
                     return
                 if session_restriction(error):
@@ -1967,13 +2004,20 @@ async def campaign_loop(store, cid, gateway):
                     limit = group['daily_limit'] if settings['limit_scope'] == 'group' else settings['daily_limit']
                     if used >= limit:
                         continue
+                operation_session = group.get('creator') or names[0]
                 try:
                     if group['channel_id'] and hasattr(gateway, 'member_count'):
                         await store.refresh_member_count(group, gateway)
                     if group['status'] == 'pending':
                         store.event(cid, f"Grupo {group['slot']}: iniciando criação ou vínculo do grupo no Telegram.")
                         store.group_update(gid, status='creating')
-                        owner = names[(group['slot'] - 1) % len(names)]
+                        eligible = [name for name in names if not session_wait_until(data_dir, name)]
+                        if not eligible:
+                            store.group_update(gid, status='pending')
+                            store.event_recent(cid, f"Grupo {group['slot']}: aguardando uma sessão autorizada para criar ou vincular; nenhuma queda foi confirmada.")
+                            continue
+                        owner = eligible[(group['slot'] - 1) % len(eligible)]
+                        operation_session = owner
                         descriptions = settings.get('descriptions', [])
                         group_images = settings.get('group_images') or ([settings['group_image']] if settings.get('group_image') else [])
                         created = await gateway.create({**group,
@@ -1999,6 +2043,9 @@ async def campaign_loop(store, cid, gateway):
                             index = group['message_index']
                             store.group_update(gid, next_message=time.time() + settings['warm_interval'] * 60, message_index=index + 1)
                             store.event(cid, f"Grupo {group['slot']}: preparando envio de aquecimento.")
+                            operation_session = names[index % len(names)]
+                            if session_wait_until(data_dir, operation_session):
+                                continue
                             messages = settings['messages']
                             images = settings.get('images', [])
                             content_index = index % (len(messages) + len(images))
@@ -2016,7 +2063,7 @@ async def campaign_loop(store, cid, gateway):
                         available_names = [name for name in names if name not in waits and name in loaded]
                         if not available_names:
                             blocked = [
-                                f"{name}: LIMITADA por spam/flood até {waits[name]['until_text']} ({waits[name]['kind'] or waits[name]['reason']})"
+                                f"{name}: indisponível até {waits[name]['until_text']} ({waits[name]['kind'] or waits[name]['reason']})"
                                 if name in waits else f'{name}: não carregada ou inválida'
                                 for name in names
                             ]
@@ -2054,12 +2101,20 @@ async def campaign_loop(store, cid, gateway):
                                     continue
                                 try:
                                     used_session = candidate
+                                    operation_session = candidate
                                     lead_label = str(delivery['payload'].get('username') or delivery['payload'].get('id') or 'sem username')[:100]
                                     store.event(cid, f"Grupo {group['slot']}: sessão {candidate} iniciando adição do lead #{delivery['lead_id']} ({lead_label}).")
                                     added = await gateway.invite(group, candidate, delivery['payload'], store.reservation(delivery['id'], candidate))
                                     used_session = candidate
                                     break
                                 except Exception as error:
+                                    if session_auth_error(error) is not None:
+                                        cause = session_auth_error(error)
+                                        failed_name = auth_session_name(error, candidate)
+                                        place_session_on_wait(data_dir, failed_name, cause)
+                                        store.event(cid, f'Sessão {failed_name}: falha de autorização ({type(cause).__name__}); reconecte a conta. Grupo preservado; as outras sessões continuarão.')
+                                        used_session = None
+                                        continue
                                     if frozen_account(error):
                                         mark_session_frozen(data_dir, candidate)
                                         store.event(cid, f'Sessão {candidate}: conta congelada pelo Telegram, suspensa até revisão no aplicativo oficial.')
@@ -2118,13 +2173,35 @@ async def campaign_loop(store, cid, gateway):
                     if transient_request(error) and group['status'] in {'ready', 'warming'}:
                         store.event(cid, f"Grupo {group['slot']}: falha temporária de comunicação; a tarefa continuará e tentará novamente automaticamente. Detalhe: {kind}: {error}")
                         continue
-                    if kind in {'FloodWaitError', 'PeerFloodError', 'UserRestrictedError', 'AuthKeyUnregisteredError', 'SessionRevokedError'}:
-                        store.group_update(gid, status='error', error=str(error)[:1000])
-                        store.event(cid, f"Grupo {group['slot']}: {kind}. O grupo foi ignorado, mas a tarefa continuará automaticamente.")
+                    if session_auth_error(error) is not None:
+                        cause = session_auth_error(error)
+                        failed_name = auth_session_name(error, operation_session)
+                        place_session_on_wait(data_dir, failed_name, cause)
+                        # Read the persisted identity: creation may have succeeded before
+                        # a subsequent account request failed. Never create a duplicate.
+                        saved = next(g for g in store.groups(cid) if g['id'] == gid)
+                        status = ('warming' if saved['warm_until'] > time.time() else 'ready') if saved['channel_id'] else 'pending'
+                        store.group_update(gid, status=status, error='')
+                        store.event(cid, f'Sessão {failed_name}: falha de autorização ({type(cause).__name__}). Reconecte a conta e evite usar a mesma sessão em servidores diferentes. Grupo {group["slot"]} preservado; não há evidência de queda. A sessão será consultada novamente em 5 minutos.')
                         worked = True
                         continue
-                    store.group_update(gid, status='error', error=str(error)[:1000])
-                    store.event(cid, f"Grupo {group['slot']}: {error}. O grupo foi ignorado; a tarefa continuará com os demais grupos.")
+                    if session_restriction(error) or frozen_account(error):
+                        if frozen_account(error):
+                            mark_session_frozen(data_dir, operation_session)
+                        else:
+                            place_session_on_wait(data_dir, operation_session, error)
+                        saved = next(g for g in store.groups(cid) if g['id'] == gid)
+                        status = ('warming' if saved['warm_until'] > time.time() else 'ready') if saved['channel_id'] else 'pending'
+                        store.group_update(gid, status=status, error='')
+                        store.event(cid, f'Sessão {operation_session}: restrição da conta ({kind}); grupo preservado. Nenhuma queda foi confirmada.')
+                        worked = True
+                        continue
+                    if isinstance(error, GroupAccessError) or expired_group_invite(error) or kind in {'ChannelPrivateError', 'ChatAdminRequiredError', 'ChatWriteForbiddenError', 'UserBannedInChannelError'}:
+                        message = f'[ACESSO] {kind}: {error}. Falha de acesso ou permissão; não confirma exclusão ou banimento do grupo.'
+                    else:
+                        message = f'[OPERACAO] {kind}: {error}. A operação precisa de revisão; a queda do grupo não foi confirmada.'
+                    store.group_update(gid, status='error', error=message[:1000])
+                    store.event(cid, f"Grupo {group['slot']}: {message} As outras tarefas e grupos disponíveis continuam.")
                     worked = True
                 if worked:
                     had_work = True

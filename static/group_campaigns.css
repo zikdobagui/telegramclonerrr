@@ -382,3 +382,7 @@ body #comingSoon.gc-workspace .gc-task-disclosure > .gc-task-head {justify-conte
 
 body #comingSoon.gc-workspace .gc-row-progress small {display:inline;}
 body #comingSoon.gc-workspace .gc-task-row .gc-timing {font-size:11px;}
+
+/* Access and operation failures are review states, not proof of group deletion. */
+body #comingSoon.gc-workspace .gc-group.gc-group-review {border-color:rgba(251,191,36,.45)!important;background:rgba(251,191,36,.04)!important;}
+body #comingSoon.gc-workspace .gc-group-review .gc-group-error-message {color:#fcd34d;}
