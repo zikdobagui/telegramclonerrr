@@ -35,5 +35,16 @@ vm.runInNewContext(fs.readFileSync('static/whatsapp.js','utf8'),context);
  action=get('wa-connect').events.click();
  const timeout=[...timers.values()].filter(x=>x.ms===12000).at(-1);timeout.fn();await action;
  assert.match(get('wa-error').textContent,/12 segundos/);assert.equal(get('wa-connect').disabled,false);assert.equal(get('wa-progress').hidden,true);
+ // Disconnect cancels a pending connect response and never redisplays its old QR/session.
+ action=get('wa-connect').events.click();const oldConnect=requests.at(-1);
+ const unlink=get('wa-disconnect').events.click(),unlinkRequest=requests.at(-1);
+ oldConnect.reply({success:true,connection:{status:'connected',message:'Old account',qr_available:true,qr_revision:'old'}});await action;
+ assert.equal(get('wa-connect').disabled,true);assert.equal(get('wa-qr-box').hidden,true);
+ unlinkRequest.reply({success:true,connection:{status:'disconnecting',message:'Removing old pairing'}});await unlink;
+ assert.equal(get('wa-connect').disabled,true);
+ poll=get('wa-refresh-status').events.click();requests.at(-1).reply({success:true,connection:{status:'disconnected',message:'Removed'}});await poll;
+ assert.equal(get('wa-connect').disabled,false);
+ action=get('wa-connect').events.click();requests.at(-1).reply({success:true,connection:{status:'qr',message:'New pairing',qr_available:true,qr_revision:'new-pairing'}});await action;
+ assert.match(get('wa-qr').src,/v=new-pairing/);
  console.log('PASS: immediate loader, stages, private QR image, timeout diagnostics, stale-poll protection and HTTP abort');
 })().catch(error=>{console.error(error);process.exitCode=1;});

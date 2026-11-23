@@ -2,6 +2,7 @@
  'use strict';
  const page=document.getElementById('whatsapp');if(!page)return;
  const el=id=>document.getElementById('wa-'+id);
+ let disconnecting=false;
  let timer=null,pollPromise=null,groups=[],snapshot=null,requesting=false,requestStarted=0,operation=0,qrRevision=null,qrAttempts=0;
  const stateLabels={pending:'Na fila',sending:'Enviando',sent:'Confirmado',unknown:'Sem confirmação',failed:'Falhou'};
  const selected=new Map();
@@ -20,10 +21,10 @@
  function error(node,message){node.textContent=message||'';node.hidden=!message;}
  function render() {
   if(!snapshot)return;
-  const status=requesting?'requesting':snapshot.status;
+  const status=disconnecting?'disconnecting':requesting?'requesting':snapshot.status;
   const phase=requesting?'preparing':snapshot.phase;
   el('status').textContent=requesting?'Solicitando uma conexão ao servidor...':snapshot.message;
-  const hasQR=!requesting&&Boolean(snapshot.qr_available||snapshot.qr);
+  const hasQR=!requesting&&!disconnecting&&status!=='disconnecting'&&Boolean(snapshot.qr_available||snapshot.qr);
   el('qr-box').hidden=!hasQR;
   if(hasQR){
    const revision=snapshot.qr_revision||snapshot.qr_expires_at||snapshot.qr;
@@ -31,10 +32,10 @@
   }else{qrRevision=null;el('qr').removeAttribute('src');}
   el('qr-time').textContent='Leia este código no celular. Se expirar, o próximo será exibido automaticamente.';
   const waiting=requesting||['connecting','reconnecting'].includes(status)||(status==='qr'&&!hasQR);
-  const busy=requesting||['connecting','qr','reconnecting','connected'].includes(status);
+  const busy=requesting||disconnecting||status==='disconnecting'||['connecting','qr','reconnecting','connected'].includes(status);
   el('connect').disabled=busy||snapshot.status==='unavailable';
   el('connect').setAttribute('aria-busy',String(waiting));
-  el('connect').textContent=status==='connected'?'WhatsApp conectado':waiting?'Conectando...':status==='qr'?'Aguardando leitura do QR':['error','timeout','disconnected','logged_out','replaced'].includes(status)?'Conectar novamente':'Conectar WhatsApp';
+  el('connect').textContent=status==='disconnecting'?'Removendo sessão...':status==='connected'?'WhatsApp conectado':waiting?'Conectando...':status==='qr'?'Aguardando leitura do QR':['error','timeout','disconnected','logged_out','replaced'].includes(status)?'Conectar novamente':'Conectar WhatsApp';
   el('progress').hidden=!waiting;
   const phaseText={preparing:['Iniciando conexão','Enviando sua solicitação ao servidor.'],loading_library:['Preparando a conexão','Carregando a biblioteca de WhatsApp.'],opening_session:['Abrindo seu aparelho','Verificando o pareamento salvo no servidor.'],waiting_whatsapp:['Aguardando o WhatsApp','O QR Code aparecerá aqui assim que chegar.'],reconnecting:['Reconectando','Tentando reutilizar o aparelho já vinculado.']};
   const progress=phaseText[phase]||['Atualizando QR Code','Aguardando um novo código válido do WhatsApp.'];
@@ -44,7 +45,7 @@
   page.querySelectorAll('[data-wa-stage]').forEach(item=>{const number=Number(item.dataset.waStage);item.classList.toggle('is-done',number<step||status==='connected');item.classList.toggle('is-active',number===step&&status!=='connected');});
   const diagnostic=snapshot.error_code?`Diagnóstico: ${snapshot.error_code}. ${snapshot.message}`:'';
   error(el('diagnostic'),diagnostic);
-  el('disconnect').hidden=!busy;
+  el('disconnect').hidden=!busy;el('disconnect').disabled=disconnecting||status==='disconnecting';
   el('refresh-groups').disabled=snapshot.status!=='connected';
   error(el('last-error'),snapshot.last_error);
   const outbox=snapshot.outbox||{};el('counts').replaceChildren();
@@ -63,9 +64,9 @@
   if(pollPromise)return pollPromise;
   clearTimeout(timer);const version=operation;
   pollPromise=(async()=>{
-   try{const data=await api();if(version===operation&&!requesting){snapshot=data.connection;render();error(el('error'),'');}}
+   try{const data=await api();if(version===operation&&!requesting&&!disconnecting){snapshot=data.connection;render();error(el('error'),'');}}
    catch(err){
-    if(version===operation&&!requesting&&snapshot&&['connecting','reconnecting','qr'].includes(snapshot.status)){
+    if(version===operation&&!requesting&&!disconnecting&&snapshot&&['connecting','reconnecting','qr'].includes(snapshot.status)){
      snapshot={...snapshot,status:'error',phase:'error',error_code:'WA_STATUS_UNAVAILABLE',message:'Não foi possível acompanhar a conexão. A tentativa pode continuar no servidor; atualize o estado.',qr:null,qr_available:false};render();
     }
     error(el('error'),err.message);
@@ -98,12 +99,21 @@
   }catch(err){error(errorNode,err.message);}
  }
  el('connect').addEventListener('click',async()=>{
-  if(requesting)return;operation++;clearTimeout(timer);requesting=true;requestStarted=Date.now();snapshot=snapshot||{};render();error(el('error'),'');
-  try{const data=await api('/connect','POST');requesting=false;snapshot=data.connection||{status:'connecting',phase:'waiting_whatsapp',message:'Aguardando o WhatsApp...',started_at:requestStarted/1000};render();}
-  catch(err){requesting=false;snapshot={...snapshot,status:'error',phase:'error',message:err.message,qr:null,qr_available:false};render();error(el('error'),err.message);}
-  finally{timer=setTimeout(poll,500);}
+  if(requesting||disconnecting||snapshot?.status==='disconnecting')return;const version=++operation;clearTimeout(timer);requesting=true;requestStarted=Date.now();snapshot=snapshot||{};render();error(el('error'),'');
+  try{const data=await api('/connect','POST');if(version!==operation)return;requesting=false;snapshot=data.connection||{status:'connecting',phase:'waiting_whatsapp',message:'Aguardando o WhatsApp...',started_at:requestStarted/1000};render();}
+  catch(err){if(version!==operation)return;requesting=false;snapshot={...snapshot,status:'error',phase:'error',message:err.message,qr:null,qr_available:false};render();error(el('error'),err.message);}
+  finally{if(version===operation)timer=setTimeout(poll,500);}
  });
- el('disconnect').addEventListener('click',async()=>{operation++;clearTimeout(timer);el('disconnect').disabled=true;try{const data=await api('/disconnect','POST');if(data.connection){snapshot=data.connection;render();}}catch(err){error(el('error'),err.message);}finally{el('disconnect').disabled=false;timer=setTimeout(poll,500);}});
+ el('disconnect').addEventListener('click',async()=>{
+  if(disconnecting)return;
+  const version=++operation;clearTimeout(timer);requesting=false;disconnecting=true;
+  snapshot={...snapshot,status:'disconnecting',phase:'disconnecting',message:'Removendo a sessão anterior do WhatsApp...',qr:null,qr_available:false};
+  render();error(el('error'),'');
+  try{const data=await api('/disconnect','POST');if(version!==operation)return;if(data.connection)snapshot=data.connection;
+   groups=[];el('groups').replaceChildren();for(const key of ['clone','editClone'])renderOptions(key);
+  }catch(err){error(el('error'),err.message);}
+  finally{disconnecting=false;render();timer=setTimeout(poll,500);}
+ });
  el('refresh-groups').addEventListener('click',()=>loadGroups());
  el('refresh-status').addEventListener('click',poll);
  el('qr').addEventListener('error',()=>{qrRevision=null;error(el('error'),'O QR chegou, mas a imagem não carregou. Tentando obter uma nova imagem...');});

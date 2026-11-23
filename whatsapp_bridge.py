@@ -156,6 +156,8 @@ class NeonizeDevice:
         self.error_code = None
         self.started_at = self.updated_at = time.time()
         self.qr_digest = None
+        generation = load_json_file(self.directory / 'connection.json', {}).get('auth_generation', '')
+        self.auth_path = self.directory / (f'auth-{generation}.sqlite' if generation and re.fullmatch(r'[a-f0-9]{32}', generation) else 'auth.sqlite')
 
     def change(self, state, message, clear_qr=True, phase=None, error_code=None):
         with self.guard:
@@ -231,7 +233,7 @@ class NeonizeDevice:
             self.change('connecting', 'Preparando o aparelho e abrindo a sessão salva...', phase='opening_session')
             # The database preserves pairing. A fresh native handle prevents a
             # previous client's GC finalizer from stopping a replacement client.
-            client = NewClient(str(self.directory / 'auth.sqlite'), uuid='tgauto-' + hashlib.sha256(self.username.encode()).hexdigest()[:12] + '-' + uuid.uuid4().hex)
+            client = NewClient(str(self.auth_path), uuid='tgauto-' + hashlib.sha256(self.username.encode()).hexdigest()[:12] + '-' + uuid.uuid4().hex)
             self.client = client
 
             @client.qr
@@ -276,6 +278,8 @@ class NeonizeDevice:
                 self.change('connected', 'Conexão com o WhatsApp restabelecida.')
 
             def disable(state, message):
+                if self.stopping:
+                    return
                 self.change(state, message)
                 self.on_disable()
                 threading.Thread(target=client.stop, daemon=True).start()
@@ -365,6 +369,8 @@ class WhatsAppService:
     def connect(self, username):
         with self.guard:
             device = self.devices.get(username)
+            if device and getattr(device, 'state', '') == 'disconnecting':
+                raise WhatsAppError('Aguarde a remoção da sessão anterior para gerar um novo QR Code.')
             if device and device.thread and device.thread.is_alive():
                 if device.stopping:
                     raise WhatsAppError('Aguarde a conexão anterior encerrar para reconectar.')
@@ -374,21 +380,61 @@ class WhatsAppService:
                 raise WhatsAppError('O servidor atingiu o limite de conexões WhatsApp. Tente novamente mais tarde.')
             self.store(username)
             self.save_settings(username, enabled=True)
-            device = self.factory(username, self.directory(username), lambda: self.save_settings(username, enabled=False, groups=[]))
+            generation = self.settings(username).get('auth_generation', '')
+            def disable_current():
+                with self.guard:
+                    if self.settings(username).get('auth_generation', '') == generation:
+                        self.save_settings(username, enabled=False, groups=[])
+            device = self.factory(username, self.directory(username), disable_current)
             self.devices[username] = device
             self.retry_at[username] = time.time() + 60
             device.launch()
             self.start()
 
     def disconnect(self, username):
-        self.save_settings(username, enabled=False)
         with self.guard:
+            existing = self.devices.get(username)
+            if existing and existing.state == 'disconnecting':
+                return
+            settings = self.settings(username)
+            previous = settings.get('auth_generation', '')
+            auth_path = self.directory(username) / (f'auth-{previous}.sqlite' if previous and re.fullmatch(r'[a-f0-9]{32}', previous) else 'auth.sqlite')
+            # Invalidate pairing before returning or doing network I/O. A new
+            # connection can never reuse the old database, even after a restart.
+            self.save_settings(username, enabled=False, groups=[], last_error='', auth_generation=uuid.uuid4().hex)
             device = self.devices.get(username)
-        if device:
-            with device.guard:
-                device.stopping = True
-                device.state, device.message, device.qr = 'disconnected', 'Conexão pausada. O pareamento foi preservado.', None
-            threading.Thread(target=device.stop, daemon=True).start()
+            if device:
+                with device.guard:
+                    device.stopping = True
+                    device.state, device.phase = 'disconnecting', 'disconnecting'
+                    device.message, device.qr = 'Desvinculando o WhatsApp e removendo a sessão anterior...', None
+                    device.qr_until, device.qr_digest = 0, None
+        def unlink():
+            try:
+                if device and device.client:
+                    try:
+                        device.client.logout()
+                    except Exception:
+                        # Offline logout can fail. The old local credentials
+                        # were already invalidated and will never be reused.
+                        pass
+            finally:
+                if device:
+                    device.close_native()
+                    if device.thread:
+                        device.thread.join()
+                # Remove only this connection's auth files, never its outbox or
+                # credentials created by a concurrent subsequent connection.
+                for suffix in ('', '-wal', '-shm', '-journal'):
+                    try:
+                        Path(str(auth_path) + suffix).unlink(missing_ok=True)
+                    except OSError:
+                        pass  # An OS-held obsolete file is no longer an auth source.
+                if device:
+                    with device.guard:
+                        device.state, device.phase = 'disconnected', 'disconnected'
+                        device.message = 'Sessão anterior removida. Conecte novamente para gerar um novo QR Code.'
+        threading.Thread(target=unlink, name='whatsapp-unlink', daemon=True).start()
 
     def status(self, username):
         device = self.devices.get(username)
