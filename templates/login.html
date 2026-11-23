@@ -17,10 +17,11 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='taste/layout/layout.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='taste/motion/motion.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='experience.css') }}?v=20261112-2">
-<script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),1500)</script>
+
 <link rel="stylesheet" href="{{ url_for('static', filename='dark.css') }}?v=20261115-1">
 <link rel="stylesheet" href="{{ url_for('static', filename='motion-plans.css') }}?v=20261115-2">
 <link rel="stylesheet" href="{{ url_for('static', filename='spatial.css') }}?v=20261115-3">
+{% include 'interface_assets.html' %}
 </head>
 <body class="marketing">
 <!-- software; teal-on-paper, Familjen Grotesk, centred hero; word-highlight in #fluxo.
@@ -132,7 +133,7 @@
                     <button type="button" class="btn btn--secondary btn-secondary" onclick="showLogin()"><svg class="local-ui-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m12 19l-7-7l7-7m7 7H5"/></svg> Voltar ao login</button>
                 </form>
             </aside></div></section></main><footer class="marketing-footer"><div class="wrap"><a href="#top" translate="no">TG Auto</a><span>Telegram Automation</span><a href="#recursos">Ver recursos <span aria-hidden="true">↑</span></a></div></footer>
-<script type="module" src="{{ url_for('static', filename='taste/motion/motion.js') }}"></script>
+
 <script type="module" src="{{ url_for('static', filename='taste/moments/moments.js') }}"></script>
 <script src="{{ url_for('static', filename='experience.js') }}?v=20261112-2" defer></script>
     <script>

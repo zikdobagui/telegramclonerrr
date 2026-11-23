@@ -1,0 +1,24 @@
+{
+  "repository": "https://github.com/DavidHDev/react-bits",
+  "commit": "701a8acc34f718b305d1ff0cc7d4700df0e1f1c9",
+  "retrieved": "2026-11-22",
+  "note": "Registry returned HTTP 403. Sources fetched directly from the official upstream repository; no components reconstructed from memory.",
+  "files": [
+    {
+      "file": "ShinyText.jsx",
+      "source": "https://github.com/DavidHDev/react-bits/blob/701a8acc34f718b305d1ff0cc7d4700df0e1f1c9/src/content/TextAnimations/ShinyText/ShinyText.jsx"
+    },
+    {
+      "file": "ShinyText.css",
+      "source": "https://github.com/DavidHDev/react-bits/blob/701a8acc34f718b305d1ff0cc7d4700df0e1f1c9/src/content/TextAnimations/ShinyText/ShinyText.css"
+    },
+    {
+      "file": "SpotlightCard.jsx",
+      "source": "https://github.com/DavidHDev/react-bits/blob/701a8acc34f718b305d1ff0cc7d4700df0e1f1c9/src/content/Components/SpotlightCard/SpotlightCard.jsx"
+    },
+    {
+      "file": "SpotlightCard.css",
+      "source": "https://github.com/DavidHDev/react-bits/blob/701a8acc34f718b305d1ff0cc7d4700df0e1f1c9/src/content/Components/SpotlightCard/SpotlightCard.css"
+    }
+  ]
+}

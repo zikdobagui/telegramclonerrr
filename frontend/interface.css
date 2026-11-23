@@ -1,0 +1,17 @@
+/* Shared across the public site and every workspace tab. No layout inflation. */
+.ui-shiny-host { display:inline; font:inherit; letter-spacing:inherit; }
+.ui-shiny-host .shiny-text { font:inherit; letter-spacing:inherit; max-width:100%; white-space:normal; }
+.ui-surface { isolation:isolate; }
+.ui-surface-static { position:relative; }
+.ui-spotlight-layer { position:absolute; inset:0; z-index:-1; pointer-events:none; border-radius:inherit; overflow:hidden; }
+.ui-spotlight-layer .ui-spotlight { width:100%; height:100%; padding:0; box-sizing:border-box; border-radius:inherit; }
+.ui-spotlight .spotlight-card__border { display:none; }
+html[data-motion-engine="gsap"] :is(button,a,input,select,textarea,summary):focus-visible { outline:2px solid #8ac8ff; outline-offset:3px; }
+html[data-motion-engine="gsap"] :is(.btn,.dash-action,.mini-btn,.gc-view-button,.auth-tab) { transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease; }
+html[data-motion-engine="gsap"] :is(.btn,.dash-action,.mini-btn):active:not(:disabled) { filter:brightness(.92); }
+html[data-motion-engine="gsap"] .menu-item { transition:background-color .18s ease,color .18s ease!important; }
+html[data-motion-engine="gsap"] .tab-content { animation:none!important; }
+@media(prefers-reduced-motion:reduce) {
+  html[data-motion-engine="gsap"] { scroll-behavior:auto!important; }
+  html[data-motion-engine="gsap"] *,html[data-motion-engine="gsap"] *::before,html[data-motion-engine="gsap"] *::after { animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; scroll-behavior:auto!important; }
+}

@@ -1,0 +1,3 @@
+{# One locally built bundle for both full pages; fragments inherit it from index. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='ui/interface.css') }}?v={{ app_version|default('20261122') }}-{{ app_commit|default('motion1') }}">
+<script defer src="{{ url_for('static', filename='ui/interface.js') }}?v={{ app_version|default('20261122') }}-{{ app_commit|default('motion1') }}"></script>

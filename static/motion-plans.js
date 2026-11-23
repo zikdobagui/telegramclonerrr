@@ -9,19 +9,6 @@
   if (reduced.matches) document.getAnimations().forEach(animation => animation.cancel());
  }
  reduced.addEventListener('change', sync);
- function enterPanel(panel) {
-  if (!panel || reduced.matches) return;
-  const items = panel.querySelectorAll(':scope > .dashboard-grid > article, :scope > .plans-grid > article, :scope > .dashboard-plans .plans-grid > article');
-  items.forEach((item, index) => item.animate([
-   {opacity:.2,translate:'0 32px'},
-   {opacity:1,translate:'0 0'}
-  ], {duration:850,delay:index*110,easing:'cubic-bezier(.2,.8,.2,1)',fill:'backwards'}));
- }
- document.querySelectorAll('.menu-item[data-tab]').forEach(link => link.addEventListener('click', event => {
-  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-  enterPanel(document.getElementById(link.dataset.tab));
- }));
- enterPanel(document.querySelector('.tab-content.active'));
  const finePointer = matchMedia('(hover: hover) and (pointer: fine)');
  document.querySelectorAll('.plan-card,.marketing .resource-card,#dashboard .dashboard-card').forEach(card => {
   let frame = 0;
