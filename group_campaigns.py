@@ -685,11 +685,12 @@ class CampaignStore:
             for group in groups:
                 cycle, expires = self.quota_cycle(conn, cid, group['slot'] if settings['limit_scope'] == 'group' else 0)
                 group['quota_resets_at'] = expires
-                if expires is None and group['status'] == 'error' and group['error'].startswith('[CONFIRMACAO_PENDENTE]'):
+                if group['status'] == 'error' and group['error'].startswith('[CONFIRMACAO_PENDENTE]'):
                     conn.execute("UPDATE groups SET status='ready',error='' WHERE id=?", (group['id'],))
                     group.update(status='ready', error='')
-                usage = conn.execute("SELECT count(*),sum(CASE WHEN status='added' THEN 1 ELSE 0 END) FROM deliveries WHERE campaign_id=? AND slot=? AND day=? AND status IN ('added','sending','unknown')", (cid, group['slot'], cycle)).fetchone()
-                group['today'] = usage[0]
+                usage = conn.execute("SELECT sum(status IN ('added','sending')),sum(status='added'),sum(status='unknown') FROM deliveries WHERE campaign_id=? AND slot=? AND day=? AND status IN ('added','sending','unknown')", (cid, group['slot'], cycle)).fetchone()
+                group['today'] = usage[0] or 0
+                group['unconfirmed'] = usage[2] or 0
                 group['today_added'] = usage[1] or 0
                 row = conn.execute('SELECT username,user_id,status,updated FROM ownership_transfers WHERE group_id=?', (group['id'],)).fetchone()
                 group['ownership'] = dict(row) if row else None
@@ -939,7 +940,7 @@ class CampaignStore:
                 slot_sql = ' AND slot=?'
                 params.append(group['slot'])
                 limit = group['daily_limit']
-            usage = conn.execute("SELECT count(*) AS used,sum(status='added') AS added,sum(status='sending') AS sending,sum(status='unknown') AS unknown FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('sending','added','unknown')" + slot_sql, params).fetchone()
+            usage = conn.execute("SELECT COALESCE(sum(status IN ('added','sending')),0) AS used,sum(status='added') AS added,sum(status='sending') AS sending,sum(status='unknown') AS unknown FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('sending','added','unknown')" + slot_sql, params).fetchone()
             if usage['used'] >= limit:
                 scope_name = 'da tarefa' if settings['limit_scope'] == 'task' else 'deste grupo'
                 confirmed = usage['added'] or 0
@@ -1738,7 +1739,7 @@ async def parallel_group_additions(store, cid, group, gateway, names, settings):
             cycle, _ = store.quota_cycle(conn, cid, scope)
             clause = ' AND slot=?' if scope else ''
             params = (cid, cycle, scope) if scope else (cid, cycle)
-            usage = conn.execute("SELECT count(*) AS used,sum(status='added') AS added,sum(status='sending') AS sending FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('added','sending','unknown')" + clause, params).fetchone()
+            usage = conn.execute("SELECT COALESCE(sum(status IN ('added','sending')),0) AS used,sum(status='added') AS added,sum(status='sending') AS sending FROM deliveries WHERE campaign_id=? AND day=? AND status IN ('added','sending','unknown')" + clause, params).fetchone()
             limit = current['daily_limit'] if scope else settings['daily_limit']
             return (usage['added'] or 0) < limit and (usage['used'] < limit or (usage['sending'] or 0) > 0)
 
@@ -1936,7 +1937,7 @@ async def campaign_loop(store, cid, gateway):
                 if group['status'] == 'error':
                     store.event_recent(cid, f"Grupo {group['slot']}: ignorado por erro ({group['error']}). A tarefa seguirá com o próximo grupo disponível.")
                     continue
-                if (settings['limit_scope'] == 'group' and group['today'] >= group['daily_limit']) or (settings['limit_scope'] == 'task' and group['today'] > group['today_added']):
+                if group['unconfirmed'] or (settings['limit_scope'] == 'group' and group['today'] >= group['daily_limit']) or (settings['limit_scope'] == 'task' and group['today'] > group['today_added']):
                     if time.time() >= next_confirmation_check.get(gid, 0) and hasattr(gateway, 'check_delivery'):
                         next_confirmation_check[gid] = time.time() + 60
                         with store.db() as conn:
@@ -1956,10 +1957,16 @@ async def campaign_loop(store, cid, gateway):
                                 store.finish(delivery['id'], 'added' if confirmed else 'failed', '' if confirmed else 'Reconciliação: lead não participa do grupo; vaga liberada sem reenviar o convite.')
                                 store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} {'adicionado e confirmado pela reconciliação' if confirmed else 'não localizado no grupo; vaga liberada para outro lead' }.")
                         if unresolved:
-                            store.group_update(gid, status='error', error=f'[CONFIRMACAO_PENDENTE] {unresolved} resultado(s) pendente(s) sem confirmação verificável. O limite foi preservado; confira os membros no Telegram. O próximo grupo continuará.')
-                            store.event(cid, f"Grupo {group['slot']}: marcado para revisão por confirmação pendente; seguindo para o próximo grupo.")
-                    store.event_recent(cid, f"Grupo {group['slot']}: aguardando reconciliação das vagas reservadas; {group['today_added']}/{group['daily_limit']} confirmados. O ciclo renova após 24 horas, sem reset à meia-noite.")
-                    continue
+                            store.event_recent(cid, f"Grupo {group['slot']}: {unresolved} adição(ões) sem confirmação preservada(s) no histórico. Continuando com outros leads até atingir a meta confirmada; o total real pode exceder a meta.")
+                    if store.get(cid)['status'] != 'running':
+                        break
+                    # Re-read after reconciliation. Unknown outcomes never consume
+                    # quota, but confirmed and in-flight sends still reserve slots.
+                    current_groups = store.groups(cid)
+                    used = next((g['today'] for g in current_groups if g['id'] == gid), 0) if settings['limit_scope'] == 'group' else sum(g['today'] for g in current_groups)
+                    limit = group['daily_limit'] if settings['limit_scope'] == 'group' else settings['daily_limit']
+                    if used >= limit:
+                        continue
                 try:
                     if group['channel_id'] and hasattr(gateway, 'member_count'):
                         await store.refresh_member_count(group, gateway)

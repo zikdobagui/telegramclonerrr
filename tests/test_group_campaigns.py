@@ -322,8 +322,9 @@ class CampaignStoreTests(unittest.TestCase):
         self.store.state(cid, 'paused')
         self.store.prepare_start(cid)
         self.assertTrue(all(g['status'] == 'ready' for g in self.store.groups(cid)))
-        self.assertIsNone(self.store.claim(cid, groups[0]['id']))
-        self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
+        replacement = self.store.claim(cid, groups[0]['id'])
+        self.assertNotEqual(replacement['lead_id'], delivery['lead_id'])
+        self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1, 'sending': 1})
 
     def test_resume_recovers_saved_group_after_invite_peer_cast_error(self):
         cid, groups = self.task()
@@ -406,8 +407,9 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(self.store.get(cid)['status'], 'running')
         self.assertTrue(all(group['status'] == 'ready' and not group['error'] for group in self.store.groups(cid)))
         self.assertEqual([group['id'] for group in self.store.groups(cid)], [group['id'] for group in groups])
-        self.assertIsNone(self.store.claim(cid, groups[0]['id']))
-        self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1})
+        replacement = self.store.claim(cid, groups[0]['id'])
+        self.assertNotEqual(replacement['lead_id'], delivery['lead_id'])
+        self.assertEqual(self.store.snapshot()['campaigns'][0]['counts'], {'unknown': 1, 'sending': 1})
 
     def test_resume_preserves_warmup_and_restarts_groups_in_review(self):
         import time
@@ -754,6 +756,24 @@ class CampaignStoreTests(unittest.TestCase):
         self.assertEqual(task['groups'][0]['today'], 0)
         self.assertEqual(len(self.store.export_leads(cid)), 1)
 
+    def test_unknown_replacement_respects_parallel_quota_and_keeps_original_lead(self):
+        for scope in ('task', 'group'):
+            with self.subTest(scope=scope):
+                cid, groups = self.task(limit_scope=scope)
+                self.leads(20)
+                first = self.store.claim(cid, groups[0]['id'])
+                self.store.finish(first['id'], 'unknown', 'Resposta perdida')
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    results = list(pool.map(lambda _: self.store.claim(cid, groups[0]['id']), range(16)))
+                replacements = [r for r in results if r]
+                self.assertEqual(len(replacements), 1)
+                self.assertNotEqual(replacements[0]['lead_id'], first['lead_id'])
+                self.store.finish(replacements[0]['id'], 'added')
+                self.assertIsNone(self.store.claim(cid, groups[0]['id']))
+                task = next(t for t in self.store.snapshot()['campaigns'] if t['id'] == cid)
+                self.assertEqual(task['counts'], {'unknown': 1, 'added': 1})
+                self.assertEqual(task['groups'][0]['today_added'], 1)
+
     def test_full_reservations_are_not_reported_as_confirmed_goal(self):
         for status in ('sending', 'unknown', 'added'):
             with self.subTest(status=status):
@@ -763,6 +783,10 @@ class CampaignStoreTests(unittest.TestCase):
                 if status != 'sending':
                     self.store.finish(first['id'], status)
                 delivery, reason = self.store.claim(cid, groups[0]['id'], diagnose=True)
+                if status == 'unknown':
+                    self.assertIsNotNone(delivery)
+                    self.assertNotEqual(delivery['lead_id'], first['lead_id'])
+                    continue
                 self.assertIsNone(delivery)
                 if status == 'added':
                     self.assertIn('concluída', reason)
@@ -992,7 +1016,8 @@ class CampaignStoreTests(unittest.TestCase):
             row = conn.execute('SELECT status,error FROM deliveries WHERE id=?', (delivery['id'],)).fetchone()
             self.assertEqual(row['status'], 'unknown')
             self.assertIn('reconciliação', row['error'])
-        self.assertEqual(self.store.groups(cid)[0]['today'], 1)
+        self.assertEqual(self.store.groups(cid)[0]['today'], 0)
+        self.assertEqual(self.store.groups(cid)[0]['unconfirmed'], 1)
 
     def test_orphaned_sending_at_full_quota_is_reconciled_without_stalling(self):
         cid, groups = self.task()
@@ -1060,6 +1085,28 @@ class CampaignStoreTests(unittest.TestCase):
             asyncio.run(parallel_group_additions(self.store, cid, group, Gateway(), settings['sessions'], settings))
         self.assertEqual(calls, ['one.session', 'two.session', 'one.session'])
         self.assertEqual(self.store.groups(cid)[0]['today_added'], 2)
+
+    def test_parallel_workers_replace_unknown_with_new_lead_and_stop_at_confirmed_goal(self):
+        from group_campaigns import parallel_group_additions
+        cid, groups = self.task(limit_scope='group')
+        self.leads(8)
+        calls = []
+
+        class Gateway:
+            async def invite(self, group, name, payload, reserve_identity):
+                calls.append(payload['id'])
+                if len(calls) == 1:
+                    raise TimeoutError('Resposta perdida')
+                return True
+
+        settings = self.store.get(cid)['settings']
+        with patch('group_campaigns.random.randint', return_value=0):
+            asyncio.run(parallel_group_additions(self.store, cid, groups[0], Gateway(), settings['sessions'], settings))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(set(calls)), 2)
+        task = self.store.snapshot()['campaigns'][0]
+        self.assertEqual(task['counts'], {'unknown': 1, 'added': 1})
+        self.assertEqual(task['groups'][0]['today_added'], 1)
 
     def test_many_sessions_launch_concurrently_and_reserve_only_remaining_slots(self):
         from group_campaigns import parallel_group_additions
@@ -1234,19 +1281,19 @@ class CampaignStoreTests(unittest.TestCase):
                 self.assertEqual(task['groups'][0]['today_added'], int(confirmed))
                 self.assertEqual(task['groups'][0]['today'], int(confirmed))
 
-    def test_pending_confirmation_review_resets_after_cycle_expires(self):
+    def test_old_pending_confirmation_review_is_released_without_waiting_for_cycle(self):
         cid, groups = self.task()
         self.leads(2)
         first = self.store.claim(cid, groups[0]['id'])
         self.store.finish(first['id'], 'unknown')
         self.store.group_update(groups[0]['id'], status='error', error='[CONFIRMACAO_PENDENTE] Verificação indisponível')
-        self.assertEqual(self.store.groups(cid)[0]['status'], 'error')
+        self.assertEqual(self.store.groups(cid)[0]['status'], 'ready')
         with patch('group_campaigns.time.time', return_value=__import__('time').time() + 86401):
             group = self.store.groups(cid)[0]
             self.assertEqual(group['status'], 'ready')
             self.assertEqual(group['today'], 0)
 
-    def test_unknown_confirmation_marks_group_for_review_instead_of_waiting_forever(self):
+    def test_unknown_confirmation_preserves_group_ready_for_replacements(self):
         cid, groups = self.task()
         self.leads(2)
         delivery = self.store.claim(cid, groups[0]['id'])
@@ -1264,11 +1311,12 @@ class CampaignStoreTests(unittest.TestCase):
 
         asyncio.run(campaign_loop(store, cid, Gateway()))
         updated = store.groups(cid)
-        self.assertEqual(updated[0]['status'], 'error')
-        self.assertEqual(updated[0]['today'], 1)
+        self.assertEqual(updated[0]['status'], 'ready')
+        self.assertEqual(updated[0]['today'], 0)
+        self.assertEqual(updated[0]['unconfirmed'], 1)
         self.assertEqual(updated[1]['status'], 'ready')
 
-    def test_error_group_is_skipped_but_unknown_quota_still_waits(self):
+    def test_error_group_is_skipped_but_unknown_quota_uses_another_lead(self):
         for blocked in ('error', 'unknown'):
             with self.subTest(blocked=blocked):
                 cid, groups = self.task(limit_scope='group')
@@ -1294,7 +1342,7 @@ class CampaignStoreTests(unittest.TestCase):
 
                 with patch('group_campaigns.asyncio.sleep', new=stop_on_wait):
                     asyncio.run(campaign_loop(store, cid, Gateway()))
-                self.assertEqual([args[0]['id'] for args in calls], [groups[1]['id']] if blocked == 'error' else [])
+                self.assertEqual([args[0]['id'] for args in calls], [groups[1]['id']] if blocked == 'error' else [groups[0]['id']])
                 task = next(task for task in store.snapshot()['campaigns'] if task['id'] == cid)
                 self.assertEqual(task['groups'][1]['today'], 1 if blocked == 'error' else 0)
 
