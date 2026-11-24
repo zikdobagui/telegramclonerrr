@@ -3,7 +3,7 @@
  const page=document.getElementById('whatsapp');if(!page)return;
  const el=id=>document.getElementById('wa-'+id);
  let disconnecting=false;
- let timer=null,pollPromise=null,groups=[],snapshot=null,requesting=false,requestStarted=0,operation=0,qrRevision=null,qrAttempts=0;
+ let timer=null,pollPromise=null,groups=[],snapshot=null,requesting=false,requestStarted=0,operation=0,groupRequest=0,qrRevision=null,qrAttempts=0;
  const stateLabels={pending:'Na fila',sending:'Enviando',sent:'Confirmado',unknown:'Sem confirmação',failed:'Falhou'};
  const selected=new Map();
  async function api(path='',method='GET') {
@@ -88,15 +88,18 @@
   if(!items.length)container.textContent='Nenhum grupo carregado. Conecte sua conta na aba WhatsApp e clique em Carregar meus grupos.';
  }
  async function loadGroups(scope){
+  const version=operation,request=++groupRequest;
   const errorNode=scope?document.getElementById(scope+'WhatsAppError'):el('error');
   try{
-   error(errorNode,'');groups=(await api('/groups')).groups;
+   error(errorNode,'');const data=await api('/groups');
+   if(version!==operation||request!==groupRequest)return;
+   groups=data.groups;
    el('groups').replaceChildren();
    for(const group of groups){const card=document.createElement('div');card.className='wa-group';const name=document.createElement('strong'),detail=document.createElement('small');name.textContent=group.name;detail.textContent=`${group.members} membros${group.admin_only?' · Envio restrito a administradores':''}`;card.append(name,detail);el('groups').append(card);}
    if(!groups.length)el('groups').textContent='Nenhum grupo encontrado nesta conta.';
    for(const key of ['clone','editClone'])renderOptions(key);
    render();
-  }catch(err){error(errorNode,err.message);}
+  }catch(err){if(version===operation&&request===groupRequest)error(errorNode,err.message);}
  }
  el('connect').addEventListener('click',async()=>{
   if(requesting||disconnecting||snapshot?.status==='disconnecting')return;const version=++operation;clearTimeout(timer);requesting=true;requestStarted=Date.now();snapshot=snapshot||{};render();error(el('error'),'');

@@ -383,7 +383,7 @@ class WhatsAppService:
             generation = self.settings(username).get('auth_generation', '')
             def disable_current():
                 with self.guard:
-                    if self.settings(username).get('auth_generation', '') == generation:
+                    if self.devices.get(username) is device and self.settings(username).get('auth_generation', '') == generation:
                         self.save_settings(username, enabled=False, groups=[])
             device = self.factory(username, self.directory(username), disable_current)
             self.devices[username] = device
@@ -451,20 +451,42 @@ class WhatsAppService:
         return info
 
     def groups(self, username):
-        device = self.devices.get(username)
+        with self.guard:
+            device = self.devices.get(username)
+            generation = self.settings(username).get('auth_generation', '')
         if not device:
             raise WhatsAppError('Conecte o WhatsApp primeiro.')
         groups = device.joined_groups()
-        self.save_settings(username, groups=groups)
+        with self.guard:
+            if self.devices.get(username) is not device or device.stopping or self.settings(username).get('auth_generation', '') != generation:
+                raise WhatsAppError('A conexão do WhatsApp mudou. Carregue os grupos novamente na conta atual.')
+            self.save_settings(username, groups=groups, groups_generation=generation)
         return groups
 
     def validate_destinations(self, username, value):
         if not isinstance(value, list) or len(value) > 5 or not all(isinstance(jid, str) and GROUP_JID.fullmatch(jid) for jid in value):
             raise WhatsAppError('Selecione até 5 grupos válidos do seu WhatsApp.')
         selected = list(dict.fromkeys(value))
-        owned = {group['id'] for group in self.settings(username).get('groups', [])}
+        if not selected:
+            return []
+        settings = self.settings(username)
+        current = settings.get('auth_generation', '')
+        owned = {group['id'] for group in settings.get('groups', [])} if settings.get('groups_generation', '') == current else set()
         if any(jid not in owned for jid in selected):
-            raise WhatsAppError('Carregue seus grupos do WhatsApp e selecione um destino da lista.')
+            # The editor can hold a valid selection after a cache clear or
+            # reconnect. Confirm membership with the current device rather
+            # than treating a cache miss as an invalid destination.
+            device = self.devices.get(username)
+            if not device or device.state != 'connected' or device.stopping:
+                raise WhatsAppError('Conecte o WhatsApp e carregue os grupos da conta atual antes de salvar os destinos.')
+            try:
+                owned = {group['id'] for group in self.groups(username)}
+            except WhatsAppError:
+                raise
+            except Exception as error:
+                raise WhatsAppError('Não foi possível confirmar os grupos no WhatsApp agora. Confira a conexão e tente carregar os grupos novamente.') from error
+            if any(jid not in owned for jid in selected):
+                raise WhatsAppError('Um dos grupos selecionados não pertence à lista atual desta conta WhatsApp. Carregue os grupos novamente e revise a seleção.')
         return selected
 
     async def enqueue_clone(self, username, clone_id, message, text, groups, telegram_client):

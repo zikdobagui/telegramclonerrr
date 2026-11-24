@@ -8,6 +8,7 @@ class Element {
  replaceChildren(...nodes){this.children=[...nodes];}
  querySelectorAll(){return stages;}
 }
+const loadButton=new Element();loadButton.dataset.waLoad='editClone';
 const nodes=new Map(),stages=[1,2,3,4].map(n=>{const el=new Element();el.dataset.waStage=String(n);return el;});
 const get=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
 const requests=[],timers=new Map();let next=0;
@@ -15,7 +16,7 @@ const fetch=(url,options)=>new Promise((resolve,reject)=>{
  const row={url,options,reply:data=>resolve({ok:true,json:async()=>data})};requests.push(row);
  options.signal.addEventListener('abort',()=>{const e=new Error('aborted');e.name='AbortError';reject(e);});
 });
-const context={document:{getElementById:get,querySelector:()=>new Element(),querySelectorAll:()=>[],createElement:()=>new Element(),createTextNode:text=>({textContent:text})},window:{},location:{hash:''},fetch,AbortController,Date,console,encodeURIComponent,
+const context={document:{getElementById:get,querySelector:()=>new Element(),querySelectorAll:selector=>selector==='[data-wa-load]'?[loadButton]:[],createElement:()=>new Element(),createTextNode:text=>({textContent:text})},window:{},location:{hash:''},fetch,AbortController,Date,console,encodeURIComponent,
  setTimeout:(fn,ms)=>{const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>0};
 vm.runInNewContext(fs.readFileSync('static/whatsapp.js','utf8'),context);
 (async()=>{
@@ -46,5 +47,15 @@ vm.runInNewContext(fs.readFileSync('static/whatsapp.js','utf8'),context);
  assert.equal(get('wa-connect').disabled,false);
  action=get('wa-connect').events.click();requests.at(-1).reply({success:true,connection:{status:'qr',message:'New pairing',qr_available:true,qr_revision:'new-pairing'}});await action;
  assert.match(get('wa-qr').src,/v=new-pairing/);
+ context.window.WhatsAppUI.setDestinations('editClone',[]);
+ const loading=loadButton.events.click();requests.at(-1).reply({success:true,groups:[{id:'120363000001@g.us',name:'Cliente',members:265}]});await loading;
+ const checkbox=get('editCloneWhatsAppOptions').children[0].children[0];
+ checkbox.checked=true;checkbox.events.change();
+ assert.equal(context.window.WhatsAppUI.getDestinations('editClone')[0],'120363000001@g.us');
+ const staleGroups=loadButton.events.click(),oldGroupRequest=requests.at(-1);
+ const removing=get('wa-disconnect').events.click(),removalRequest=requests.at(-1);
+ oldGroupRequest.reply({success:true,groups:[{id:'120363000099@g.us',name:'Conta anterior',members:1}]});await staleGroups;
+ removalRequest.reply({success:true,connection:{status:'disconnected',message:'Removed'}});await removing;
+ assert.equal(get('wa-groups').children.length,0);
  console.log('PASS: immediate loader, stages, private QR image, timeout diagnostics, stale-poll protection and HTTP abort');
 })().catch(error=>{console.error(error);process.exitCode=1;});
