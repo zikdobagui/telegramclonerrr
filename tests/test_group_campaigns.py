@@ -356,6 +356,76 @@ class CampaignStoreTests(unittest.TestCase):
     def leads(self, count=10):
         return self.store.import_leads('leads.json', json.dumps({'members': [{'id': 100 + n, 'username': f'lead_{n}', 'access_hash': 9000000000000000000 + n} for n in range(count)]}).encode(), cid=next(iter(self.store.snapshot()['campaigns']), {}).get('id'))
 
+    def test_recovery_releases_legacy_contacts_confirmed_absent(self):
+        cid, groups = self.task()
+        self.leads(1)
+        delivery = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(delivery['id'], 'failed', 'Reconciliação: lead não participa do grupo; vaga liberada sem reenviar o convite.')
+        self.store.recover()
+        self.assertEqual(self.store.claim(cid, groups[0]['id'])['id'], delivery['id'])
+
+    def test_retry_follows_task_scope_to_another_group(self):
+        cid, groups = self.task(dedup='task')
+        self.leads(1)
+        first = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(first['id'], 'retry')
+        second = self.store.claim(cid, groups[1]['id'])
+        self.assertEqual(second['id'], first['id'])
+        with self.store.db() as conn:
+            row = conn.execute('SELECT group_id,slot FROM deliveries WHERE id=?', (second['id'],)).fetchone()
+        self.assertEqual((row['group_id'], row['slot']), (groups[1]['id'], groups[1]['slot']))
+
+    def test_retry_follows_replaced_group_slot(self):
+        cid, groups = self.task(dedup='group')
+        self.leads(1)
+        first = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(first['id'], 'retry')
+        self.store.state(cid, 'paused')
+        self.store.edit_group(cid, groups[0]['id'], {'replace': True})
+        replacement = self.store.groups(cid)[0]
+        self.store.group_update(replacement['id'], status='ready')
+        self.store.state(cid, 'running')
+        self.assertEqual(self.store.claim(cid, replacement['id'])['id'], first['id'])
+
+    def test_member_access_failure_marks_group_unavailable(self):
+        from telethon.errors import ChannelPrivateError
+        cid, groups = self.task()
+        gateway = SimpleNamespace(member_count=AsyncMock(side_effect=ChannelPrivateError(None)))
+        asyncio.run(self.store.refresh_member_count(groups[0], gateway))
+        saved = self.store.groups(cid)[0]
+        self.assertEqual(saved['status'], 'error')
+        self.assertIn('[ACESSO]', saved['error'])
+        self.assertEqual(self.store.groups(cid)[1]['status'], 'ready')
+
+    def test_full_quota_group_is_still_monitored_for_access_failure(self):
+        from telethon.errors import ChannelPrivateError
+        cid, groups = self.task()
+        self.leads(1)
+        delivery = self.store.claim(cid, groups[0]['id'])
+        self.store.finish(delivery['id'], 'added')
+        store = self.store
+        checked = []
+
+        async def member_count(group):
+            checked.append(group['id'])
+            if group['id'] == groups[0]['id']:
+                raise ChannelPrivateError(None)
+            store.state(cid, 'paused')
+            return 10
+
+        gateway = SimpleNamespace(member_count=member_count, close=AsyncMock())
+        for group in groups:
+            store.group_update(group['id'], channel_id=str(group['id']), creator='one.session')
+        asyncio.run(campaign_loop(store, cid, gateway))
+        self.assertEqual(checked, [group['id'] for group in groups])
+        self.assertEqual(store.groups(cid)[0]['status'], 'error')
+
+    def test_member_network_failure_does_not_mark_group_unavailable(self):
+        cid, groups = self.task()
+        gateway = SimpleNamespace(member_count=AsyncMock(side_effect=TimeoutError()))
+        asyncio.run(self.store.refresh_member_count(groups[0], gateway))
+        self.assertEqual(self.store.groups(cid)[0]['status'], 'ready')
+
     def test_timing_uses_confirmations_and_survives_log_clear(self):
         cid, groups = self.task(limit_scope='task')
         self.leads(2)
@@ -1114,7 +1184,7 @@ class CampaignStoreTests(unittest.TestCase):
         asyncio.run(campaign_loop(store, cid, Gateway()))
         self.assertEqual(checked, [delivery['id']])
         with store.db() as conn:
-            self.assertEqual(conn.execute('SELECT status FROM deliveries WHERE id=?', (delivery['id'],)).fetchone()['status'], 'failed')
+            self.assertEqual(conn.execute('SELECT status FROM deliveries WHERE id=?', (delivery['id'],)).fetchone()['status'], 'retry')
         self.assertEqual(store.groups(cid)[0]['today'], 0)
 
     def test_parallel_monitor_reports_progress_while_gateway_is_waiting(self):

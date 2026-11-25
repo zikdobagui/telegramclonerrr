@@ -745,7 +745,13 @@ class CampaignStore:
             with self.db() as conn:
                 conn.execute("UPDATE group_member_counts SET count=?,updated=?,error='' WHERE group_id=?", (count, time.time(), group['id']))
         except Exception as error:
-            seconds = max(1, int(getattr(error, 'seconds', 0) or 0))
+            if isinstance(error, GroupAccessError) or type(error).__name__ in {
+                'ChannelPrivateError', 'ChannelInvalidError', 'ChatIdInvalidError',
+                'ChatForbiddenError', 'UserBannedInChannelError', 'ChatAdminRequiredError'}:
+                message = f'[ACESSO] Grupo indisponível para a sessão responsável ({type(error).__name__}). Verifique o Telegram ou substitua o grupo.'
+                self.group_update(group['id'], status='error', error=message)
+                self.event_recent(group['campaign_id'], f"Grupo {group['slot']}: {message}")
+            seconds = max(60, int(getattr(error, 'seconds', 0) or 0))
             message = f'Telegram pediu uma espera de {seconds} segundos.' if type(error).__name__ == 'FloodWaitError' else 'Não foi possível consultar agora. A última contagem foi mantida.'
             with self.db() as conn:
                 conn.execute('UPDATE group_member_counts SET error=?,next_check=? WHERE group_id=?', (message, time.time() + seconds, group['id']))
@@ -992,13 +998,13 @@ class CampaignStore:
                 SELECT d.id,d.lead_id,l.payload FROM deliveries d JOIN leads l ON l.id=d.lead_id
                 JOIN claim_selected selected ON selected.id=COALESCE(l.canonical_id,l.id)
                 LEFT JOIN claim_excluded excluded ON excluded.id=COALESCE(l.canonical_id,l.id)
-                WHERE d.campaign_id=? AND d.group_id=? AND d.status='retry' AND excluded.id IS NULL
+                WHERE d.campaign_id=? AND d.scope=? AND d.status='retry' AND excluded.id IS NULL
                 AND (SELECT count(*) FROM delivery_reference_failures f WHERE f.delivery_id=d.id) < ?
                 AND NOT EXISTS (SELECT 1 FROM delivery_reference_failures f
                                 WHERE f.delivery_id=d.id AND f.session_name=?)
-                ORDER BY d.id LIMIT 1""", (cid, gid, REFERENCE_SESSION_LIMIT, session_name or '')).fetchone()
+                ORDER BY d.id LIMIT 1""", (cid, scope, REFERENCE_SESSION_LIMIT, session_name or '')).fetchone()
             if retry:
-                conn.execute("UPDATE deliveries SET status='sending',error='',day=?,session_name=?,resolved_hash=NULL WHERE id=?", (day, session_name, retry['id']))
+                conn.execute("UPDATE deliveries SET status='sending',error='',day=?,session_name=?,resolved_hash=NULL,group_id=?,slot=? WHERE id=?", (day, session_name, gid, group['slot'], retry['id']))
                 return result({'id': retry['id'], 'lead_id': retry['lead_id'], 'payload': json.loads(retry['payload'])})
             conn.execute('CREATE TEMP TABLE claim_used(id INTEGER PRIMARY KEY)')
             conn.execute('INSERT OR IGNORE INTO claim_used SELECT COALESCE(l.canonical_id,l.id) FROM deliveries d JOIN leads l ON l.id=d.lead_id WHERE d.campaign_id=? AND d.scope=?', (cid, scope))
@@ -1008,7 +1014,13 @@ class CampaignStore:
               ORDER BY l.id LIMIT 1""").fetchone()
             if not lead:
                 imported = conn.execute('SELECT count(*) FROM campaign_leads WHERE campaign_id=?', (cid,)).fetchone()[0]
-                reason = 'nenhum contato foi importado para esta tarefa' if not imported else 'não há lead elegível; todos já foram processados ou reservados'
+                counts = {row['status']: row['n'] for row in conn.execute(
+                    'SELECT status,count(*) AS n FROM deliveries WHERE campaign_id=? AND scope=? GROUP BY status', (cid, scope))}
+                reason = 'nenhum contato foi importado para esta tarefa' if not imported else (
+                    'nenhum contato disponível nesta sessão agora; histórico deste destino: ' +
+                    ', '.join(f'{counts.get(status, 0)} {label}' for status, label in (
+                        ('added', 'confirmados'), ('sending', 'em envio'), ('unknown', 'aguardando confirmação'),
+                        ('retry', 'para nova tentativa'), ('unresolved', 'com referência pendente'), ('failed', 'recusados'))))
                 return result(None, reason)
             did = conn.execute("INSERT INTO deliveries(campaign_id,group_id,slot,lead_id,scope,day,status,session_name) VALUES(?,?,?,?,?,?,'sending',?)", (cid, gid, group['slot'], lead['id'], scope, day, session_name)).lastrowid
             return result({'id': did, 'lead_id': lead['id'], 'payload': json.loads(lead['payload'])})
@@ -1059,6 +1071,8 @@ class CampaignStore:
 
     def recover(self):
         with self.db() as conn:
+            # Older reconciliation discarded contacts proven absent from the group.
+            conn.execute("UPDATE deliveries SET status='retry' WHERE status='failed' AND error='Reconciliação: lead não participa do grupo; vaga liberada sem reenviar o convite.'")
             # Restore references previously discarded on a single account's failure.
             affected = conn.execute("SELECT campaign_id,lead_id FROM campaign_lead_exclusions WHERE reason IN ('LeadReferenceInvalidError','UserIdInvalidError')").fetchall()
             for row in affected:
@@ -1962,6 +1976,13 @@ async def campaign_loop(store, cid, gateway):
             worked = False
             had_work = False
             groups = store.groups(cid)
+            # Check every destination even after its quota is full or while another
+            # slot is receiving leads. Otherwise inaccessible groups look healthy.
+            if hasattr(gateway, 'member_count'):
+                for monitored in groups:
+                    if monitored['channel_id'] and monitored['status'] in {'ready', 'warming'}:
+                        await store.refresh_member_count(monitored, gateway)
+                groups = store.groups(cid)
             if settings['limit_scope'] == 'group':
                 # Keep the first unfinished healthy group as the destination.
                 # Groups flagged for review are skipped until explicitly resumed.
@@ -1991,8 +2012,8 @@ async def campaign_loop(store, cid, gateway):
                             if confirmed is None:
                                 unresolved += 1
                             else:
-                                store.finish(delivery['id'], 'added' if confirmed else 'failed', '' if confirmed else 'Reconciliação: lead não participa do grupo; vaga liberada sem reenviar o convite.')
-                                store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} {'adicionado e confirmado pela reconciliação' if confirmed else 'não localizado no grupo; vaga liberada para outro lead' }.")
+                                store.finish(delivery['id'], 'added' if confirmed else 'retry', '' if confirmed else 'Reconciliação: lead não participa do grupo; liberado para nova tentativa.')
+                                store.event(cid, f"Grupo {group['slot']}: lead #{delivery['lead_id']} {'adicionado e confirmado pela reconciliação' if confirmed else 'não localizado no grupo; liberado para nova tentativa' }.")
                         if unresolved:
                             store.event_recent(cid, f"Grupo {group['slot']}: {unresolved} adição(ões) sem confirmação preservada(s) no histórico. Continuando com outros leads até atingir a meta confirmada; o total real pode exceder a meta.")
                     if store.get(cid)['status'] != 'running':
