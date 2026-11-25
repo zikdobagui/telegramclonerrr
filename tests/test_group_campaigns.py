@@ -1924,6 +1924,55 @@ class CampaignApiTests(unittest.TestCase):
                 self.assertEqual(conn.execute(f'SELECT count(*) FROM {table}').fetchone()[0], 0)
         self.assertEqual(self.client.delete(f'/api/group-campaigns/{cid}').status_code, 400)
 
+    def test_replace_paused_task_ignores_other_workers_but_waits_for_its_own(self):
+        import time
+        self.login('alice')
+        ids = [self.client.post('/api/group-campaigns', json={'name': name, 'sessions': ['one.session']}).json['id']
+               for name in ('Replace', 'Keep running')]
+        started = {cid: threading.Event() for cid in ids}
+        release = threading.Event()
+
+        async def fake_loop(store, task_id, gateway):
+            started[task_id].set()
+            while store.get(task_id)['status'] == 'running':
+                await asyncio.sleep(.01)
+            if task_id == ids[0]:
+                while not release.is_set():
+                    await asyncio.sleep(.01)
+
+        with patch('group_campaigns.campaign_loop', fake_loop), patch('group_campaigns.TelegramCampaignGateway'):
+            try:
+                for cid in ids:
+                    self.assertEqual(self.client.post(f'/api/group-campaigns/{cid}/start').status_code, 200)
+                    self.assertTrue(started[cid].wait(5))
+                task = next(t for t in self.client.get('/api/group-campaigns').json['campaigns'] if t['id'] == ids[0])
+                path = f"/api/group-campaigns/{ids[0]}/groups/{task['groups'][0]['id']}"
+                self.assertEqual(self.client.put(path, json={'replace': True}).status_code, 400)
+                self.client.post(f'/api/group-campaigns/{ids[0]}/pause')
+                draining = self.client.put(path, json={'replace': True})
+                self.assertEqual(draining.status_code, 400)
+                self.assertIn('já está pausada', draining.json['error'])
+                release.set()
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    snapshot = self.client.get('/api/group-campaigns').json
+                    if ids[0] not in snapshot['active_worker_ids']:
+                        break
+                    time.sleep(.01)
+                self.assertIn(ids[1], snapshot['active_worker_ids'])
+                response = self.client.put(path, json={'replace': True, 'title': 'Substituto'})
+                self.assertEqual(response.status_code, 200, response.json)
+                saved = self.client.get('/api/group-campaigns').json['campaigns']
+                replaced = next(t for t in saved if t['id'] == ids[0])
+                self.assertEqual(replaced['status'], 'paused')
+                self.assertEqual(replaced['groups'][0]['title'], 'Substituto')
+                self.assertEqual(next(t for t in saved if t['id'] == ids[1])['status'], 'running')
+            finally:
+                release.set()
+                for cid in ids:
+                    self.client.post(f'/api/group-campaigns/{cid}/pause')
+                self.assertTrue(self.worker_idle.wait(5))
+
     def test_start_and_pause_control_worker_without_telegram(self):
         self.login('alice')
         cid = self.client.post('/api/group-campaigns', json={'name': 'Task', 'sessions': ['one.session']}).json['id']

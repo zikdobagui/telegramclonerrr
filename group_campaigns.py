@@ -2580,9 +2580,14 @@ def register_campaign_routes(app, login_required, get_paths, get_sessions, get_a
     def campaign_group_api(cid, gid):
         username = session['username']
         with guard:
-            if worker_busy(username):
-                raise ValueError('Pause e aguarde a operação atual terminar antes de editar grupos')
-            store_for(username).edit_group(cid, gid, request.get_json() or {})
+            store = store_for(username)
+            if store.get(cid)['status'] == 'running':
+                raise ValueError('Pause esta tarefa antes de editar ou substituir seus grupos')
+            if username in group_actions_busy:
+                raise ValueError('Aguarde a operação manual de grupos terminar antes de substituir o grupo')
+            if worker_busy(username, cid):
+                raise ValueError('Esta tarefa já está pausada. Aguarde a operação em andamento terminar; a substituição será liberada automaticamente')
+            store.edit_group(cid, gid, request.get_json() or {})
         return jsonify(success=True)
 
     @app.route('/api/group-campaigns/<int:cid>/groups/<int:gid>', methods=['DELETE'])
