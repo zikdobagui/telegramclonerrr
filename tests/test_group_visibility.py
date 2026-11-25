@@ -88,6 +88,7 @@ class ApiTests(unittest.TestCase):
         self.manager=SimpleNamespace(load_sessions=lambda **_: [{'session_name':'own.session','active':True,'status':'active'}])
         self.locks={}
         self.availability={}
+        self.busy_sessions=set()
         def paths(username):
             base=self.root/username
             (base/'sessions').mkdir(parents=True,exist_ok=True)
@@ -100,7 +101,7 @@ class ApiTests(unittest.TestCase):
                 if 'username' not in session:return {'success':False},401
                 return fn(*args,**kwargs)
             return wrapped
-        def check(operation,username):return (not self.locks.get(username,False),'Sessão ocupada')
+        def check(operation,username,session_name=None):return (not self.locks.get(username,False) and session_name not in self.busy_sessions,'Sessão ocupada')
         def lock(operation,value,username):self.locks[username]=value
         register_visibility_routes(self.app,authenticated,paths,lambda _:self.manager,lambda:(123,'hash'),check,lock, get_availability=lambda username, sessions: self.availability)
         self.client=self.app.test_client()
@@ -126,6 +127,24 @@ class ApiTests(unittest.TestCase):
         result = self.client.get('/api/group-visibility/sessions').json['sessions'][0]
         self.assertFalse(result['available'])
         self.assertEqual(result['unavailable_reason'], 'Sessão ocupada')
+
+    def test_free_session_can_start_while_another_is_occupied(self):
+        self.manager.load_sessions = lambda **kwargs: [
+            {'session_name': 'own.session', 'active': True},
+            {'session_name': 'busy.session', 'active': True}]
+        self.busy_sessions.add('busy.session')
+        root = Path(self.paths('alice')['sessions_dir'])
+        (root / 'busy.session').touch()
+        rows = self.client.get('/api/group-visibility/sessions').json['sessions']
+        self.assertTrue(rows[0]['available'])
+        self.assertFalse(rows[1]['available'])
+        with patch('group_visibility.threading.Thread') as thread:
+            payload = self.payload()
+            payload['sessions'] = ['busy.session']
+            self.assertEqual(self.client.post('/api/group-visibility/start', json=payload).status_code, 409)
+            thread.assert_not_called()
+            self.assertEqual(self.client.post('/api/group-visibility/start', json=self.payload()).status_code, 202)
+            thread.return_value.start.assert_called_once()
 
     def test_unauthenticated_and_validation(self):
         self.assertEqual(self.app.test_client().get('/api/group-visibility').status_code,401)

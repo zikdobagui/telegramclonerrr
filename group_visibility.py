@@ -221,20 +221,20 @@ def register_visibility_routes(app, login_required, get_paths, get_manager, get_
     def session_choices(username):
         manager = get_manager(username)
         sessions = manager.load_sessions(force_reload=True)
-        allowed, message = check_lock('group_visibility', username=username)
         reasons = get_availability(username, sessions) if get_availability else {}
         choices = []
         for info in sessions:
             name = info.get('session_name')
             if not name:
                 continue
+            allowed, message = check_lock('group_visibility', username=username, session_name=name)
             reason = reasons.get(name, '') or (message if not allowed else '')
             if not info.get('active', True) or info.get('status') in ('flood', 'disconnected', 'invalid', 'corrupted', 'banned'):
                 reason = 'Sessão indisponível'
             if hasattr(manager, 'is_session_flooded') and manager.is_session_flooded(name):
                 reason = 'Aguardando prazo de espera do Telegram'
             choices.append({**info, 'available': not bool(reason), 'unavailable_reason': reason})
-        return choices
+        return sorted(choices, key=lambda info: not info['available'])
 
     @app.route('/api/group-visibility/sessions', methods=['GET'])
     @login_required
@@ -300,9 +300,6 @@ def register_visibility_routes(app, login_required, get_paths, get_manager, get_
                 blocked = [info for info in blocked if not info['available']]
                 if blocked:
                     return jsonify(success=False, error=blocked[0]['unavailable_reason']), 409
-                allowed, message = check_lock('group_visibility', username=username)
-                if not allowed:
-                    return jsonify(success=False, error=message), 409
                 path = filename(username)
                 job = {'id': uuid.uuid4().hex, 'status': 'running', 'total': amount, 'processed': 0,
                        'results': [], 'message': 'Iniciando verificação...', 'invalid_lines': invalid,

@@ -65,11 +65,13 @@ def run():
             page.locator('#gv-sessions input[value="task.session"]').wait_for()
             assert page.locator('#gv-sessions input[value="task.session"]').is_disabled()
             assert page.locator('#gv-sessions input[value="free.session"]').is_enabled()
+            assert '1 disponíveis · 1 bloqueadas' in page.locator('#gv-selected-count').text_content()
             assert 'Reservada por tarefa' in page.locator('#gv-sessions').text_content()
             page.screenshot(path=str(ROOT / '.runtime/visibility-sessions-mobile.png'), full_page=True)
             busy['value'] = False
             page.locator('#gv-reload').click()
             page.wait_for_function("!document.querySelector('#gv-sessions input[value=\"task.session\"]').disabled")
+            assert '2 disponíveis · 0 bloqueadas' in page.locator('#gv-selected-count').text_content()
             browser.close()
     finally:
         server.shutdown()

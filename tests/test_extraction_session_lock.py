@@ -1,6 +1,7 @@
 import ast
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 class ExtractionSessionLockTests(unittest.TestCase):
@@ -34,3 +35,48 @@ class ExtractionSessionLockTests(unittest.TestCase):
         self.namespace['set_session_lock']('group_campaign', False)
         self.assertNotIn('group_campaign_sessions', self.state)
         self.assertTrue(self.check(session_name='busy.session'))
+
+
+class VisibilitySessionLockTests(unittest.TestCase):
+    setUp = ExtractionSessionLockTests.setUp
+
+    def check(self, name):
+        return self.namespace['check_session_lock']('group_visibility', username='alice', session_name=name)[0]
+
+    def test_only_campaign_accounts_are_blocked(self):
+        self.assertFalse(self.check('busy.session'))
+        self.assertTrue(self.check('free.session'))
+
+    def test_known_operations_only_block_their_selected_accounts(self):
+        for kind in ('warming', 'extraction', 'addition', 'group_factory'):
+            with self.subTest(kind=kind):
+                self.state[kind] = True
+                self.state[kind + '_sessions'] = {'other.session'}
+                self.assertFalse(self.check('other.session'))
+                self.assertTrue(self.check('free.session'))
+                self.namespace['set_session_lock'](kind, False)
+                self.assertNotIn(kind + '_sessions', self.state)
+
+    def test_session_names_are_saved_and_cleared(self):
+        self.namespace['set_session_lock']('extraction', True, session_names=['extract.session'])
+        self.assertFalse(self.check('extract.session'))
+        self.assertTrue(self.check('free.session'))
+        self.namespace['set_session_lock']('extraction', False)
+        self.assertTrue(self.check('extract.session'))
+
+    def test_availability_keeps_250_free_sessions_alongside_146_used(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'app.py').read_text(encoding='utf-8'))
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'visibility_session_availability')
+        exec(compile(ast.Module(body=[function], type_ignores=[]), 'app.py', 'exec'), self.namespace)
+        self.namespace['get_automation_manager_instance'] = lambda username: SimpleNamespace(get_reserved_task_sessions=lambda: [])
+        sessions = [{'session_name': f'account-{index}.session'} for index in range(396)]
+        self.state['group_campaign_sessions'] = {info['session_name'] for info in sessions[:146]}
+        reasons = self.namespace['visibility_session_availability']('alice', sessions)
+        self.assertEqual(sum(not reason for reason in reasons.values()), 250)
+        self.assertEqual(sum(bool(reason) for reason in reasons.values()), 146)
+        self.state['active_tasks'].add(1)
+        self.assertTrue(self.check(sessions[-1]['session_name']))
+        self.namespace['get_automation_manager_instance'] = lambda username: SimpleNamespace(get_reserved_task_sessions=lambda: [200])
+        reasons = self.namespace['visibility_session_availability']('alice', sessions)
+        self.assertEqual(sum(not reason for reason in reasons.values()), 249)
+        self.assertIn('Reservada', reasons[sessions[200]['session_name']])

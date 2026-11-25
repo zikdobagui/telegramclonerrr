@@ -14,7 +14,11 @@
   if (!response.ok || !result.success) throw new Error(result.error || 'Não foi possível concluir a solicitação.');
   return result;
  }
- function selectedCount() {el('selected-count').textContent=`${el('sessions').querySelectorAll('input:checked').length} sessões selecionadas`;}
+ function selectedCount() {
+  const inputs=[...el('sessions').querySelectorAll('input')];
+  const available=inputs.filter(input=>input.dataset.available==='true').length;
+  el('selected-count').textContent=`${available} disponíveis · ${inputs.length-available} bloqueadas · ${inputs.filter(input=>input.checked).length} selecionadas`;
+ }
  async function loadSessions() {
   try {
    const response=await fetch('/api/group-visibility/sessions',{cache:'no-store'});

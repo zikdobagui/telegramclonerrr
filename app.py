@@ -1023,8 +1023,18 @@ def check_session_lock(operation, task_id=None, username=None, session_name=None
     session_locks = get_user_lock_state(username)
     if session_locks.get('group_visibility'):
         return False, 'Aguarde a verificação de grupos terminar ou cancele antes de iniciar outra operação.'
-    if operation == 'group_visibility' and (any(session_locks.get(key) for key in ('warming', 'extraction', 'addition', 'group_factory', 'group_campaign')) or session_locks.get('active_tasks')):
-        return False, 'Aguarde as operações com sessões terminarem antes de verificar grupos.'
+    if operation == 'group_visibility':
+        for kind, label in (('warming', 'aquecimento'), ('extraction', 'extração'),
+                            ('addition', 'adição'), ('group_factory', 'criação de grupos'),
+                            ('group_campaign', 'tarefa de grupos')):
+            if not session_locks.get(kind):
+                continue
+            occupied = session_locks.get(kind + '_sessions')
+            if occupied is None or not session_name or session_name in occupied:
+                return False, f'Esta sessão está em uso por {label}.'
+        # Legacy task reservations are checked by name/index in the availability
+        # callback; an active task does not occupy every account in this login.
+        return True, 'OK'
     if session_locks.get('group_campaign'):
         campaign_sessions = session_locks.get('group_campaign_sessions')
         if operation != 'group_campaign_start' and (operation != 'extraction' or not session_name or campaign_sessions is None or session_name in campaign_sessions):
@@ -1061,7 +1071,7 @@ def check_session_lock(operation, task_id=None, username=None, session_name=None
     
     return True, "OK"
 
-def set_session_lock(operation, locked, task_id=None, username=None):
+def set_session_lock(operation, locked, task_id=None, username=None, session_names=None):
     """Define o estado do lock"""
     session_locks = get_user_lock_state(username)
     
@@ -1072,8 +1082,10 @@ def set_session_lock(operation, locked, task_id=None, username=None):
             session_locks['active_tasks'].discard(task_id)
     else:
         session_locks[operation] = locked
-        if operation == 'group_campaign' and not locked:
-            session_locks.pop('group_campaign_sessions', None)
+        if locked and session_names is not None:
+            session_locks[operation + '_sessions'] = set(session_names)
+        elif not locked:
+            session_locks.pop(operation + '_sessions', None)
 
 def load_api_config():
     """Carrega configurações da API do usuário logado"""
@@ -1643,7 +1655,7 @@ def create_groups_factory():
             username=current_username,
             detail=f'{len(names)} grupo(s)'
         )
-        set_session_lock('group_factory', True, username=current_username)
+        set_session_lock('group_factory', True, username=current_username, session_names=[selected_session['session_name']])
 
         job = {
             'id': process_id,
@@ -2905,7 +2917,7 @@ def handle_extract_members(data):
     def extract():
         thread_context.username = current_username
         # Bloqueia extração
-        set_session_lock('extraction', True, username=current_username)
+        set_session_lock('extraction', True, username=current_username, session_names=[session_info['session_name']])
         
         try:
             extractor = MemberExtractor(api_id, api_hash, paths['data_dir'], paths['members_file'])
@@ -3031,7 +3043,7 @@ def handle_extract_members_list(data):
     def extract_list():
         from datetime import datetime
         thread_context.username = current_username
-        set_session_lock('extraction', True, username=current_username)
+        set_session_lock('extraction', True, username=current_username, session_names=[session_info['session_name']])
 
         created_files = []
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -3220,7 +3232,7 @@ def handle_add_members(data):
     def add_process():
         thread_context.username = current_username
         # Bloqueia adição
-        set_session_lock('addition', True, username=current_username)
+        set_session_lock('addition', True, username=current_username, session_names=[info['session_name'] for info in sessions])
         
         try:
             adder = MemberAdder(api_id, api_hash, paths['data_dir'], paths['members_file'])
@@ -5867,7 +5879,7 @@ def start_warming():
         warming_state['active'] = True
         
         # Bloqueia aquecimento
-        set_session_lock('warming', True, username=current_username)
+        set_session_lock('warming', True, username=current_username, session_names=[info['session_name'] for info in sessions])
         
         try:
             from warming_bot import WarmingBot
@@ -6523,13 +6535,15 @@ group_campaign_supervisor = register_campaign_routes(
 
 
 def visibility_session_availability(username, sessions):
-    allowed, message = check_session_lock('group_visibility', username=username)
     reserved = set(get_automation_manager_instance(username).get_reserved_task_sessions())
-    return {
-        info['session_name']: (message if not allowed else
-                               'Reservada por tarefa de adição' if index in reserved else '')
-        for index, info in enumerate(sessions) if info.get('session_name')
-    }
+    reasons = {}
+    for index, info in enumerate(sessions):
+        name = info.get('session_name')
+        if not name:
+            continue
+        allowed, message = check_session_lock('group_visibility', username=username, session_name=name)
+        reasons[name] = message if not allowed else 'Reservada por tarefa de adição' if index in reserved else ''
+    return reasons
 
 
 register_visibility_routes(
