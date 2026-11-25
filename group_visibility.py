@@ -116,7 +116,7 @@ def classify_error(error):
     return 'error', 'Não foi possível confirmar a visibilidade deste grupo.'
 
 
-def register_visibility_routes(app, login_required, get_paths, get_manager, get_api, check_lock, set_lock):
+def register_visibility_routes(app, login_required, get_paths, get_manager, get_api, check_lock, set_lock, get_availability=None):
     guard = threading.RLock()
     jobs, cancellations = {}, {}
 
@@ -218,6 +218,29 @@ def register_visibility_routes(app, login_required, get_paths, get_manager, get_
                 cancellations.pop(username, None)
                 set_lock('group_visibility', False, username=username)
 
+    def session_choices(username):
+        manager = get_manager(username)
+        sessions = manager.load_sessions(force_reload=True)
+        allowed, message = check_lock('group_visibility', username=username)
+        reasons = get_availability(username, sessions) if get_availability else {}
+        choices = []
+        for info in sessions:
+            name = info.get('session_name')
+            if not name:
+                continue
+            reason = reasons.get(name, '') or (message if not allowed else '')
+            if not info.get('active', True) or info.get('status') in ('flood', 'disconnected', 'invalid', 'corrupted', 'banned'):
+                reason = 'Sessão indisponível'
+            if hasattr(manager, 'is_session_flooded') and manager.is_session_flooded(name):
+                reason = 'Aguardando prazo de espera do Telegram'
+            choices.append({**info, 'available': not bool(reason), 'unavailable_reason': reason})
+        return choices
+
+    @app.route('/api/group-visibility/sessions', methods=['GET'])
+    @login_required
+    def visibility_sessions():
+        return jsonify(success=True, sessions=session_choices(session['username']))
+
     @app.route('/api/group-visibility', methods=['GET'])
     @login_required
     def visibility_status():
@@ -272,6 +295,11 @@ def register_visibility_routes(app, login_required, get_paths, get_manager, get_
             with guard:
                 if username in cancellations:
                     return jsonify(success=False, error='Já existe uma verificação em andamento.'), 409
+                choices = {info['session_name']: info for info in session_choices(username)}
+                blocked = [choices.get(name, {'available': False, 'unavailable_reason': 'Sessão não encontrada'}) for name in selected]
+                blocked = [info for info in blocked if not info['available']]
+                if blocked:
+                    return jsonify(success=False, error=blocked[0]['unavailable_reason']), 409
                 allowed, message = check_lock('group_visibility', username=username)
                 if not allowed:
                     return jsonify(success=False, error=message), 409

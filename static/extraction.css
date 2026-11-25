@@ -1,0 +1,58 @@
+/* Extraction follows the shared graphite workspace, with a clear reading order. */
+body #extract .extract-workspace {
+ display:grid;grid-template-columns:minmax(250px,320px) minmax(0,1fr);
+ gap:20px;padding:24px!important;align-items:start;
+ background:var(--p-surface,#11151e)!important;border:1px solid #ffffff14!important;
+ border-radius:16px!important;box-shadow:none!important;
+}
+body #extract .extract-workspace>.form-group {
+ min-width:0;padding:20px!important;background:#ffffff03!important;
+ border:1px solid #ffffff12!important;border-radius:12px!important;
+}
+body #extract .extract-sessions-panel {grid-column:1;grid-row:1;}
+body #extract .extract-targets-panel {grid-column:2;grid-row:1 / span 2;}
+body #extract .extract-batches-panel {grid-column:1;grid-row:2;}
+body #extract .extract-filters-panel {grid-column:1 / -1;}
+body #extract .form-group>label {display:block;margin-bottom:12px;font-size:14px;font-weight:600;color:#f2f5fc;}
+body #extract .info,body #extract .extract-private-id-box small {font-size:13px;line-height:1.65;color:#a4adbf;}
+body #extract .info {margin:0 0 16px;padding:0!important;border:0!important;background:none!important;}
+body #extract .service-session-toolbar {display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+body #extract .service-session-toolbar input {min-width:0;flex:1 1 100%;}
+body #extract .service-session-toolbar span {color:#a4adbf;font-size:12px;}
+body #extract .service-session-list {max-height:260px!important;overflow:auto;background:transparent!important;border:0!important;padding:0!important;}
+body #extract .service-session-picker {padding:12px;background:#0c1018!important;border:1px solid #ffffff18!important;border-radius:10px;}
+body #extract .service-session-option {display:flex;align-items:center;gap:10px;padding:12px!important;background:#141c2a!important;color:#e4eaf6!important;border:1px solid #ffffff14!important;border-radius:8px;}
+body #extract .service-session-option.selected {border-color:#6b9bff!important;background:#192b48!important;}
+body #extract .service-session-option>div {flex:1;min-width:0;}
+body #extract .service-session-option strong {color:#e4eaf6!important;overflow-wrap:anywhere;}
+body #extract .service-session-option input[type=radio] {width:16px;min-height:16px;flex-shrink:0;accent-color:#6b9bff;}
+body #extract .service-session-status {flex-shrink:0;font-size:11px;color:#a4adbf;}
+body #extract #extract-group-list {
+ width:100%;min-height:260px!important;margin-top:14px;padding:16px!important;
+ background:#0c1018!important;color:#e4eaf6!important;border:1px solid #ffffff26!important;
+ border-radius:8px;font:13px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+body #extract input:not([type=checkbox]) {min-height:44px;border-radius:8px;}
+body #extract input[type=file] {max-width:100%;padding:10px;font-size:12px;}
+body #extract .extract-private-id-box {margin-top:16px!important;padding:14px!important;border-radius:8px;background:#6b9bff09!important;}
+body #extract .extract-private-id-box label {display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.6;}
+body #extract .extract-filter-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:12px!important;}
+body #extract .extract-filter-option {display:flex;align-items:center;gap:10px;min-height:48px;padding:12px!important;border-radius:8px;font-size:13px;}
+body #extract input[type=checkbox] {width:16px;height:16px;flex-shrink:0;accent-color:#6b9bff;}
+body #extract .workflow-actions {display:flex;flex-wrap:wrap;gap:12px;padding-top:4px;}
+body #extract .workflow-actions .btn {min-height:44px;border-radius:8px;font-size:13px;}
+body #extract .workflow-output {margin:0!important;border-radius:10px;background:#0c1018!important;color:#cbd5e1;border:1px solid #ffffff14!important;}
+body #extract #extract-logs:empty {display:none;}
+body #extract :is(input,textarea,button):focus-visible {outline:2px solid #6b9bff;outline-offset:3px;}
+@media(max-width:900px) {
+ body #extract .extract-workspace {grid-template-columns:minmax(0,1fr);gap:16px;padding:16px!important;}
+ body #extract .extract-workspace>.form-group {grid-column:1!important;grid-row:auto!important;padding:16px!important;}
+ body #extract .extract-targets-panel {order:1;}
+ body #extract .extract-batches-panel {order:2;}
+ body #extract .extract-filters-panel {order:3;}
+ body #extract .workflow-actions {order:4;}
+ body #extract .workflow-output {order:5;}
+ body #extract .extract-filter-grid {grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+ body #extract .workflow-actions .btn {flex:1 1 100%;}
+}
+@media(max-width:480px) {body #extract .extract-filter-grid {grid-template-columns:minmax(0,1fr)!important;}}

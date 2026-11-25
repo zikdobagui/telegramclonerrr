@@ -7354,6 +7354,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='group_visibility.css') }}?v=20261115-1">
 <link rel="stylesheet" href="{{ url_for('static', filename='whatsapp.css') }}?v=20261115-2">
 <link rel="stylesheet" href="{{ url_for('static', filename='clone-editor.css') }}?v=20261115-1">
+<link rel="stylesheet" href="{{ url_for('static', filename='extraction.css') }}?v={{ app_commit }}">
 {% include 'interface_assets.html' %}
 </head>
 <body data-design="studio">
@@ -8455,7 +8456,7 @@
             <label>Lista de grupos para extração</label>
             <p class="info">
                 <i class="fas fa-info-circle"></i>
-                Cole um link, username ou ID por linha. Para extrair apenas 1 grupo, coloque só 1 linha. Cada grupo gera um arquivo separado. Limite: 20 por execução.
+                Cole um link, username ou ID por linha. Para extrair apenas 1 grupo, coloque só 1 linha. Cada grupo gera um arquivo separado. Sem limite de links por execução.
             </p>
             <label for="extract-groups-file">Importar TXT do filtro de grupos</label>
             <input id="extract-groups-file" type="file" accept=".txt,text/plain" onchange="importExtractGroupsFile(this)">
@@ -8516,7 +8517,7 @@
             </div>
             <p class="info" style="margin-top: 12px;">
                 <i class="fas fa-info-circle"></i>
-                Duplicados, bots e contas deletadas sÃ£o removidos. Administradores tambÃ©m sÃ£o exportados.
+                Duplicados, bots e contas deletadas são removidos. Administradores também são exportados.
             </p>
         </div>
         

@@ -1292,7 +1292,7 @@ async function importExtractGroupsFile(input) {
     try {
         if (file.size > 2 * 1024 * 1024) throw new Error('O arquivo deve ter até 2 MB.');
         document.getElementById('extract-group-list').value = await file.text();
-        showNotification('Lista carregada. Confira os grupos antes de iniciar (até 20 por execução).', 'success');
+        showNotification('Lista carregada. Confira os grupos antes de iniciar.', 'success');
     } catch (error) {
         showNotification(error.message, 'error');
     } finally {
@@ -1322,11 +1322,6 @@ function extractMembersList() {
 
     if (isNaN(sessionIndex) || groupLinks.length === 0) {
         showNotification('Selecione a sessão e informe pelo menos um link na lista.', 'warning');
-        return;
-    }
-
-    if (groupLinks.length > 20) {
-        showNotification('Limite máximo: 20 links por extração em lista.', 'warning');
         return;
     }
 

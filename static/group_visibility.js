@@ -4,7 +4,7 @@
  if (!page) return;
  const el = id => document.getElementById('gv-' + id);
  const labels = {visible:'Visíveis',hidden:'Ocultos',inaccessible:'Sem acesso',inconclusive:'Inconclusivo',invalid:'Link inválido',not_group:'Não é grupo',session_error:'Falha de sessão',error:'Erro',flood:'Espera Telegram'};
- let job = null, timer = null, polling = false, loaded = false, submitting = false;
+ let job = null, timer = null, polling = false, submitting = false, sessionsLoadedAt = 0;
  const active = () => job && ['running','cancelling'].includes(job.status);
  function error(message) {el('error').textContent=message || '';el('error').hidden=!message;}
  async function api(path, body) {
@@ -17,7 +17,7 @@
  function selectedCount() {el('selected-count').textContent=`${el('sessions').querySelectorAll('input:checked').length} sessões selecionadas`;}
  async function loadSessions() {
   try {
-   const response=await fetch('/api/sessions',{cache:'no-store'});
+   const response=await fetch('/api/group-visibility/sessions',{cache:'no-store'});
    if (!response.ok) throw new Error('Não foi possível carregar suas sessões.');
    const data=await response.json();
    const selected=new Set([...el('sessions').querySelectorAll('input:checked')].map(input=>input.value));
@@ -25,15 +25,15 @@
    for (const session of data.sessions || []) {
     const name=session.session_name;
     if (!name) continue;
-    const disabled=session.active===false || ['flood','disconnected','invalid','corrupted','banned'].includes(session.status);
+    const disabled=session.available===false || session.active===false || ['flood','disconnected','invalid','corrupted','banned'].includes(session.status);
     const label=document.createElement('label');label.className='gv-session';
     const input=document.createElement('input');input.type='checkbox';input.value=name;input.dataset.available=String(!disabled);input.disabled=disabled || Boolean(active());input.checked=selected.has(name) && !disabled;
     const text=document.createElement('span');text.textContent=name;
-    const status=document.createElement('small');status.textContent=disabled?'Indisponível':'Disponível';text.append(status);
+    const status=document.createElement('small');status.textContent=disabled?(session.unavailable_reason || 'Indisponível'):'Disponível';text.append(status);
     label.append(input,text);el('sessions').append(label);
    }
    if (!el('sessions').children.length) el('sessions').textContent='Nenhuma sessão cadastrada. Adicione uma sessão na aba Sessões.';
-   selectedCount();
+   sessionsLoadedAt=Date.now();selectedCount();
   } catch (err) {error(err.message);}
  }
  function render() {
@@ -77,7 +77,7 @@
  async function poll() {
   if (polling) return;
   clearTimeout(timer);polling=true;
-  try {job=(await api('')).job;render();}
+  try {job=(await api('')).job;if (!active() && Date.now()-sessionsLoadedAt>10000)await loadSessions();render();}
   catch (err) {el('status').textContent='Não foi possível atualizar o progresso. Tentando novamente...';}
   finally {polling=false;if (active() || page.classList.contains('active')) timer=setTimeout(poll,2500);}
  }
@@ -108,7 +108,7 @@
  el('copy').addEventListener('click',async()=>{
   try {await navigator.clipboard.writeText(job?.visible_text || '');el('status').textContent='Grupos visíveis copiados com a quantidade de membros.';}catch(_){error('Não foi possível copiar. Use Baixar visíveis (.txt).');}
  });
- async function open() {if (!loaded){loaded=true;await loadSessions();}await poll();}
+ async function open() {await loadSessions();await poll();}
  document.querySelector('[data-tab="groupVisibility"]')?.addEventListener('click',event=>{if (!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey)open();});
  if (location.hash==='#groupVisibility') open();
 })();

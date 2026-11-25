@@ -87,6 +87,7 @@ class ApiTests(unittest.TestCase):
         self.app=Flask(__name__);self.app.secret_key='test'
         self.manager=SimpleNamespace(load_sessions=lambda **_: [{'session_name':'own.session','active':True,'status':'active'}])
         self.locks={}
+        self.availability={}
         def paths(username):
             base=self.root/username
             (base/'sessions').mkdir(parents=True,exist_ok=True)
@@ -101,12 +102,30 @@ class ApiTests(unittest.TestCase):
             return wrapped
         def check(operation,username):return (not self.locks.get(username,False),'Sessão ocupada')
         def lock(operation,value,username):self.locks[username]=value
-        register_visibility_routes(self.app,authenticated,paths,lambda _:self.manager,lambda:(123,'hash'),check,lock)
+        register_visibility_routes(self.app,authenticated,paths,lambda _:self.manager,lambda:(123,'hash'),check,lock, get_availability=lambda username, sessions: self.availability)
         self.client=self.app.test_client()
         with self.client.session_transaction() as s:s['username']='alice'
 
     def payload(self,**changes):
         return dict(groups='https://t.me/example_group',sessions=['own.session'],limit=1,**changes)
+
+    def test_busy_sessions_are_reported_and_rejected_before_worker_start(self):
+        self.availability['own.session'] = 'Reservada por tarefa de adição'
+        result = self.client.get('/api/group-visibility/sessions')
+        self.assertFalse(result.json['sessions'][0]['available'])
+        self.assertIn('Reservada', result.json['sessions'][0]['unavailable_reason'])
+        with patch('group_visibility.threading.Thread') as thread:
+            response = self.client.post('/api/group-visibility/start', json=self.payload())
+        self.assertEqual(response.status_code, 409)
+        thread.assert_not_called()
+        self.availability.clear()
+        self.assertTrue(self.client.get('/api/group-visibility/sessions').json['sessions'][0]['available'])
+
+    def test_global_operation_blocks_session_selection(self):
+        self.locks['alice'] = True
+        result = self.client.get('/api/group-visibility/sessions').json['sessions'][0]
+        self.assertFalse(result['available'])
+        self.assertEqual(result['unavailable_reason'], 'Sessão ocupada')
 
     def test_unauthenticated_and_validation(self):
         self.assertEqual(self.app.test_client().get('/api/group-visibility').status_code,401)

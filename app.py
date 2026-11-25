@@ -2999,11 +2999,6 @@ def handle_extract_members_list(data):
         emit('error', {'message': 'Selecione a sessão e informe os links'})
         return
 
-    if len(group_links) > 20:
-        emit('error', {'message': 'Limite máximo: 20 links por extração'})
-        emit_extract_log('❌ Limite máximo: 20 links por extração em lista', 'error')
-        return
-
     session_index = int(session_index)
     sessions = session_manager.load_sessions()
     if session_index < 0 or session_index >= len(sessions):
@@ -6527,9 +6522,20 @@ group_campaign_supervisor = register_campaign_routes(
 )
 
 
+def visibility_session_availability(username, sessions):
+    allowed, message = check_session_lock('group_visibility', username=username)
+    reserved = set(get_automation_manager_instance(username).get_reserved_task_sessions())
+    return {
+        info['session_name']: (message if not allowed else
+                               'Reservada por tarefa de adição' if index in reserved else '')
+        for index, info in enumerate(sessions) if info.get('session_name')
+    }
+
+
 register_visibility_routes(
     app, login_required, get_user_paths, get_session_manager_instance,
-    get_next_api, check_session_lock, set_session_lock
+    get_next_api, check_session_lock, set_session_lock,
+    get_availability=visibility_session_availability
 )
 
 whatsapp_service = WhatsAppService(
