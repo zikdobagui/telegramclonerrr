@@ -4,15 +4,43 @@ from telethon.tl.types import ChannelParticipantsSearch
 import json
 import os
 import asyncio
-import shutil
 import tempfile
 import logging
+import sqlite3
+import threading
+import time
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from config import SESSIONS_DIR, MEMBERS_FILE
 from data_store import atomic_write_json, load_json_file
 
 # Suprime warnings de reconexão do Telethon
 logging.getLogger('telethon').setLevel(logging.ERROR)
+
+_extraction_sessions_guard = threading.Lock()
+_extraction_sessions = {}
+
+
+def snapshot_session(source, destination, timeout=30):
+    """Copy committed SQLite state, including WAL, without writing the original."""
+    path = Path(source)
+    if path.suffix != '.session':
+        path = Path(str(path) + '.session')
+    deadline = time.monotonic() + timeout
+
+    def progress(status, remaining, total):
+        if time.monotonic() >= deadline:
+            raise TimeoutError('A sessão está temporariamente ocupada por outra operação. Tente novamente após ela terminar.')
+
+    original = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=timeout)
+    try:
+        copied = sqlite3.connect(str(destination))
+        try:
+            original.backup(copied, pages=256, progress=progress, sleep=.05)
+        finally:
+            copied.close()
+    finally:
+        original.close()
 
 class MemberExtractor:
     def __init__(self, api_id, api_hash, data_dir=None, members_file=None):
@@ -48,15 +76,31 @@ class MemberExtractor:
     
     def extract_members(self, session_info, group_link, filters=None):
         """Extrai membros de um grupo"""
-        # Cria um novo event loop para esta thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
+        path = session_info.get('session_path') or os.path.join(SESSIONS_DIR, session_info['session_name'])
+        if not str(path).endswith('.session'):
+            path = str(path) + '.session'
+        key = os.path.normcase(os.path.realpath(path))
+        with _extraction_sessions_guard:
+            lock = _extraction_sessions.setdefault(key, threading.Lock())
+        if not lock.acquire(blocking=False):
+            self.last_error = 'Esta sessão já está extraindo membros. Aguarde a extração atual terminar.'
+            if self.progress_callback:
+                self.progress_callback('error', self.last_error)
+            return []
+        loop = None
         try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             result = loop.run_until_complete(self._extract_async(session_info, group_link, filters or {}))
             return result
         finally:
-            loop.close()
+            try:
+                if loop is not None:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                    loop.close()
+                    asyncio.set_event_loop(None)
+            finally:
+                lock.release()
     
     async def _extract_async(self, session_info, group_link, filters=None):
         """Extração assíncrona"""
@@ -69,13 +113,18 @@ class MemberExtractor:
             # Fallback para o método antigo
             session_path = os.path.join(SESSIONS_DIR, session_info['session_name'])
         
-        # Usa a sessão diretamente (mesmo método da validação)
+        client = None
+        temporary_session = None
         try:
             from telethon import TelegramClient
-            
-            # Conecta diretamente na sessão original (igual à validação)
+            # Telegram writes entities and update state while extracting. Give
+            # this client its own database so other operations cannot lock or
+            # close its connection. SQLite backup also includes committed WAL.
+            temporary_session = tempfile.TemporaryDirectory(prefix='extract_session_')
+            isolated_path = os.path.join(temporary_session.name, 'extract.session')
+            await asyncio.to_thread(snapshot_session, session_path, isolated_path)
             client = TelegramClient(
-                session_path, 
+                isolated_path,
                 self.api_id, 
                 self.api_hash
             )
@@ -89,6 +138,7 @@ class MemberExtractor:
                 
                 # Verifica se está autorizado
                 if not await client.is_user_authorized():
+                    self.last_error = 'Sessão não autorizada. Faça login novamente nesta sessão.'
                     if self.progress_callback:
                         self.progress_callback('error', '❌ SESSÃO NÃO AUTORIZADA')
                         self.progress_callback('error', '⚠️ Esta sessão precisa fazer login novamente')
@@ -97,6 +147,7 @@ class MemberExtractor:
                 me = await client.get_me()
                 
                 if not me:
+                    self.last_error = 'Sessão inválida: o Telegram não retornou o usuário.'
                     if self.progress_callback:
                         self.progress_callback('error', '❌ SESSÃO INVÁLIDA: get_me() retornou None')
                     return []
@@ -108,6 +159,7 @@ class MemberExtractor:
                     
             except Exception as test_error:
                 error_msg = str(test_error)
+                self.last_error = error_msg
                 
                 if 'AUTH_KEY_UNREGISTERED' in error_msg or 'The key is not registered' in error_msg:
                     if self.progress_callback:
@@ -534,8 +586,6 @@ class MemberExtractor:
             # Exporta para arquivo
             self.export_to_file(members_data, group.title, group_link)
             
-            await client.disconnect()
-            
             if self.progress_callback:
                 self.progress_callback('success', f'✅ Total extraído: {len(members_data)} membros válidos')
                 self.progress_callback('success', f'💾 Arquivo exportado: members_export.json')
@@ -548,11 +598,15 @@ class MemberExtractor:
                 self.progress_callback('error', f'❌ Erro: {str(e)}')
             return []
         finally:
-            # Desconecta o cliente
+            # Disconnect exactly once, before removing the private database.
             try:
-                await client.disconnect()
-            except:
-                pass
+                if client is not None:
+                    await asyncio.wait_for(client.disconnect(), timeout=30)
+            except Exception:
+                logging.getLogger(__name__).warning('Falha ao encerrar cliente de extração', exc_info=True)
+            finally:
+                if temporary_session is not None:
+                    temporary_session.cleanup()
     
     def save_members(self, members):
         """Salva membros extraídos"""

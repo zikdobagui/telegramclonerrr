@@ -1011,6 +1011,22 @@ def create_session_lock_state():
 
 # Sistema de bloqueio de sessões separado por usuário
 session_locks_by_user = {}
+extraction_start_guard = threading.Lock()
+
+
+def start_extraction_worker(target, username, session_name):
+    """Reserve before starting a thread so rapid requests cannot share a session."""
+    with extraction_start_guard:
+        allowed, message = check_session_lock('extraction', username=username, session_name=session_name)
+        if not allowed:
+            raise ValueError(message)
+        set_session_lock('extraction', True, username=username, session_names=[session_name])
+        try:
+            worker = threading.Thread(target=target)
+            worker.start()
+        except Exception:
+            set_session_lock('extraction', False, username=username)
+            raise
 
 def get_user_lock_state(username=None):
     username = get_current_username(username) or '_anonymous'
@@ -2916,8 +2932,6 @@ def handle_extract_members(data):
 
     def extract():
         thread_context.username = current_username
-        # Bloqueia extração
-        set_session_lock('extraction', True, username=current_username, session_names=[session_info['session_name']])
         
         try:
             extractor = MemberExtractor(api_id, api_hash, paths['data_dir'], paths['members_file'])
@@ -2992,8 +3006,11 @@ def handle_extract_members(data):
             # Libera extração
             set_session_lock('extraction', False, username=current_username)
     
-    thread = threading.Thread(target=extract)
-    thread.start()
+    try:
+        start_extraction_worker(extract, current_username, session_info['session_name'])
+    except Exception as error:
+        emit('error', {'message': str(error)})
+        finish_process(process_id, username=current_username, status='error', message=str(error))
 
 @socketio.on('extract_members_list')
 def handle_extract_members_list(data):
@@ -3043,7 +3060,6 @@ def handle_extract_members_list(data):
     def extract_list():
         from datetime import datetime
         thread_context.username = current_username
-        set_session_lock('extraction', True, username=current_username, session_names=[session_info['session_name']])
 
         created_files = []
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -3169,8 +3185,11 @@ def handle_extract_members_list(data):
             except Exception:
                 pass
 
-    thread = threading.Thread(target=extract_list)
-    thread.start()
+    try:
+        start_extraction_worker(extract_list, current_username, session_info['session_name'])
+    except Exception as error:
+        emit('error', {'message': str(error)})
+        finish_process(process_id, username=current_username, status='error', message=str(error))
 
 @socketio.on('add_members')
 def handle_add_members(data):

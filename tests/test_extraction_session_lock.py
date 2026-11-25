@@ -2,6 +2,9 @@ import ast
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import Mock
 
 
 class ExtractionSessionLockTests(unittest.TestCase):
@@ -80,3 +83,35 @@ class VisibilitySessionLockTests(unittest.TestCase):
         reasons = self.namespace['visibility_session_availability']('alice', sessions)
         self.assertEqual(sum(not reason for reason in reasons.values()), 249)
         self.assertIn('Reservada', reasons[sessions[200]['session_name']])
+
+
+class ExtractionStartTests(unittest.TestCase):
+    def setUp(self):
+        ExtractionSessionLockTests.setUp(self)
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'app.py').read_text(encoding='utf-8'))
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'start_extraction_worker')
+        self.thread = Mock()
+        self.namespace.update(threading=SimpleNamespace(Thread=self.thread), extraction_start_guard=threading.Lock())
+        exec(compile(ast.Module(body=[function], type_ignores=[]), 'app.py', 'exec'), self.namespace)
+
+    def test_concurrent_requests_reserve_before_thread_start(self):
+        def start(_):
+            try:
+                self.namespace['start_extraction_worker'](lambda: None, 'alice', 'free.session')
+                return True
+            except ValueError:
+                return False
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(start, range(2)))
+        self.assertEqual(sum(results), 1)
+        self.thread.assert_called_once()
+        self.assertTrue(self.state['extraction'])
+        self.assertEqual(self.state['extraction_sessions'], {'free.session'})
+
+    def test_thread_start_failure_releases_reservation(self):
+        self.thread.return_value.start.side_effect = RuntimeError('cannot start')
+        with self.assertRaises(RuntimeError):
+            self.namespace['start_extraction_worker'](lambda: None, 'alice', 'free.session')
+        self.assertFalse(self.state['extraction'])
+        self.assertNotIn('extraction_sessions', self.state)
